@@ -12,12 +12,14 @@ interface ColorConfig {
 interface ConfigManagerProps {
   configs: string[];
   onConfigLoad: (config: ColorConfig) => void;
+  onConfigsChange: () => void;
   showToast: (type: "success" | "error", text: string) => void;
 }
 
 function ConfigManager({
   configs,
   onConfigLoad,
+  onConfigsChange,
   showToast,
 }: ConfigManagerProps) {
   const handleLoad = async (name: string) => {
@@ -27,6 +29,17 @@ function ConfigManager({
       showToast("success", `已加载「${name}」`);
     } catch (err) {
       showToast("error", `加载失败: ${err}`);
+    }
+  };
+
+  const handleDelete = async (e: React.MouseEvent, name: string) => {
+    e.stopPropagation();
+    try {
+      await invoke("delete_config", { name });
+      showToast("success", `已删除「${name}」`);
+      onConfigsChange();
+    } catch (err) {
+      showToast("error", `删除失败: ${err}`);
     }
   };
 
@@ -60,11 +73,17 @@ function ConfigManager({
                 >
                   <div className="flex items-center gap-md">
                     <div className={`w-8 h-8 rounded-md ${preset.bg} flex items-center justify-center`}>
-                      <span className={`material-symbols-outlined ${preset.color} text-[18px]`}>{preset.icon}</span>
+                      <span className={`material-symbols-outlined ${preset.color} text-[18px] leading-none relative top-[1px]`}>{preset.icon}</span>
                     </div>
                     <span className="font-label-md text-label-md">{name}</span>
                   </div>
-                  <span className="material-symbols-outlined text-[18px] text-on-surface-variant opacity-0 group-hover:opacity-100">arrow_forward_ios</span>
+                  <button
+                    onClick={(e) => handleDelete(e, name)}
+                    className="p-xs rounded opacity-0 group-hover:opacity-100 hover:bg-error-container/30 transition-all flex items-center"
+                    title="删除"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-error">delete</span>
+                  </button>
                 </div>
               );
             })}

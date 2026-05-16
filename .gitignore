@@ -37,3 +37,7 @@ pnpm-debug.log*
 
 # Test configs
 test-config.json
+
+# VitePress
+docs/.vitepress/cache/
+docs/.vitepress/dist/

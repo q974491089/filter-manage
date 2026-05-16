@@ -3,8 +3,13 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Filter Manage',
   description: 'ICC & NVIDIA Color Settings Manager',
-  base: '/filter-manage/',
+  base: process.env.NODE_ENV === 'production' ? '/filter-manage/' : '/',
+  publicDir: 'public',
+  head: [
+    ['link', { rel: 'icon', href: '/favicon.png' }],
+  ],
   themeConfig: {
+    logo: '/favicon.png',
     nav: [
       { text: '首页', link: '/' },
       { text: '使用指南', link: '/guide/' },

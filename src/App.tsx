@@ -32,18 +32,27 @@ function App() {
     const saved = localStorage.getItem("theme");
     return saved ? saved === "dark" : true;
   });
-  const [baseline, setBaseline] = useState({ brightness: 0, contrast: 0, gamma: 1.0, digitalVibrance: 50 });
+  const [baseline, setBaseline] = useState({ brightness: 0, contrast: 0, gamma: 1.0, digitalVibrance: 50, iccProfile: "Default" });
 
   const hasChanges =
     brightness !== baseline.brightness ||
     contrast !== baseline.contrast ||
     gamma !== baseline.gamma ||
-    digitalVibrance !== baseline.digitalVibrance;
+    digitalVibrance !== baseline.digitalVibrance ||
+    activeProfile !== baseline.iccProfile;
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("theme", dark ? "dark" : "light");
   }, [dark]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      const handler = (e: Event) => e.preventDefault();
+      document.addEventListener("contextmenu", handler);
+      return () => document.removeEventListener("contextmenu", handler);
+    }
+  }, []);
 
   const showToast = useCallback((type: "success" | "error", text: string) => {
     setToast({ type, text });
@@ -69,7 +78,15 @@ function App() {
           setBrightness(existing.brightness);
           setContrast(existing.contrast);
           setGamma(existing.gamma);
-          if (existing.icc_profile) setActiveProfile(existing.icc_profile);
+          const profile = existing.icc_profile || "Default";
+          setActiveProfile(profile);
+          setBaseline({
+            brightness: existing.brightness,
+            contrast: existing.contrast,
+            gamma: existing.gamma,
+            digitalVibrance: existing.digital_vibrance,
+            iccProfile: profile,
+          });
         } else {
           const dvcDefault = await invoke<number>("get_dvc_default_ui_value");
           await invoke("save_default_config", {
@@ -98,15 +115,17 @@ function App() {
     setContrast(config.contrast);
     setGamma(config.gamma);
     setDigitalVibrance(config.digital_vibrance);
+    const profile = config.icc_profile || "Default";
+    setActiveProfile(profile);
     setBaseline({
       brightness: config.brightness,
       contrast: config.contrast,
       gamma: config.gamma,
       digitalVibrance: config.digital_vibrance,
+      iccProfile: profile,
     });
 
     if (config.icc_profile) {
-      setActiveProfile(config.icc_profile);
       try {
         const profiles = await invoke<{ name: string; path: string }[]>("get_icc_profiles");
         const match = profiles.find((p) => p.name === config.icc_profile);
@@ -153,6 +172,10 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleProfileChange = (profile: string) => {
+    setActiveProfile(profile);
   };
 
   const handleSaveCurrent = async (name: string) => {
@@ -241,7 +264,7 @@ function App() {
           <div data-name="profile-panel" className="col-span-3 flex flex-col h-full">
             <ProfileList
               activeProfile={activeProfile}
-              onProfileSelect={setActiveProfile}
+              onProfileSelect={handleProfileChange}
               showToast={showToast}
             />
           </div>
@@ -262,6 +285,7 @@ function App() {
             <ConfigManager
               configs={configs}
               onConfigLoad={handleConfigLoad}
+              onConfigsChange={refreshConfigs}
               showToast={showToast}
             />
           </div>
