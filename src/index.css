@@ -1,0 +1,324 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Light Theme (default) ── */
+:root {
+  /* Surface */
+  --color-background: 255 255 255;
+  --color-on-background: 26 28 30;
+
+  --color-surface: 255 255 255;
+  --color-on-surface: 26 28 30;
+  --color-surface-dim: 230 230 235;
+  --color-surface-bright: 255 255 255;
+  --color-surface-variant: 228 228 232;
+  --color-on-surface-variant: 68 68 78;
+
+  --color-surface-container-lowest: 255 255 255;
+  --color-surface-container-low: 245 245 248;
+  --color-surface-container: 240 240 244;
+  --color-surface-container-high: 235 235 238;
+  --color-surface-container-highest: 228 228 232;
+
+  --color-outline: 118 118 128;
+  --color-outline-variant: 200 200 208;
+
+  --color-inverse-surface: 48 49 52;
+  --color-inverse-on-surface: 240 240 244;
+  --color-surface-tint: 59 130 246;
+
+  /* Primary */
+  --color-primary: 59 130 246;
+  --color-on-primary: 255 255 255;
+  --color-primary-container: 211 227 252;
+  --color-on-primary-container: 0 38 88;
+  --color-inverse-primary: 173 198 255;
+  --color-primary-fixed: 211 227 252;
+  --color-primary-fixed-dim: 173 198 255;
+  --color-on-primary-fixed: 0 26 66;
+  --color-on-primary-fixed-variant: 0 66 146;
+
+  /* Secondary */
+  --color-secondary: 99 102 241;
+  --color-on-secondary: 255 255 255;
+  --color-secondary-container: 224 224 255;
+  --color-on-secondary-container: 32 32 160;
+  --color-secondary-fixed: 224 224 255;
+  --color-secondary-fixed-dim: 192 193 255;
+  --color-on-secondary-fixed: 10 0 110;
+  --color-on-secondary-fixed-variant: 46 46 190;
+
+  /* Tertiary */
+  --color-tertiary: 16 185 129;
+  --color-on-tertiary: 255 255 255;
+  --color-tertiary-container: 197 244 224;
+  --color-on-tertiary-container: 0 55 36;
+  --color-tertiary-fixed: 197 244 224;
+  --color-tertiary-fixed-dim: 78 222 163;
+  --color-on-tertiary-fixed: 0 33 19;
+  --color-on-tertiary-fixed-variant: 0 82 54;
+
+  /* Error */
+  --color-error: 186 26 26;
+  --color-on-error: 255 255 255;
+  --color-error-container: 255 218 214;
+  --color-on-error-container: 65 0 2;
+
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Dark Theme ── */
+.dark {
+  --color-background: 17 19 23;
+  --color-on-background: 226 226 232;
+
+  --color-surface: 17 19 23;
+  --color-on-surface: 226 226 232;
+  --color-surface-dim: 17 19 23;
+  --color-surface-bright: 55 57 62;
+  --color-surface-variant: 51 53 57;
+  --color-on-surface-variant: 194 198 214;
+
+  --color-surface-container-lowest: 12 14 18;
+  --color-surface-container-low: 26 28 32;
+  --color-surface-container: 30 32 36;
+  --color-surface-container-high: 40 42 46;
+  --color-surface-container-highest: 51 53 57;
+
+  --color-outline: 140 144 159;
+  --color-outline-variant: 66 71 84;
+
+  --color-inverse-surface: 226 226 232;
+  --color-inverse-on-surface: 47 48 53;
+  --color-surface-tint: 173 198 255;
+
+  --color-primary: 173 198 255;
+  --color-on-primary: 0 46 106;
+  --color-primary-container: 77 142 255;
+  --color-on-primary-container: 0 40 93;
+  --color-inverse-primary: 0 90 194;
+  --color-primary-fixed: 216 226 255;
+  --color-primary-fixed-dim: 173 198 255;
+  --color-on-primary-fixed: 0 26 66;
+  --color-on-primary-fixed-variant: 0 67 149;
+
+  --color-secondary: 192 193 255;
+  --color-on-secondary: 16 0 169;
+  --color-secondary-container: 49 49 192;
+  --color-on-secondary-container: 176 178 255;
+  --color-secondary-fixed: 225 224 255;
+  --color-secondary-fixed-dim: 192 193 255;
+  --color-on-secondary-fixed: 7 0 108;
+  --color-on-secondary-fixed-variant: 47 46 190;
+
+  --color-tertiary: 78 222 163;
+  --color-on-tertiary: 0 56 36;
+  --color-tertiary-container: 0 165 114;
+  --color-on-tertiary-container: 0 49 31;
+  --color-tertiary-fixed: 111 251 190;
+  --color-tertiary-fixed-dim: 78 222 163;
+  --color-on-tertiary-fixed: 0 33 19;
+  --color-on-tertiary-fixed-variant: 0 82 54;
+
+  --color-error: 255 180 171;
+  --color-on-error: 105 0 5;
+  --color-error-container: 147 0 10;
+  --color-on-error-container: 255 218 214;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: rgb(var(--color-background));
+  color: rgb(var(--color-on-background));
+}
+
+.dark body {
+  color-scheme: dark;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Glassmorphism card - matching Stitch design */
+@layer components {
+  .glass-card {
+    @apply rounded-xl border border-glass;
+    background: rgba(30, 41, 59, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .glass-card-solid {
+    @apply rounded-xl border border-outline-variant/20;
+    background: rgb(var(--color-surface-container));
+  }
+
+  .glass-surface {
+    @apply rounded-xl border border-outline-variant/20;
+    background: rgb(var(--color-surface-container));
+  }
+
+  .btn-primary {
+    @apply px-6 py-2 rounded-lg font-bold transition-all;
+    background: rgb(var(--color-primary));
+    color: rgb(var(--color-on-primary));
+    box-shadow: 0 4px 14px rgba(173, 198, 255, 0.2);
+  }
+
+  .dark .btn-primary {
+    box-shadow: 0 4px 14px rgba(173, 198, 255, 0.2);
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-primary:disabled {
+    @apply opacity-40 cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 rounded-lg font-medium transition-all;
+    background: transparent;
+    color: rgb(var(--color-on-surface-variant));
+    border: 1px solid rgb(var(--color-outline-variant) / 0.3);
+  }
+
+  .btn-secondary:hover {
+    background: rgb(var(--color-surface-variant) / 0.5);
+  }
+
+  .btn-ghost {
+    @apply px-4 py-2 rounded-lg font-medium transition-colors;
+    color: rgb(var(--color-on-surface-variant));
+  }
+
+  .btn-ghost:hover {
+    background: rgb(var(--color-surface-variant) / 0.5);
+    color: rgb(var(--color-on-surface));
+  }
+}
+
+/* Custom range slider - matching Stitch design exactly */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  background: #2D3139;
+  height: 6px;
+  border-radius: 3px;
+}
+
+.dark input[type="range"]::-webkit-slider-runnable-track {
+  background: #2D3139;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 16px;
+  width: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  margin-top: -5px;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.7);
+}
+
+input[type="range"]::-moz-range-track {
+  background: #2D3139;
+  height: 6px;
+  border-radius: 3px;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  border: none;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}
+
+/* Light mode slider track */
+input[type="range"]::-webkit-slider-runnable-track {
+  background: rgb(var(--color-surface-container-highest));
+}
+
+input[type="range"]::-moz-range-track {
+  background: rgb(var(--color-surface-container-highest));
+}
+
+/* Dark mode native select/option */
+.dark select {
+  color-scheme: dark;
+}
+
+.dark select option {
+  background-color: rgb(var(--color-surface-container-low));
+  color: rgb(var(--color-on-surface));
+}
+
+/* Light mode native select/option */
+select {
+  color-scheme: light;
+}
+
+select option {
+  background-color: rgb(var(--color-surface-container-low));
+  color: rgb(var(--color-on-surface));
+}
+
+/* Dark mode native input */
+.dark input[type="text"],
+.dark input[type="number"] {
+  color-scheme: dark;
+}
+
+input[type="text"],
+input[type="number"] {
+  color-scheme: light;
+}
+
+/* Scrollbar - matching Stitch design */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-outline-variant));
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-outline));
+}
+
+/* Focus ring utility */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary;
+}

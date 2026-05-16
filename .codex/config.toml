@@ -1,0 +1,9 @@
+[mcp_servers.tavily]
+args = [
+    "-y",
+    "tavily-mcp",
+]
+command = "npx"
+
+[mcp_servers.tavily.env]
+TAVILY_API_KEY = "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"
