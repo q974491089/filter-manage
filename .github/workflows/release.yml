@@ -14,16 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
+          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -34,26 +29,16 @@ jobs:
           workspaces: src-tauri
 
       - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Get changelog
-        id: changelog
-        shell: bash
-        run: |
-          TAG="${{ github.ref_name }}"
-          changelog=$(sed -n "/^## ${TAG}/,/^## /{/^## ${TAG}/p; /^## [^${TAG}]/!{/^## /!p}}" CHANGELOG.md)
-          echo "content<<EOF" >> $GITHUB_OUTPUT
-          echo "$changelog" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+        run: npm ci
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tauriScript: pnpm tauri
+          tauriScript: npx tauri
           tagName: ${{ github.ref_name }}
           releaseName: 'Filter Manage ${{ github.ref_name }}'
-          releaseBody: ${{ steps.changelog.outputs.content }}
+          releaseBody: 'See the assets below to download and install.'
           releaseDraft: false
           prerelease: false
