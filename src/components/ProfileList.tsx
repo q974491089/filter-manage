@@ -131,7 +131,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListP
         <div className="mb-md flex justify-between items-end">
           <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">ICC 配置文件</h3>
         </div>
-        <div className="flex-1 bg-surface-container rounded-xl border border-outline-variant/20 overflow-hidden flex flex-col">
+        <div className="flex-1 bg-surface-container rounded-md border border-outline-variant/20 overflow-hidden flex flex-col">
           <div className="flex items-center justify-center py-12 text-on-surface-variant">
             <svg className="animate-spin w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -150,7 +150,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListP
         <div className="mb-md flex justify-between items-end">
           <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">ICC 配置文件</h3>
         </div>
-        <div className="flex-1 bg-surface-container rounded-xl border border-outline-variant/20 overflow-hidden flex flex-col">
+        <div className="flex-1 bg-surface-container rounded-md border border-outline-variant/20 overflow-hidden flex flex-col">
           <div className="text-center py-8">
             <p className="text-body-md text-error mb-3">{error}</p>
             <button
@@ -183,16 +183,16 @@ function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListP
       </div>
 
       <div
-        className={`flex-1 bg-surface-container rounded-xl border overflow-hidden flex flex-col transition-colors ${
+        className={`flex-1 bg-surface-container rounded-md border overflow-hidden flex flex-col transition-colors ${
           dragOver ? "border-primary border-2" : "border-outline-variant/20"
         }`}
       >
         {/* Action buttons */}
-        <div data-name="action-buttons" className="p-sm border-b border-outline-variant/10 bg-surface-container-high/50 flex gap-sm">
+        <div data-name="action-buttons" className="p-sm border-b border-outline-variant/15 bg-surface-container-high/30 flex gap-sm">
           <button
             data-name="restore-button"
             onClick={handleRestoreDefault}
-            className="flex-1 py-xs px-sm rounded bg-surface-bright text-primary border border-primary/20 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-primary/10 transition-colors whitespace-nowrap"
+            className="flex-1 py-xs px-sm rounded-md bg-primary/10 text-primary border border-primary/25 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-primary/18 hover:border-primary/40 transition-all whitespace-nowrap"
           >
             <span className="material-symbols-outlined text-[18px]">refresh</span>
             恢复默认
@@ -201,7 +201,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListP
             data-name="import-button"
             onClick={handleImport}
             disabled={importing}
-            className="flex-1 py-xs px-sm rounded bg-surface-bright text-on-surface-variant border border-outline-variant/20 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-surface-variant transition-all disabled:opacity-40 whitespace-nowrap"
+            className="flex-1 py-xs px-sm rounded-md bg-surface-variant/50 text-on-surface-variant border border-outline-variant/30 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-surface-variant/80 hover:border-outline-variant/50 transition-all disabled:opacity-40 whitespace-nowrap"
           >
             <span className="material-symbols-outlined text-[18px]">upload</span>
             {importing ? "导入中..." : "导入 ICC"}
@@ -209,7 +209,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListP
           <button
             data-name="open-dir-button"
             onClick={() => invoke("open_icc_directory")}
-            className="flex-1 py-xs px-sm rounded bg-surface-bright text-on-surface-variant border border-outline-variant/20 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-surface-variant transition-colors whitespace-nowrap"
+            className="flex-1 py-xs px-sm rounded-md bg-surface-variant/50 text-on-surface-variant border border-outline-variant/30 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-surface-variant/80 hover:border-outline-variant/50 transition-all whitespace-nowrap"
           >
             <span className="material-symbols-outlined text-[18px]">folder_open</span>
             打开目录
@@ -218,7 +218,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListP
 
         {/* Drag overlay */}
         {dragOver && (
-          <div data-name="drag-overlay" className="absolute inset-0 bg-primary/10 backdrop-blur-sm z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-primary m-sm">
+          <div data-name="drag-overlay" className="absolute inset-0 bg-primary/10 backdrop-blur-sm z-10 flex items-center justify-center rounded-md border-2 border-dashed border-primary m-sm">
             <div className="text-center">
               <span className="material-symbols-outlined text-primary text-[48px]">upload_file</span>
               <p className="text-primary font-label-md text-label-md mt-sm">释放以导入 ICC 文件</p>
@@ -240,8 +240,8 @@ function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListP
                 onClick={() => handleProfileSelect(profile)}
                 className={`p-md rounded-lg cursor-pointer group transition-all ${
                   activeProfile === profile.name
-                    ? "bg-secondary-container/10 border-2 border-primary"
-                    : "bg-surface-container-high hover:bg-surface-variant border border-transparent"
+                    ? "bg-primary/15 border-2 border-primary shadow-sm"
+                    : "bg-primary/5 hover:bg-primary/12 border border-primary/15 hover:border-primary/40"
                 }`}
               >
                 <div className="flex justify-between items-start mb-xs">
