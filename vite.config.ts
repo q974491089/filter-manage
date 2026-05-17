@@ -9,6 +9,12 @@ export default defineConfig(async () => ({
   optimizeDeps: {
     exclude: ["src-tauri"],
   },
+  build: {
+    // 排除 Rust 构建目录
+    commonjsOptions: {
+      exclude: ["src-tauri/**"],
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,
@@ -21,7 +27,12 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      ignored: ["**/src-tauri/**", "**/target/**"],
+    },
+    fs: {
+      // 限制 Vite 只能访问项目根目录
+      strict: true,
+      allow: ["."],
     },
   },
 }));

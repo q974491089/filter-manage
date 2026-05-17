@@ -1,8 +1,13 @@
 {
   "name": "filter-manage",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -17,7 +22,8 @@
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-fs": "^2.0.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "swiper": "^12.1.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

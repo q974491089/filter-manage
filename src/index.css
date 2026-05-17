@@ -2,68 +2,68 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Light Theme (default) ── */
+/* ── Light Theme (Lumina Precision) ── */
 :root {
   /* Surface */
-  --color-background: 255 255 255;
-  --color-on-background: 26 28 30;
+  --color-background: 247 249 251;
+  --color-on-background: 25 28 30;
 
-  --color-surface: 255 255 255;
-  --color-on-surface: 26 28 30;
-  --color-surface-dim: 230 230 235;
-  --color-surface-bright: 255 255 255;
-  --color-surface-variant: 228 228 232;
-  --color-on-surface-variant: 68 68 78;
+  --color-surface: 247 249 251;
+  --color-on-surface: 25 28 30;
+  --color-surface-dim: 216 218 220;
+  --color-surface-bright: 247 249 251;
+  --color-surface-variant: 224 227 229;
+  --color-on-surface-variant: 67 70 85;
 
   --color-surface-container-lowest: 255 255 255;
-  --color-surface-container-low: 245 245 248;
-  --color-surface-container: 240 240 244;
-  --color-surface-container-high: 235 235 238;
-  --color-surface-container-highest: 228 228 232;
+  --color-surface-container-low: 242 244 246;
+  --color-surface-container: 236 238 240;
+  --color-surface-container-high: 230 232 234;
+  --color-surface-container-highest: 224 227 229;
 
-  --color-outline: 118 118 128;
-  --color-outline-variant: 200 200 208;
+  --color-outline: 115 118 134;
+  --color-outline-variant: 195 198 215;
 
-  --color-inverse-surface: 48 49 52;
-  --color-inverse-on-surface: 240 240 244;
-  --color-surface-tint: 59 130 246;
+  --color-inverse-surface: 45 49 51;
+  --color-inverse-on-surface: 239 241 243;
+  --color-surface-tint: 0 83 219;
 
   /* Primary */
-  --color-primary: 59 130 246;
+  --color-primary: 0 74 198;
   --color-on-primary: 255 255 255;
-  --color-primary-container: 211 227 252;
-  --color-on-primary-container: 0 38 88;
-  --color-inverse-primary: 173 198 255;
-  --color-primary-fixed: 211 227 252;
-  --color-primary-fixed-dim: 173 198 255;
-  --color-on-primary-fixed: 0 26 66;
-  --color-on-primary-fixed-variant: 0 66 146;
+  --color-primary-container: 37 99 235;
+  --color-on-primary-container: 238 239 255;
+  --color-inverse-primary: 180 197 255;
+  --color-primary-fixed: 219 225 255;
+  --color-primary-fixed-dim: 180 197 255;
+  --color-on-primary-fixed: 0 23 75;
+  --color-on-primary-fixed-variant: 0 62 168;
 
   /* Secondary */
-  --color-secondary: 99 102 241;
+  --color-secondary: 80 95 118;
   --color-on-secondary: 255 255 255;
-  --color-secondary-container: 224 224 255;
-  --color-on-secondary-container: 32 32 160;
-  --color-secondary-fixed: 224 224 255;
-  --color-secondary-fixed-dim: 192 193 255;
-  --color-on-secondary-fixed: 10 0 110;
-  --color-on-secondary-fixed-variant: 46 46 190;
+  --color-secondary-container: 208 225 251;
+  --color-on-secondary-container: 84 100 122;
+  --color-secondary-fixed: 211 228 254;
+  --color-secondary-fixed-dim: 183 200 225;
+  --color-on-secondary-fixed: 11 28 48;
+  --color-on-secondary-fixed-variant: 56 72 93;
 
   /* Tertiary */
-  --color-tertiary: 16 185 129;
+  --color-tertiary: 148 55 0;
   --color-on-tertiary: 255 255 255;
-  --color-tertiary-container: 197 244 224;
-  --color-on-tertiary-container: 0 55 36;
-  --color-tertiary-fixed: 197 244 224;
-  --color-tertiary-fixed-dim: 78 222 163;
-  --color-on-tertiary-fixed: 0 33 19;
-  --color-on-tertiary-fixed-variant: 0 82 54;
+  --color-tertiary-container: 188 72 0;
+  --color-on-tertiary-container: 255 237 230;
+  --color-tertiary-fixed: 255 219 205;
+  --color-tertiary-fixed-dim: 255 181 150;
+  --color-on-tertiary-fixed: 54 15 0;
+  --color-on-tertiary-fixed-variant: 125 45 0;
 
   /* Error */
   --color-error: 186 26 26;
   --color-on-error: 255 255 255;
   --color-error-container: 255 218 214;
-  --color-on-error-container: 65 0 2;
+  --color-on-error-container: 147 0 10;
 
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
@@ -98,15 +98,15 @@
 
   --color-inverse-surface: 226 226 232;
   --color-inverse-on-surface: 47 48 53;
-  --color-surface-tint: 173 198 255;
+  --color-surface-tint: 180 197 255;
 
-  --color-primary: 173 198 255;
+  --color-primary: 180 197 255;
   --color-on-primary: 0 46 106;
   --color-primary-container: 77 142 255;
   --color-on-primary-container: 0 40 93;
   --color-inverse-primary: 0 90 194;
   --color-primary-fixed: 216 226 255;
-  --color-primary-fixed-dim: 173 198 255;
+  --color-primary-fixed-dim: 180 197 255;
   --color-on-primary-fixed: 0 26 66;
   --color-on-primary-fixed-variant: 0 67 149;
 
@@ -151,38 +151,48 @@ body {
   min-height: 100vh;
 }
 
-/* Glassmorphism card - matching Stitch design */
+/* Glassmorphism card - Lumina Precision style */
 @layer components {
   .glass-card {
-    @apply rounded-xl border border-glass;
+    @apply rounded-lg;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+  }
+
+  .dark .glass-card {
     background: rgba(30, 41, 59, 0.7);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   }
 
   .glass-card-solid {
-    @apply rounded-xl border border-outline-variant/20;
+    @apply rounded-lg;
     background: rgb(var(--color-surface-container));
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
   }
 
   .glass-surface {
-    @apply rounded-xl border border-outline-variant/20;
+    @apply rounded-lg;
     background: rgb(var(--color-surface-container));
   }
 
   .btn-primary {
-    @apply px-6 py-2 rounded-lg font-bold transition-all;
+    @apply px-6 py-2 rounded-md font-medium transition-all;
     background: rgb(var(--color-primary));
     color: rgb(var(--color-on-primary));
-    box-shadow: 0 4px 14px rgba(173, 198, 255, 0.2);
+    box-shadow: 0 2px 10px rgba(0, 74, 198, 0.25);
   }
 
   .dark .btn-primary {
-    box-shadow: 0 4px 14px rgba(173, 198, 255, 0.2);
+    box-shadow: 0 2px 10px rgba(173, 198, 255, 0.25);
   }
 
   .btn-primary:hover {
-    filter: brightness(1.1);
+    filter: brightness(1.08);
+    box-shadow: 0 4px 14px rgba(0, 74, 198, 0.35);
   }
 
   .btn-primary:disabled {
@@ -190,24 +200,25 @@ body {
   }
 
   .btn-secondary {
-    @apply px-4 py-2 rounded-lg font-medium transition-all;
-    background: transparent;
-    color: rgb(var(--color-on-surface-variant));
-    border: 1px solid rgb(var(--color-outline-variant) / 0.3);
+    @apply px-4 py-2 rounded-md font-medium transition-all;
+    background: rgba(37, 99, 235, 0.1);
+    color: rgb(var(--color-primary));
+    border: 1px solid rgba(37, 99, 235, 0.2);
   }
 
   .btn-secondary:hover {
-    background: rgb(var(--color-surface-variant) / 0.5);
+    background: rgba(37, 99, 235, 0.18);
+    border-color: rgba(37, 99, 235, 0.35);
   }
 
   .btn-ghost {
-    @apply px-4 py-2 rounded-lg font-medium transition-colors;
+    @apply px-4 py-2 rounded-md font-medium transition-colors;
     color: rgb(var(--color-on-surface-variant));
   }
 
   .btn-ghost:hover {
-    background: rgb(var(--color-surface-variant) / 0.5);
-    color: rgb(var(--color-on-surface));
+    background: rgb(var(--color-primary) / 0.1);
+    color: rgb(var(--color-primary));
   }
 }
 

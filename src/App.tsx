@@ -9,6 +9,7 @@ import "./App.css";
 
 interface ColorConfig {
   name: string;
+  icon?: string;
   brightness: number;
   contrast: number;
   gamma: number;
@@ -178,11 +179,12 @@ function App() {
     setActiveProfile(profile);
   };
 
-  const handleSaveCurrent = async (name: string) => {
+  const handleSaveCurrent = async (name: string, icon?: string) => {
     setLoading(true);
     try {
       const config: ColorConfig = {
         name,
+        icon,
         brightness,
         contrast,
         gamma,
@@ -205,11 +207,11 @@ function App() {
 
   return (
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
-      {/* Header - matching Stitch design */}
-      <header data-name="header" className="bg-surface-container-low border-b border-outline-variant/30 flex justify-between items-center px-lg h-16 w-full z-50 fixed top-0">
+      {/* Header - Lumina Precision style */}
+      <header data-name="header" className="bg-surface-container-low/80 backdrop-blur-md border-b border-outline-variant/20 flex justify-between items-center px-lg h-16 w-full z-50 fixed top-0">
         <div className="flex items-center gap-md">
-          <img src="/favicon.png" alt="icon" className="w-8 h-8 rounded" />
-          <h1 className="font-headline-md text-headline-md font-bold text-primary">Filter Manage</h1>
+          <img src="/favicon.png" alt="icon" className="w-8 h-8 rounded-md" />
+          <h1 className="font-headline-md text-headline-md font-medium text-primary">Filter Manage</h1>
         </div>
 
         <div data-name="header-actions" className="flex items-center gap-sm">
@@ -238,7 +240,7 @@ function App() {
           <button
             data-name="theme-toggle"
             onClick={() => setDark(!dark)}
-            className="p-sm rounded-full text-on-surface-variant hover:bg-surface-variant/50 transition-colors"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-primary/10 transition-colors"
           >
             <span className="material-symbols-outlined text-[20px]">{dark ? "light_mode" : "dark_mode"}</span>
           </button>
@@ -248,10 +250,10 @@ function App() {
       {/* Toast */}
       {toast && (
         <div data-name="toast" className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
-          <div className={`px-md py-sm rounded-lg font-label-md text-label-md shadow-lg border ${
+          <div className={`px-md py-sm rounded-md font-label-md text-label-md shadow-lg backdrop-blur-sm ${
             toast.type === "success"
-              ? "bg-tertiary-container/20 text-tertiary border-tertiary/20"
-              : "bg-error-container/20 text-error border-error/20"
+              ? "bg-primary/90 text-on-primary"
+              : "bg-error/90 text-on-error"
           }`}>
             {toast.text}
           </div>
@@ -260,7 +262,7 @@ function App() {
 
       {/* Main Content */}
       <main data-name="main-content" className="pt-16 h-screen overflow-hidden">
-        <div className="grid grid-cols-12 h-full gap-gutter p-lg">
+        <div className="grid grid-cols-12 h-full gap-md p-md">
           <div data-name="profile-panel" className="col-span-3 flex flex-col h-full">
             <ProfileList
               activeProfile={activeProfile}

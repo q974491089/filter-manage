@@ -88,11 +88,11 @@ function PreviewImage({ showToast }: PreviewImageProps) {
   return (
     <div data-components="PreviewImage" className="flex-[1.5] flex flex-col min-h-0">
       <div className="mb-md flex justify-between items-end">
-        <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">效果预览</h3>
+        <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface font-medium">效果预览</h3>
         {imageSrc && (
           <button
             onClick={handleClear}
-            className="text-on-surface-variant text-[12px] font-bold hover:underline"
+            className="text-primary text-[12px] font-medium hover:underline"
           >
             清除
           </button>
@@ -101,10 +101,10 @@ function PreviewImage({ showToast }: PreviewImageProps) {
 
       <div
         data-name="preview-area"
-        className={`flex-1 rounded-xl border-[3px] border-dashed transition-all flex flex-col items-center justify-center relative overflow-hidden group cursor-pointer ${
+        className={`flex-1 rounded-lg border-2 border-dashed transition-all flex flex-col items-center justify-center relative overflow-hidden group cursor-pointer ${
           dragOver
             ? "border-primary bg-primary/10"
-            : "border-outline-variant/30 bg-surface-container hover:border-primary/50"
+            : "border-outline-variant/40 bg-surface-container hover:border-primary/50 hover:bg-primary/5"
         }`}
         onClick={!imageSrc ? handleSelect : undefined}
       >
@@ -113,20 +113,20 @@ function PreviewImage({ showToast }: PreviewImageProps) {
             <img
               src={imageSrc}
               alt={imageName}
-              className="w-full h-full object-cover rounded-lg"
+              className="w-full h-full object-cover rounded-md"
             />
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-md">
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-md">
               <p className="text-white text-label-md font-label-md truncate">{imageName}</p>
             </div>
             {/* Click to replace */}
             <div
-              className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 hover:opacity-100"
+              className="absolute inset-0 bg-black/0 hover:bg-black/25 transition-colors flex items-center justify-center opacity-0 hover:opacity-100"
               onClick={(e) => {
                 e.stopPropagation();
                 handleSelect();
               }}
             >
-              <div className="bg-black/60 px-md py-sm rounded-lg flex items-center gap-xs">
+              <div className="bg-primary/90 px-md py-sm rounded-md flex items-center gap-xs shadow-lg">
                 <span className="material-symbols-outlined text-white text-[18px]">edit</span>
                 <span className="text-white text-label-md font-label-md">更换图片</span>
               </div>
@@ -134,25 +134,25 @@ function PreviewImage({ showToast }: PreviewImageProps) {
           </>
         ) : (
           <div className="z-10 text-center space-y-md">
-            <div className="w-16 h-16 rounded-full bg-surface-variant/50 flex items-center justify-center mx-auto mb-md group-hover:scale-110 transition-transform">
+            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-md group-hover:scale-110 transition-transform border border-primary/20">
               {loading ? (
                 <svg className="animate-spin w-8 h-8 text-primary" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
               ) : (
-                <span className="material-symbols-outlined text-on-surface-variant text-[32px]">add_photo_alternate</span>
+                <span className="material-symbols-outlined text-primary text-[32px]">add_photo_alternate</span>
               )}
             </div>
             <p className="font-label-md text-label-md text-on-surface">
               {dragOver ? "释放以加载图片" : "拖拽图片到此处或点击加载"}
             </p>
-            <p className="text-[11px] text-on-surface-variant opacity-60">
+            <p className="text-[11px] text-on-surface-variant">
               支持 JPG, PNG, WEBP, BMP, GIF 格式
             </p>
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/3 to-transparent pointer-events-none"></div>
       </div>
 
       <input

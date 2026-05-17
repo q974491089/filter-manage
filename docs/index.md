@@ -21,10 +21,19 @@ features:
     details: 亮度、对比度、伽马、数字振动精细调节
   - title: 配置预设
     details: 保存/加载配置，一键切换游戏模式与正常模式
+  - title: 日夜模式切换
+    details: 支持亮色/暗色主题，保护您的眼睛
 ---
 
 ## 界面预览
 
-<div style="text-align: center; margin: 2rem 0;">
-  <img src="/preview/PixPin_2026-05-17_05-59-45.png" alt="Filter Manage 界面预览" style="max-width: 100%; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);" />
-</div>
+<ThemeCarousel />
+
+### 主题特色
+
+Filter Manage 采用 **Lumina Precision** 设计语言，提供精致的视觉体验：
+
+- **亮色模式**：清新明亮，适合日间使用，减少视觉疲劳
+- **暗色模式**：深邃优雅，适合夜间使用，保护眼睛
+
+点击右上角的太阳/月亮图标即可一键切换主题。

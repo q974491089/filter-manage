@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 interface ColorConfig {
   name: string;
+  icon?: string;
   brightness: number;
   contrast: number;
   gamma: number;
@@ -43,11 +44,45 @@ function ConfigManager({
     }
   };
 
-  const getPresetIcon = (name: string) => {
-    if (name.includes("电影") || name.toLowerCase().includes("theater")) return { icon: "movie", bg: "bg-secondary-container/30", color: "text-secondary" };
-    if (name.includes("游戏") || name.toLowerCase().includes("gaming")) return { icon: "sports_esports", bg: "bg-tertiary-container/30", color: "text-tertiary" };
-    if (name.includes("护眼") || name.toLowerCase().includes("reading")) return { icon: "edit_note", bg: "bg-error-container/30", color: "text-error" };
-    return { icon: "tune", bg: "bg-surface-variant/30", color: "text-on-surface-variant" };
+  const getDefaultIcon = (name: string) => {
+    if (name.includes("电影") || name.toLowerCase().includes("theater")) return "movie";
+    if (name.includes("游戏") || name.toLowerCase().includes("gaming")) return "sports_esports";
+    if (name.includes("护眼") || name.toLowerCase().includes("reading")) return "edit_note";
+    if (name.includes("摄影") || name.toLowerCase().includes("photo")) return "photo_camera";
+    if (name.includes("设计") || name.toLowerCase().includes("design")) return "palette";
+    if (name.includes("编程") || name.toLowerCase().includes("code")) return "code";
+    return "tune";
+  };
+
+  const getIconBg = (icon: string | undefined, name: string) => {
+    if (icon === "movie") return "bg-secondary-container";
+    if (icon === "sports_esports") return "bg-tertiary-container";
+    if (icon === "edit_note") return "bg-error-container";
+    if (icon === "photo_camera" || icon === "palette") return "bg-primary-container";
+    if (icon === "code") return "bg-tertiary-container";
+    if (name.includes("电影")) return "bg-secondary-container";
+    if (name.includes("游戏")) return "bg-tertiary-container";
+    if (name.includes("护眼")) return "bg-error-container";
+    return "bg-primary-container";
+  };
+
+  const renderIcon = (config: { name: string; icon?: string }) => {
+    const icon = config.icon || getDefaultIcon(config.name);
+    const bgClass = getIconBg(config.icon, config.name);
+
+    if (config.icon && config.icon.startsWith("http")) {
+      return (
+        <div className={`w-9 h-9 rounded-md ${bgClass} flex items-center justify-center overflow-hidden shadow-sm`}>
+          <img src={config.icon} alt="" className="w-full h-full object-cover" />
+        </div>
+      );
+    }
+
+    return (
+      <div className={`w-9 h-9 rounded-md ${bgClass} flex items-center justify-center shadow-sm`}>
+        <span className="material-symbols-outlined text-on-primary text-[18px] leading-none relative top-[1px]">{icon}</span>
+      </div>
+    );
   };
 
   return (
@@ -64,18 +99,15 @@ function ConfigManager({
         ) : (
           <div className="space-y-sm">
             {configs.map((name) => {
-              const preset = getPresetIcon(name);
               return (
                 <div
                   key={name}
                   onClick={() => handleLoad(name)}
-                  className="flex items-center justify-between p-sm hover:bg-surface-variant/30 rounded-lg cursor-pointer transition-colors group"
+                  className="flex items-center justify-between p-sm bg-primary/8 hover:bg-primary/15 rounded-lg cursor-pointer transition-all group border border-primary/10 hover:border-primary/30"
                 >
                   <div className="flex items-center gap-md">
-                    <div className={`w-8 h-8 rounded-md ${preset.bg} flex items-center justify-center`}>
-                      <span className={`material-symbols-outlined ${preset.color} text-[18px] leading-none relative top-[1px]`}>{preset.icon}</span>
-                    </div>
-                    <span className="font-label-md text-label-md">{name}</span>
+                    {renderIcon({ name })}
+                    <span className="font-label-md text-label-md text-on-surface font-medium">{name}</span>
                   </div>
                   <button
                     onClick={(e) => handleDelete(e, name)}

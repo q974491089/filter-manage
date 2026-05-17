@@ -37,6 +37,16 @@
 
 ## Coding Behavior Guidelines
 
+### ⚠️ CI 构建硬性规则
+
+> **严禁修改 `.github/workflows/` 中的包管理器配置。**
+
+- 本地开发使用 **pnpm**，CI 构建使用 **npm**（pnpm 在 GitHub Actions 上有兼容性问题无法运行）
+- 不要把 CI 里的 `npm ci` 改成 `pnpm install`
+- 不要添加 `pnpm/action-setup` action
+- 不要修改 workflow 文件中任何与包管理器相关的配置
+- 两个 lock 文件共存：`pnpm-lock.yaml`（本地）+ `package-lock.json`（CI），都需要提交到仓库
+
 Behavioral guidelines to reduce common LLM coding mistakes.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
@@ -156,5 +166,6 @@ Skills are located in `.kiro/skills/`. Before starting any task, check if a rele
 | `verification-before-completion.md` | Before declaring a fix done |
 | `writing-plans.md` | Multi-step implementation tasks |
 | `requesting-code-review.md` | Before submitting changes |
+| `release-workflow.md` | 发布新版本（用户说"发布"、"发版"、"release"时） |
 
 **Rule**: If there's even a 1% chance a skill applies, read it first.

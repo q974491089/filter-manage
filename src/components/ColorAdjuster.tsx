@@ -60,11 +60,11 @@ function ColorAdjuster({
   return (
     <div data-components="ColorAdjuster">
       <div className="mb-md">
-        <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">显示参数调整</h3>
+        <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface font-medium">显示参数调整</h3>
       </div>
 
       <div data-name="info-banner" className="mb-sm">
-        <div className="py-sm px-md bg-primary-container/20 rounded-lg flex gap-sm items-start">
+        <div className="py-sm px-md bg-primary/8 rounded-md flex gap-sm items-start border border-primary/15">
           <span className="material-symbols-outlined text-primary text-[18px] mt-px">info</span>
           <p className="text-[12px] leading-relaxed text-on-surface-variant">
             调整这些设置会实时改变您的显示输出。建议先加载对应的 ICC 配置文件。
@@ -72,8 +72,8 @@ function ColorAdjuster({
         </div>
       </div>
 
-      <div data-name="sliders-card" className="flex-1 bg-surface-container rounded-xl border border-outline-variant/20 p-xl">
-        <div className="space-y-xl">
+      <div data-name="sliders-card" className="flex-1 bg-surface-container rounded-lg border border-outline-variant/20 p-lg shadow-sm">
+        <div className="space-y-lg">
         <SliderControl
           label="亮度 (Brightness)"
           icon="light_mode"
@@ -145,13 +145,13 @@ function SliderControl({
   onChange,
 }: SliderControlProps) {
   return (
-    <div data-components="SliderControl" data-name={label} className="space-y-md">
+    <div data-components="SliderControl" data-name={label} className="space-y-sm">
       <div className="flex justify-between items-center">
         <label className="font-label-md text-label-md text-on-surface flex items-center gap-xs">
-          <span className="material-symbols-outlined text-primary text-[20px]">{icon}</span>
+          <span className="material-symbols-outlined text-primary text-[18px]">{icon}</span>
           {label}
         </label>
-        <span className="text-primary font-bold font-label-md text-label-md">
+        <span className="text-primary font-medium font-label-md text-label-md bg-primary/10 px-sm py-xs rounded">
           {formatValue(value)}
         </span>
       </div>

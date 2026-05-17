@@ -31,6 +31,16 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Extract changelog
+        id: changelog
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          CONTENT=$(sed -n "/^## v${VERSION}/,/^## v/{/^## v${VERSION}/d;/^## v/d;p}" CHANGELOG.md)
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -39,6 +49,6 @@ jobs:
           tauriScript: npx tauri
           tagName: ${{ github.ref_name }}
           releaseName: 'Filter Manage ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install.'
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: false
           prerelease: false
