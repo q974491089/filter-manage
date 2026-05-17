@@ -2,4 +2,4 @@
 outline: deep
 ---
 
-<!--@include: ../../CHANGELOG.md-->
+<!--@include: ../CHANGELOG.md-->
