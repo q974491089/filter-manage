@@ -41,3 +41,8 @@ test-config.json
 # VitePress
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+
+
+#key 
+*.key
+*.key.pub

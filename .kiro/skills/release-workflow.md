@@ -48,7 +48,13 @@ package.json               → "version": "X.X.X"
 src-tauri/Cargo.toml       → version = "X.X.X"
 ```
 
-### 4. 更新 CHANGELOG.md
+### 4. 更新 CHANGELOG.md（必须！）
+
+> **⚠️ 此步骤不可跳过。** CHANGELOG.md 是唯一的变更记录来源，同时服务于：
+> - GitHub Release 发布说明（CI 自动提取对应版本段落）
+> - 文档站 `/changelog` 页面（`docs/changelog.md` 通过 `<!--@include: ../CHANGELOG.md-->` 自动引用）
+>
+> 只需维护根目录 `CHANGELOG.md` 一份文件，文档站会自动同步。
 
 在 `CHANGELOG.md` 文件**顶部**（`# Changelog` 标题之后）插入新版本块：
 
@@ -60,11 +66,16 @@ src-tauri/Cargo.toml       → version = "X.X.X"
 
 ### 修复
 - ...
+
+### 改进
+- ...
 ```
 
-**注意**：此文件同时作为：
-- GitHub Release 的发布说明（CI 自动提取对应版本内容）
-- 文档站 `/changelog` 页面的内容（通过 VitePress `@include` 引用）
+**格式要求**：
+- 日期格式：`YYYY-MM-DD`
+- 每个条目一行，以 `- ` 开头
+- 分类按需使用，没有的不写
+- 不修改历史版本块
 
 ### 5. 提交并推送代码
 

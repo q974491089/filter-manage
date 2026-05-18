@@ -1,6 +1,6 @@
 [package]
 name = "filter-manage"
-version = "0.2.1"
+version = "0.2.2"
 description = "ICC Filter & NVIDIA Color Settings Manager"
 authors = ["you"]
 edition = "2021"
@@ -16,6 +16,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"

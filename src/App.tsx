@@ -5,6 +5,7 @@ import ColorAdjuster from "./components/ColorAdjuster";
 import PreviewImage from "./components/PreviewImage";
 import ConfigManager from "./components/ConfigManager";
 import SaveModal from "./components/SaveModal";
+import UpdateBanner from "./components/UpdateBanner";
 import "./App.css";
 
 interface ColorConfig {
@@ -207,11 +208,15 @@ function App() {
 
   return (
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
+      <UpdateBanner />
       {/* Header - Lumina Precision style */}
       <header data-name="header" className="bg-surface-container-low/80 backdrop-blur-md border-b border-outline-variant/20 flex justify-between items-center px-lg h-16 w-full z-50 fixed top-0">
         <div className="flex items-center gap-md">
           <img src="/favicon.png" alt="icon" className="w-8 h-8 rounded-md" />
-          <h1 className="font-headline-md text-headline-md font-medium text-primary">Filter Manage</h1>
+          <div className="flex items-baseline gap-sm">
+            <h1 className="font-headline-md text-headline-md font-medium text-primary">Filter Manage</h1>
+            <span className="font-label-sm text-label-sm text-on-surface-variant/60">v{__APP_VERSION__}</span>
+          </div>
         </div>
 
         <div data-name="header-actions" className="flex items-center gap-sm">

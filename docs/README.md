@@ -45,6 +45,16 @@
 
 ---
 
+### v0.3 — 2026-05-19 · 在线自动更新
+
+启动时自动检查 GitHub Releases 新版本，用户确认后下载安装并重启。
+
+| 功能 | 说明 | 文档 |
+|------|------|------|
+| 自动更新 | 启动时检查新版本，下载安装后重启 | [updater-setup.md](./updater-setup.md) |
+
+---
+
 ## 固定参考文档
 
 | 文档 | 内容 |
@@ -54,3 +64,4 @@
 | [api/icc.md](./api/icc.md) | ICC 全部命令 |
 | [api/nvidia.md](./api/nvidia.md) | NVIDIA 颜色全部命令 |
 | [api/config.md](./api/config.md) | 配置预设全部命令 |
+| [updater-setup.md](./updater-setup.md) | 自动更新密钥生成与 CI 配置 |
