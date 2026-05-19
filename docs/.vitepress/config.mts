@@ -32,6 +32,7 @@ export default defineConfig({
       {
         text: '指南',
         items: [
+          { text: '为什么选择 Filter Manage', link: '/why' },
           { text: '简介', link: '/guide/' },
           { text: '安装', link: '/guide/install' },
           { text: '使用方法', link: '/guide/usage' },
