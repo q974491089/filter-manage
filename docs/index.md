@@ -6,7 +6,7 @@ hero:
   tagline: 一键切换 ICC 配置文件，精细调节 NVIDIA 显卡颜色参数
   image:
     src: favicon.png
-    alt: Filter Manage
+    alt: Filter Manage - Windows ICC颜色配置文件管理与NVIDIA显卡颜色设置工具
   actions:
     - theme: brand
       text: 使用指南
