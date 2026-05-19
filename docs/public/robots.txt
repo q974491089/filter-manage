@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://filter-manage.6ya.site/sitemap.xml

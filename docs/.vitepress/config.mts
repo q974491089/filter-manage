@@ -19,6 +19,7 @@ export default defineConfig({
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:locale', content: 'zh_CN' }],
     ['meta', { name: 'robots', content: 'index, follow' }],
+    ['link', { rel: 'canonical', href: 'https://filter-manage.6ya.site/' }],
   ],
   themeConfig: {
     logo: '/favicon.png',
