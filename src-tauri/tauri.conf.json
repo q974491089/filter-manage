@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
-  "productName": "Filter Manage",
+  "productName": "Filter-Manage",
   "version": "0.2.4",
   "identifier": "com.filter-manage.app",
   "build": {
@@ -57,7 +57,8 @@
         "displayLanguageSelector": false,
         "languages": ["SimpChinese", "English"],
         "installMode": "both",
-        "compression": "lzma"
+        "compression": "lzma",
+        "displayName": "Filter Manage"
       }
     }
   }
