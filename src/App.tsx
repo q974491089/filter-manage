@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ProfileList from "./components/ProfileList";
 import ColorAdjuster from "./components/ColorAdjuster";
@@ -18,12 +18,20 @@ interface ColorConfig {
   icc_profile: string | null;
 }
 
+interface DisplayMonitor {
+  name: string;
+  device_id: string;
+  pnp_id: string;
+  is_primary: boolean;
+}
+
 function App() {
   const [activeProfile, setActiveProfile] = useState<string>("Default");
   const [brightness, setBrightness] = useState(0);
   const [contrast, setContrast] = useState(0);
   const [gamma, setGamma] = useState(1.0);
   const [digitalVibrance, setDigitalVibrance] = useState(50);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>();
 
   const [configs, setConfigs] = useState<string[]>([]);
   const [selectedConfig, setSelectedConfig] = useState("");
@@ -35,6 +43,9 @@ function App() {
     return saved ? saved === "dark" : true;
   });
   const [baseline, setBaseline] = useState({ brightness: 0, contrast: 0, gamma: 1.0, digitalVibrance: 50, iccProfile: "Default" });
+  const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
+  const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [indicator, setIndicator] = useState({ left: 0, width: 0 });
 
   const hasChanges =
     brightness !== baseline.brightness ||
@@ -47,6 +58,15 @@ function App() {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("theme", dark ? "dark" : "light");
   }, [dark]);
+
+  // 更新滑动指示器位置
+  useEffect(() => {
+    const idx = monitors.findIndex((m) => m.device_id === selectedDeviceId);
+    const btn = monitorRefs.current[idx];
+    if (btn) {
+      setIndicator({ left: btn.offsetLeft, width: btn.offsetWidth });
+    }
+  }, [selectedDeviceId, monitors]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {
@@ -71,6 +91,22 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const loadMonitors = async () => {
+      try {
+        const result = await invoke<DisplayMonitor[]>("get_display_monitors");
+        setMonitors(result);
+        if (result.length > 0 && !selectedDeviceId) {
+          const primary = result.find((m) => m.is_primary) || result[0];
+          setSelectedDeviceId(primary.device_id);
+        }
+      } catch (err) {
+        console.error("Failed to load monitors:", err);
+      }
+    };
+    loadMonitors();
+  }, []);
+
+  useEffect(() => {
     const init = async () => {
       await invoke("install_builtin_icc_profiles");
       await refreshConfigs();
@@ -90,7 +126,7 @@ function App() {
             iccProfile: profile,
           });
         } else {
-          const dvcDefault = await invoke<number>("get_dvc_default_ui_value");
+          const dvcDefault = await invoke<number>("get_dvc_default_ui_value", { deviceId: selectedDeviceId });
           await invoke("save_default_config", {
             config: {
               name: "__default__",
@@ -102,7 +138,7 @@ function App() {
             },
           });
         }
-        const driverDvc = await invoke<number>("sync_dvc_from_driver");
+        const driverDvc = await invoke<number>("sync_dvc_from_driver", { deviceId: selectedDeviceId });
         setDigitalVibrance(driverDvc);
         setBaseline((prev) => ({ ...prev, digitalVibrance: driverDvc }));
       } catch (err) {
@@ -131,14 +167,14 @@ function App() {
       try {
         const profiles = await invoke<{ name: string; path: string }[]>("get_icc_profiles");
         const match = profiles.find((p) => p.name === config.icc_profile);
-        if (match) await invoke("set_icc_profile", { profilePath: match.path });
+        if (match) await invoke("set_icc_profile", { profilePath: match.path, deviceId: selectedDeviceId });
       } catch (err) {
         console.error("Failed to apply ICC:", err);
       }
     } else {
       setActiveProfile("Default");
       try {
-        await invoke("restore_default_icc_profile", {});
+        await invoke("restore_default_icc_profile", { deviceId: selectedDeviceId });
       } catch (err) {
         console.error("Failed to restore ICC:", err);
       }
@@ -146,10 +182,10 @@ function App() {
 
     try {
       await Promise.all([
-        invoke("set_nvidia_brightness", { display: 1, value: config.brightness }),
-        invoke("set_nvidia_contrast", { display: 1, value: config.contrast }),
-        invoke("set_nvidia_gamma", { display: 1, value: config.gamma }),
-        invoke("set_nvidia_digital_vibrance", { display: 1, value: config.digital_vibrance }),
+        invoke("set_nvidia_brightness", { deviceId: selectedDeviceId, value: config.brightness }),
+        invoke("set_nvidia_contrast", { deviceId: selectedDeviceId, value: config.contrast }),
+        invoke("set_nvidia_gamma", { deviceId: selectedDeviceId, value: config.gamma }),
+        invoke("set_nvidia_digital_vibrance", { deviceId: selectedDeviceId, value: config.digital_vibrance }),
       ]);
     } catch (err) {
       console.error("Failed to apply NVIDIA:", err);
@@ -161,7 +197,7 @@ function App() {
     try {
       const def = await invoke<ColorConfig | null>("load_default_config");
       if (def) {
-        const dvcDefault = await invoke<number>("get_dvc_default_ui_value");
+        const dvcDefault = await invoke<number>("get_dvc_default_ui_value", { deviceId: selectedDeviceId });
         def.digital_vibrance = dvcDefault;
         await handleApply(def);
         setSelectedConfig("");
@@ -178,6 +214,29 @@ function App() {
 
   const handleProfileChange = (profile: string) => {
     setActiveProfile(profile);
+  };
+
+  const handleMonitorChange = async (deviceId: string) => {
+    setSelectedDeviceId(deviceId || undefined);
+    try {
+      const settings = await invoke<{ brightness: number; contrast: number; gamma: number; digital_vibrance: number }>(
+        "get_nvidia_settings",
+        { deviceId: deviceId || undefined }
+      );
+      setBrightness(settings.brightness);
+      setContrast(settings.contrast);
+      setGamma(settings.gamma);
+      setDigitalVibrance(settings.digital_vibrance);
+      setBaseline({
+        brightness: settings.brightness,
+        contrast: settings.contrast,
+        gamma: settings.gamma,
+        digitalVibrance: settings.digital_vibrance,
+        iccProfile: activeProfile,
+      });
+    } catch (err) {
+      console.error("Failed to load settings for display:", err);
+    }
   };
 
   const handleSaveCurrent = async (name: string, icon?: string) => {
@@ -210,14 +269,46 @@ function App() {
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
       <UpdateBanner />
       {/* Header - Lumina Precision style */}
-      <header data-name="header" className="bg-surface-container-low/80 backdrop-blur-md border-b border-outline-variant/20 flex justify-between items-center px-lg h-16 w-full z-50 fixed top-0">
-        <div className="flex items-center gap-md">
+      <header data-name="header" className="bg-surface-container-low/80 backdrop-blur-md border-b border-outline-variant/20 flex items-center px-lg h-16 w-full z-50 fixed top-0">
+        {/* Logo & Title */}
+        <div className="flex items-center gap-md mr-lg">
           <img src="/favicon.png" alt="icon" className="w-8 h-8 rounded-md" />
           <div className="flex items-baseline gap-sm">
             <h1 className="font-headline-md text-headline-md font-medium text-primary">Filter Manage</h1>
             <span className="font-label-sm text-label-sm text-on-surface-variant/60">v{__APP_VERSION__}</span>
           </div>
         </div>
+
+        {/* 显示器切换 - Segmented Control with sliding indicator */}
+        {monitors.length > 1 && (
+          <div data-name="monitor-tabs" className="relative flex items-center bg-surface-container-highest/60 rounded-lg p-[3px] h-8">
+            {monitors.map((monitor, idx) => {
+              const isSelected = selectedDeviceId === monitor.device_id;
+              return (
+                <button
+                  key={monitor.device_id}
+                  ref={(el) => { monitorRefs.current[idx] = el; }}
+                  onClick={() => handleMonitorChange(monitor.device_id)}
+                  className={`relative z-10 flex-1 px-md py-2 rounded-md font-label-md text-label-md transition-colors duration-200 whitespace-nowrap ${
+                    isSelected
+                      ? "text-on-surface"
+                      : "text-on-surface-variant hover:text-on-surface"
+                  }`}
+                >
+                  {monitor.name}
+                </button>
+              );
+            })}
+            {/* Sliding indicator */}
+            <span
+              className="absolute inset-y-[3px] rounded-md bg-surface-container shadow-sm transition-all duration-300 ease-out"
+              style={{ left: `${indicator.left}px`, width: `${indicator.width}px` }}
+            />
+          </div>
+        )}
+
+        {/* Spacer */}
+        <div className="flex-1" />
 
         <div data-name="header-actions" className="flex items-center gap-sm">
           <button
@@ -273,6 +364,7 @@ function App() {
               activeProfile={activeProfile}
               onProfileSelect={handleProfileChange}
               showToast={showToast}
+              selectedDeviceId={selectedDeviceId}
             />
           </div>
           <div data-name="adjuster-panel" className="col-span-5 flex flex-col h-full">
@@ -281,10 +373,14 @@ function App() {
               contrast={contrast}
               gamma={gamma}
               digitalVibrance={digitalVibrance}
+              selectedDeviceId={selectedDeviceId}
+              monitors={monitors}
+              currentMonitorName={monitors.find(m => m.device_id === selectedDeviceId)?.name}
               onBrightnessChange={setBrightness}
               onContrastChange={setContrast}
               onGammaChange={setGamma}
               onDigitalVibranceChange={setDigitalVibrance}
+              onDeviceChange={setSelectedDeviceId}
             />
           </div>
           <div data-name="preview-config-panel" className="col-span-4 flex flex-col h-full gap-gutter">

@@ -13,9 +13,10 @@ interface ProfileListProps {
   activeProfile: string;
   onProfileSelect: (profile: string) => void;
   showToast: (type: "success" | "error", text: string) => void;
+  selectedDeviceId?: string;
 }
 
-function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListProps) {
+function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDeviceId }: ProfileListProps) {
   const [profiles, setProfiles] = useState<IccProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +110,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListP
     try {
       await invoke("set_icc_profile", {
         profilePath: profile.path,
+        deviceId: selectedDeviceId,
       });
       onProfileSelect(profile.name);
     } catch (err) {
@@ -118,7 +120,9 @@ function ProfileList({ activeProfile, onProfileSelect, showToast }: ProfileListP
 
   const handleRestoreDefault = async () => {
     try {
-      await invoke("restore_default_icc_profile", {});
+      await invoke("restore_default_icc_profile", {
+        deviceId: selectedDeviceId,
+      });
       onProfileSelect("Default");
     } catch (err) {
       console.error("Failed to restore default ICC profile:", err);
