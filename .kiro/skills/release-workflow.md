@@ -48,6 +48,17 @@ package.json               → "version": "X.X.X"
 src-tauri/Cargo.toml       → version = "X.X.X"
 ```
 
+> **⚠️ 版本号一致性检查（必须！）**
+> 在提交前，验证以上三个文件的版本号与即将发布的 tag 版本一致。
+> 版本号不一致会导致 CI 构建失败（tauri-action 要求 tag 版本与 tauri.conf.json 中的 version 匹配）。
+>
+> 快速检查命令：
+> ```bash
+> grep '"version"' src-tauri/tauri.conf.json package.json
+> grep '^version' src-tauri/Cargo.toml
+> ```
+> 三处输出的版本号必须相同，且等于即将打的 tag（去掉 `v` 前缀）。
+
 ### 4. 更新 CHANGELOG.md（必须！）
 
 > **⚠️ 此步骤不可跳过。** CHANGELOG.md 是唯一的变更记录来源，同时服务于：
