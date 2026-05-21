@@ -57,8 +57,7 @@
         "displayLanguageSelector": false,
         "languages": ["SimpChinese", "English"],
         "installMode": "both",
-        "compression": "lzma",
-        "displayName": "Filter Manage"
+        "compression": "lzma"
       }
     }
   }
