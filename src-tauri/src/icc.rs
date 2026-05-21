@@ -405,9 +405,6 @@ fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -> Result<()
 
         // 2. 直接用 SetDeviceGammaRamp 写入显卡 LUT（立即生效）
         if let Some(ramp) = parse_vcgt(&icc_data) {
-            // 同步给 nvidia 调节层，后续滑块调节将在此基础上叠加
-            crate::nvidia::set_icc_base_ramp(Some(ramp));
-
             // 获取目标显示器的 adapter device_id (\\.\DISPLAYx)
             let adapter_id = device_id.unwrap_or_else(|| {
                 get_display_monitors()
@@ -415,6 +412,9 @@ fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -> Result<()
                     .and_then(|ms| ms.into_iter().find(|m| m.is_primary).map(|m| m.device_id))
                     .unwrap_or_default()
             });
+
+            // 同步给 nvidia 调节层，后续滑块调节将在此基础上叠加
+            crate::nvidia::set_icc_base_ramp_for_display(&adapter_id, Some(ramp));
 
             // 用 adapter name 创建 DC
             let adapter_w: Vec<u16> = adapter_id.encode_utf16().chain(std::iter::once(0)).collect();
@@ -445,7 +445,13 @@ fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -> Result<()
         } else {
             eprintln!("ICC: No vcgt in profile, only WCS registration done");
             // 没有 vcgt，清空基础 ramp（等同于线性）
-            crate::nvidia::set_icc_base_ramp(None);
+            let adapter_id = device_id.unwrap_or_else(|| {
+                get_display_monitors()
+                    .ok()
+                    .and_then(|ms| ms.into_iter().find(|m| m.is_primary).map(|m| m.device_id))
+                    .unwrap_or_default()
+            });
+            crate::nvidia::set_icc_base_ramp_for_display(&adapter_id, None);
             // 触发 calibration loader
             let _ = WcsSetCalibrationManagementState(false);
             let _ = WcsSetCalibrationManagementState(true);
@@ -493,10 +499,10 @@ pub async fn restore_default_icc_profile(device_id: Option<String>) -> Result<()
         let profile_path = default_profile.to_string_lossy().to_string();
         eprintln!("ICC: Restoring default = {}", profile_path);
 
-        apply_icc_profile(&profile_path, device_id)?;
+        apply_icc_profile(&profile_path, device_id.clone())?;
 
         // 恢复数字震动为NVIDIA面板默认50%（DVC=31）
-        crate::nvidia::set_nvidia_digital_vibrance(0, 50)
+        crate::nvidia::set_nvidia_digital_vibrance(device_id, 50)
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?

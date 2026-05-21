@@ -55,6 +55,17 @@
 
 ---
 
+### v0.3.1 — 2026-05-21 · DVC 多显示器支持
+
+数字振动(DVC)支持按显示器独立设置，不再写死第一个显示器。
+
+| 功能 | 说明 | 文档 |
+|------|------|------|
+| DVC 多显示器 | `set_nvidia_digital_vibrance` 按 deviceId 设置对应显示器 | [api/nvidia.md](./api/nvidia.md) |
+| sync/default 多显示器 | `sync_dvc_from_driver`、`get_dvc_default_ui_value` 新增 deviceId 参数 | [api/nvidia.md](./api/nvidia.md) |
+
+---
+
 ## 固定参考文档
 
 | 文档 | 内容 |

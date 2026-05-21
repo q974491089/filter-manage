@@ -1,14 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 
+interface DisplayMonitor {
+  name: string;
+  device_id: string;
+  pnp_id: string;
+  is_primary: boolean;
+}
+
 interface ColorAdjusterProps {
   brightness: number;
   contrast: number;
   gamma: number;
   digitalVibrance: number;
+  selectedDeviceId: string | undefined;
+  monitors: DisplayMonitor[];
+  currentMonitorName?: string;
   onBrightnessChange: (value: number) => void;
   onContrastChange: (value: number) => void;
   onGammaChange: (value: number) => void;
   onDigitalVibranceChange: (value: number) => void;
+  onDeviceChange: (deviceId: string | undefined) => void;
 }
 
 function ColorAdjuster({
@@ -16,6 +27,8 @@ function ColorAdjuster({
   contrast,
   gamma,
   digitalVibrance,
+  selectedDeviceId,
+  currentMonitorName,
   onBrightnessChange,
   onContrastChange,
   onGammaChange,
@@ -24,7 +37,7 @@ function ColorAdjuster({
   const handleBrightnessChange = async (value: number) => {
     onBrightnessChange(value);
     try {
-      await invoke("set_nvidia_brightness", { display: 1, value });
+      await invoke("set_nvidia_brightness", { deviceId: selectedDeviceId, value });
     } catch (err) {
       console.error("Failed to set brightness:", err);
     }
@@ -33,7 +46,7 @@ function ColorAdjuster({
   const handleContrastChange = async (value: number) => {
     onContrastChange(value);
     try {
-      await invoke("set_nvidia_contrast", { display: 1, value });
+      await invoke("set_nvidia_contrast", { deviceId: selectedDeviceId, value });
     } catch (err) {
       console.error("Failed to set contrast:", err);
     }
@@ -42,7 +55,7 @@ function ColorAdjuster({
   const handleGammaChange = async (value: number) => {
     onGammaChange(value);
     try {
-      await invoke("set_nvidia_gamma", { display: 1, value });
+      await invoke("set_nvidia_gamma", { deviceId: selectedDeviceId, value });
     } catch (err) {
       console.error("Failed to set gamma:", err);
     }
@@ -51,7 +64,7 @@ function ColorAdjuster({
   const handleDigitalVibranceChange = async (value: number) => {
     onDigitalVibranceChange(value);
     try {
-      await invoke("set_nvidia_digital_vibrance", { display: 1, value });
+      await invoke("set_nvidia_digital_vibrance", { deviceId: selectedDeviceId, value });
     } catch (err) {
       console.error("Failed to set digital vibrance:", err);
     }
@@ -67,7 +80,7 @@ function ColorAdjuster({
         <div className="py-sm px-md bg-primary/8 rounded-md flex gap-sm items-start border border-primary/15">
           <span className="material-symbols-outlined text-primary text-[18px] mt-px">info</span>
           <p className="text-[12px] leading-relaxed text-on-surface-variant">
-            调整这些设置会实时改变您的显示输出。建议先加载对应的 ICC 配置文件。
+            正在调整 {currentMonitorName || "显示器"} 的设置，调整会实时改变您的显示输出。
           </p>
         </div>
       </div>

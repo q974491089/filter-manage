@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -9,19 +10,54 @@ pub struct NvidiaSettings {
     pub digital_vibrance: i32, // 0 to 100
 }
 
-static CURRENT_SETTINGS: Mutex<NvidiaSettings> = Mutex::new(NvidiaSettings {
-    brightness: 0,
-    contrast: 0,
-    gamma: 1.0,
-    digital_vibrance: 50,
-});
+impl Default for NvidiaSettings {
+    fn default() -> Self {
+        Self { brightness: 0, contrast: 0, gamma: 1.0, digital_vibrance: 50 }
+    }
+}
 
-// 当前 ICC 的 vcgt 基础 ramp（None 表示线性/sRGB）
-static ICC_BASE_RAMP: Mutex<Option<[[u16; 256]; 3]>> = Mutex::new(None);
+// Per-display settings: key = device_id (e.g. "\\.\DISPLAY1")
+static DISPLAY_SETTINGS: Mutex<Option<HashMap<String, NvidiaSettings>>> = Mutex::new(None);
+static DISPLAY_ICC_RAMPS: Mutex<Option<HashMap<String, [[u16; 256]; 3]>>> = Mutex::new(None);
 
-/// 由 icc.rs 调用，设置当前 ICC 的 vcgt 基础 ramp
+fn get_settings_map() -> std::sync::MutexGuard<'static, Option<HashMap<String, NvidiaSettings>>> {
+    DISPLAY_SETTINGS.lock().unwrap()
+}
+
+fn get_or_default_settings(device_id: &str) -> NvidiaSettings {
+    let map = DISPLAY_SETTINGS.lock().unwrap();
+    map.as_ref()
+        .and_then(|m| m.get(device_id))
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn update_settings(device_id: &str, f: impl FnOnce(&mut NvidiaSettings)) -> NvidiaSettings {
+    let mut map = DISPLAY_SETTINGS.lock().unwrap();
+    let m = map.get_or_insert_with(HashMap::new);
+    let s = m.entry(device_id.to_string()).or_insert_with(NvidiaSettings::default);
+    f(s);
+    s.clone()
+}
+
+/// 由 icc.rs 调用，设置指定显示器的 ICC vcgt 基础 ramp
+pub fn set_icc_base_ramp_for_display(device_id: &str, ramp: Option<[[u16; 256]; 3]>) {
+    let mut map = DISPLAY_ICC_RAMPS.lock().unwrap();
+    let m = map.get_or_insert_with(HashMap::new);
+    match ramp {
+        Some(r) => { m.insert(device_id.to_string(), r); }
+        None => { m.remove(device_id); }
+    }
+}
+
+/// 兼容旧调用：设置主显示器的 ICC base ramp
 pub fn set_icc_base_ramp(ramp: Option<[[u16; 256]; 3]>) {
-    *ICC_BASE_RAMP.lock().unwrap() = ramp;
+    // 找主显示器 device_id，fallback 到 \\.\DISPLAY1
+    let primary = crate::icc::get_display_monitors()
+        .ok()
+        .and_then(|ms| ms.into_iter().find(|m| m.is_primary).map(|m| m.device_id))
+        .unwrap_or_else(|| "\\\\.\\DISPLAY1".to_string());
+    set_icc_base_ramp_for_display(&primary, ramp);
 }
 
 // NVAPI
@@ -47,7 +83,15 @@ type NvSetDvcLevel = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, level:
 type NvSetDvcLevelEx = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
 type NvGetDvcInfoEx = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
 
-fn nvapi_load() -> Result<(windows::Win32::Foundation::HMODULE, u32), String> {
+/// 从 device_id (如 "\\.\DISPLAY2") 提取显示器索引（0-based）
+fn display_index_from_device_id(device_id: Option<&str>) -> i32 {
+    device_id
+        .and_then(|id| id.chars().rev().take_while(|c| c.is_ascii_digit()).collect::<String>().chars().rev().collect::<String>().parse::<i32>().ok())
+        .map(|n| (n - 1).max(0)) // DISPLAY1 -> index 0, DISPLAY2 -> index 1
+        .unwrap_or(0)
+}
+
+fn nvapi_load_for_display(display_index: i32) -> Result<(windows::Win32::Foundation::HMODULE, u32), String> {
     unsafe {
         let lib = windows::Win32::System::LibraryLoader::LoadLibraryW(
             windows::core::w!("nvapi64.dll")
@@ -67,16 +111,20 @@ fn nvapi_load() -> Result<(windows::Win32::Foundation::HMODULE, u32), String> {
         if enum_ptr.is_null() { return Err("NvAPI_EnumNvidiaDisplayHandle not found".into()); }
         let enum_fn: NvEnumDisplayHandle = std::mem::transmute(enum_ptr);
         let mut handle: u32 = 0;
-        if enum_fn(0, &mut handle) != 0 { return Err("No NVIDIA display found".into()); }
+        if enum_fn(display_index, &mut handle) != 0 {
+            let _ = windows::Win32::Foundation::FreeLibrary(lib);
+            return Err(format!("No NVIDIA display at index {}", display_index));
+        }
 
         Ok((lib, handle))
     }
 }
 
 /// 读取驱动的 DVC 信息（min/max/default/current）
-fn nvapi_get_dvc_info() -> Result<(i32, i32, i32, i32), String> {
+fn nvapi_get_dvc_info(device_id: Option<&str>) -> Result<(i32, i32, i32, i32), String> {
     unsafe {
-        let (lib, handle) = nvapi_load()?;
+        let idx = display_index_from_device_id(device_id);
+        let (lib, handle) = nvapi_load_for_display(idx)?;
 
         let query_ptr = windows::Win32::System::LibraryLoader::GetProcAddress(
             lib, windows::core::s!("nvapi_QueryInterface"),
@@ -109,9 +157,10 @@ fn nvapi_get_dvc_info() -> Result<(i32, i32, i32, i32), String> {
     }
 }
 
-fn nvapi_set_dvc(level: i32) -> Result<(), String> {
+fn nvapi_set_dvc(level: i32, device_id: Option<&str>) -> Result<(), String> {
     unsafe {
-        let (lib, handle) = nvapi_load()?;
+        let idx = display_index_from_device_id(device_id);
+        let (lib, handle) = nvapi_load_for_display(idx)?;
 
         let query_ptr = windows::Win32::System::LibraryLoader::GetProcAddress(
             lib, windows::core::s!("nvapi_QueryInterface"),
@@ -189,7 +238,7 @@ fn calculate_lut(brightness: f64, contrast: f64, gamma: f64) -> [u16; 256] {
     lut
 }
 
-fn apply_gamma_ramp(brightness: i32, contrast: i32, gamma: f64) -> Result<(), String> {
+fn apply_gamma_ramp(device_id: &str, brightness: i32, contrast: i32, gamma: f64) -> Result<(), String> {
     // UI range -> WindowsDisplayAPI range
     let b = (brightness as f64 + 125.0) / 250.0;
     let c = (contrast as f64 + 82.0) / 164.0;
@@ -198,12 +247,12 @@ fn apply_gamma_ramp(brightness: i32, contrast: i32, gamma: f64) -> Result<(), St
     let lut = calculate_lut(b, c, g);
 
     // 在 ICC vcgt 基础上叠加调节：把 lut 作为索引映射应用到 icc_base
-    let icc_base = ICC_BASE_RAMP.lock().unwrap();
+    let icc_ramps = DISPLAY_ICC_RAMPS.lock().unwrap();
+    let icc_base = icc_ramps.as_ref().and_then(|m| m.get(device_id));
     let mut ramp = [0u16; 768];
     for i in 0..256 {
         for (ch, offset) in [(0usize, 0usize), (1, 256), (2, 512)] {
-            let adjusted = if let Some(base) = &*icc_base {
-                // lut[i] 是 0..65535 的调节系数，用它作为 base ramp 的查找索引
+            let adjusted = if let Some(base) = icc_base {
                 let idx = (lut[i] as usize * 255 / 65535).min(255);
                 base[ch][idx]
             } else {
@@ -212,55 +261,69 @@ fn apply_gamma_ramp(brightness: i32, contrast: i32, gamma: f64) -> Result<(), St
             ramp[offset + i] = adjusted;
         }
     }
-    drop(icc_base);
+    drop(icc_ramps);
 
     unsafe {
-        let hdc = windows::Win32::Graphics::Gdi::GetDC(None);
-        if hdc.is_invalid() { return Err("Failed to get display DC".into()); }
+        // 使用 CreateDCW 指定具体显示器
+        let device_w: Vec<u16> = device_id.encode_utf16().chain(std::iter::once(0)).collect();
+        let hdc = windows::Win32::Graphics::Gdi::CreateDCW(
+            windows::core::PCWSTR(device_w.as_ptr()),
+            None,
+            None,
+            None,
+        );
+        if hdc.is_invalid() {
+            return Err(format!("Failed to create DC for display: {}", device_id));
+        }
         let result = windows::Win32::UI::ColorSystem::SetDeviceGammaRamp(hdc, ramp.as_ptr() as *const _);
-        windows::Win32::Graphics::Gdi::ReleaseDC(None, hdc);
-        if result.as_bool() { Ok(()) } else { Err("SetDeviceGammaRamp failed".into()) }
+        let _ = windows::Win32::Graphics::Gdi::DeleteDC(hdc);
+        if result.as_bool() { Ok(()) } else { Err(format!("SetDeviceGammaRamp failed for {}", device_id)) }
     }
 }
 
 #[tauri::command]
-pub fn set_nvidia_brightness(_display: i32, value: i32) -> Result<(), String> {
-    let mut s = CURRENT_SETTINGS.lock().unwrap();
-    s.brightness = value;
-    let (b, c, g) = (s.brightness, s.contrast, s.gamma);
-    drop(s);
-    apply_gamma_ramp(b, c, g)
+pub fn set_nvidia_brightness(device_id: Option<String>, value: i32) -> Result<(), String> {
+    let did = resolve_display_id(device_id);
+    let s = update_settings(&did, |s| s.brightness = value);
+    apply_gamma_ramp(&did, s.brightness, s.contrast, s.gamma)
 }
 
 #[tauri::command]
-pub fn set_nvidia_contrast(_display: i32, value: i32) -> Result<(), String> {
-    let mut s = CURRENT_SETTINGS.lock().unwrap();
-    s.contrast = value;
-    let (b, c, g) = (s.brightness, s.contrast, s.gamma);
-    drop(s);
-    apply_gamma_ramp(b, c, g)
+pub fn set_nvidia_contrast(device_id: Option<String>, value: i32) -> Result<(), String> {
+    let did = resolve_display_id(device_id);
+    let s = update_settings(&did, |s| s.contrast = value);
+    apply_gamma_ramp(&did, s.brightness, s.contrast, s.gamma)
 }
 
 #[tauri::command]
-pub fn set_nvidia_gamma(_display: i32, value: f64) -> Result<(), String> {
-    let mut s = CURRENT_SETTINGS.lock().unwrap();
-    s.gamma = value;
-    let (b, c, g) = (s.brightness, s.contrast, s.gamma);
-    drop(s);
-    apply_gamma_ramp(b, c, g)
+pub fn set_nvidia_gamma(device_id: Option<String>, value: f64) -> Result<(), String> {
+    let did = resolve_display_id(device_id);
+    let s = update_settings(&did, |s| s.gamma = value);
+    apply_gamma_ramp(&did, s.brightness, s.contrast, s.gamma)
 }
 
 #[tauri::command]
-pub fn set_nvidia_digital_vibrance(_display: i32, value: i32) -> Result<(), String> {
-    CURRENT_SETTINGS.lock().unwrap().digital_vibrance = value;
-    // 驱动范围 0-100，UI 0-100，1:1 映射
-    nvapi_set_dvc(value.clamp(0, 100))
+pub fn set_nvidia_digital_vibrance(device_id: Option<String>, value: i32) -> Result<(), String> {
+    let did = resolve_display_id(device_id);
+    update_settings(&did, |s| s.digital_vibrance = value);
+    nvapi_set_dvc(value.clamp(0, 100), Some(&did))
+}
+
+/// 解析 device_id，fallback 到主显示器
+fn resolve_display_id(device_id: Option<String>) -> String {
+    device_id.unwrap_or_else(|| {
+        crate::icc::get_display_monitors()
+            .ok()
+            .and_then(|ms| ms.into_iter().find(|m| m.is_primary).map(|m| m.device_id))
+            .unwrap_or_else(|| "\\\\.\\DISPLAY1".to_string())
+    })
 }
 
 /// 启动时从驱动读取当前 DVC 实际值，同步到内存状态
 #[tauri::command]
-pub fn sync_dvc_from_driver() -> i32 {
-    match nvapi_get_dvc_info() {
+pub fn sync_dvc_from_driver(device_id: Option<String>) -> i32 {
+    let did = resolve_display_id(device_id);
+    match nvapi_get_dvc_info(Some(&did)) {
         Ok((min, max, default, current)) => {
             let range = max - min;
             let ui_value = if range > 0 {
@@ -268,20 +331,21 @@ pub fn sync_dvc_from_driver() -> i32 {
             } else {
                 50
             };
-            eprintln!("[DVC] min={} max={} default={} current={} => ui={}", min, max, default, current, ui_value);
-            CURRENT_SETTINGS.lock().unwrap().digital_vibrance = ui_value;
+            eprintln!("[DVC] display={} min={} max={} default={} current={} => ui={}", did, min, max, default, current, ui_value);
+            update_settings(&did, |s| s.digital_vibrance = ui_value);
             ui_value
         }
         Err(e) => {
-            eprintln!("[DVC] sync failed: {}", e);
+            eprintln!("[DVC] sync failed for {}: {}", did, e);
             50
         }
     }
 }
 
 #[tauri::command]
-pub fn get_dvc_default_ui_value() -> i32 {
-    match nvapi_get_dvc_info() {
+pub fn get_dvc_default_ui_value(device_id: Option<String>) -> i32 {
+    let did = resolve_display_id(device_id);
+    match nvapi_get_dvc_info(Some(&did)) {
         Ok((min, max, default, _)) => {
             let range = max - min;
             if range > 0 {
@@ -295,6 +359,7 @@ pub fn get_dvc_default_ui_value() -> i32 {
 }
 
 #[tauri::command]
-pub fn get_nvidia_settings() -> Result<NvidiaSettings, String> {
-    Ok(CURRENT_SETTINGS.lock().unwrap().clone())
+pub fn get_nvidia_settings(device_id: Option<String>) -> Result<NvidiaSettings, String> {
+    let did = resolve_display_id(device_id);
+    Ok(get_or_default_settings(&did))
 }

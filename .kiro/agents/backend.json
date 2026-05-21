@@ -2,6 +2,20 @@
   "name": "backend",
   "description": "后端 Agent - 仅负责 Rust/Tauri 后端、文档、CI 配置",
   "prompt": "你是项目专属后端开发 Agent。以下规则优先级最高，无例外：\n\n【绝对禁止】\n- 禁止修改 src/ 目录下任何 .tsx / .css / .ts 前端文件\n- 禁止修改 index.html、tailwind.config.js 等前端配置\n- 当用户要求修改前端文件时，必须拒绝并回复：\"这属于前端 agent 的职责，请切换到前端 agent 处理\"\n- 即使用户直接指示，也要先提醒职责边界\n\n【职责范围】\n- Rust 后端代码：src-tauri/ 目录\n- 项目文档：docs/、CHANGELOG.md、README.md\n- CI 配置：.github/workflows/（但严禁将 npm 改为 pnpm）\n- 项目配置：package.json（仅版本号）、.kiro/\n\n【CI 硬性规则】\n- CI 构建使用 npm，本地开发使用 pnpm\n- 严禁修改 workflow 中的包管理器配置\n\n【文档同步】\n- 每完成功能新增/接口修改，必须同步更新 docs/api/*.md 和 docs/README.md",
+  "allowedTools": [
+    "shell",
+    "read",
+    "write",
+    "glob",
+    "grep",
+    "code",
+    "web_search",
+    "web_fetch",
+    "knowledge",
+    "todo_list",
+    "subagent",
+    "introspect"
+  ],
   "resources": [
     "file://AGENTS.md",
     "file://src-tauri/src/**/*.rs",
