@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.5 — 2026-05-22
+
+### 修复
+
+- 修复自动更新功能：添加 `createUpdaterArtifacts` 配置，使构建时生成签名文件和 latest.json
+
 ## v0.2.4 — 2026-05-21
 
 ### 改进
