@@ -90,6 +90,24 @@ src-tauri/Cargo.toml       → version = "X.X.X"
 
 ### 5. 提交并推送代码
 
+> **⚠️ 提交前强制自检：lock 文件必须与 package.json 严格同步！**
+>
+> 这是 v0.2.6 踩过的坑（详见文末「踩坑记录」）。CI 用 `npm ci` 严格校验，任何 lock 缺失依赖节点的提交都会让 release workflow 在 `Install frontend dependencies` 步骤直接挂掉。
+>
+> **每次发布前必跑两个命令**：
+>
+> ```bash
+> # 1. 让 npm 把 package.json 新依赖的具体节点写进 lock（不会装 node_modules）
+> npm install --package-lock-only
+>
+> # 2. 模拟 CI 的 npm ci 严格校验，验证 lock 真正可用
+> npm ci --dry-run
+> ```
+>
+> 第 2 条若报 `EUSAGE` / `Missing: xxx@y.y.y from lock file`，**严禁继续**：先回头查 package.json 与 lock 是否一致，再修复。
+>
+> 修完后把 `package-lock.json` 一并加入暂存。
+
 ```bash
 git add -A
 git commit -m "release: vX.X.X - <一句话概括>"
@@ -139,7 +157,12 @@ CHANGELOG.md（唯一维护点）
 
 - **⚠️ 严禁修改 CI workflow 的包管理器配置** — 本地开发用 pnpm，但 CI（`.github/workflows/`）必须用 npm。pnpm 在 GitHub Actions 上有兼容性问题无法运行。绝对不要把 CI 里的 `npm ci` 改成 `pnpm install`，不要添加 `pnpm/action-setup`，不要动 workflow 文件中任何与包管理器相关的配置。
 - 两个 lock 文件共存：`pnpm-lock.yaml`（本地开发）+ `package-lock.json`（CI 构建）
-- 如果修改了 `package.json` 依赖，需要同时更新 `package-lock.json`：`npm install --package-lock-only`
+- **⚠️ 修改 `package.json` 依赖后必须同步 `package-lock.json`**（CI 用 `npm ci` 严格校验，缺一个节点就构建失败）：
+  ```bash
+  npm install --package-lock-only   # 同步 lock
+  npm ci --dry-run                  # 验证一致（必须无 EUSAGE 报错）
+  ```
+  本地开发用 pnpm 安装依赖时，`pnpm-lock.yaml` 会自动更新，但 `package-lock.json` 不会自动同步——这是最容易漏的点。
 - tag 必须以 `v` 开头（如 `v0.3.0`），否则不会触发 Release workflow
 - 如果构建失败需要重新触发：删除旧 tag 和 release，重新打 tag
   ```bash
@@ -149,3 +172,39 @@ CHANGELOG.md（唯一维护点）
   git tag vX.X.X
   git push origin vX.X.X
   ```
+
+## 踩坑记录
+
+### 2026-05-24 · v0.2.6 · `package-lock.json` 缺依赖节点导致 CI 失败
+
+**症状**
+
+- push tag `v0.2.6` 后，release workflow 在 `Install frontend dependencies` 步骤报错：
+  ```
+  npm error code EUSAGE
+  npm error `npm ci` can only install packages when your package.json and
+  package-lock.json or npm-shrinkwrap.json are in sync.
+  npm error Missing: @tauri-apps/plugin-opener@2.5.4 from lock file
+  ```
+- Deploy Docs workflow 同步失败（同一原因）。
+
+**根因**
+
+- 本次发布在 `package.json` 加了 3 个新依赖：`@tauri-apps/plugin-opener`、`react-markdown`、`@tailwindcss/typography`。
+- 本地用 pnpm 安装，`pnpm-lock.yaml` 自动更新；但 `package-lock.json` **没有手动同步**，缺失 `@tauri-apps/plugin-opener` 的具体安装节点。
+- 提交前没跑 `npm ci --dry-run` 校验，直接 push。
+- CI 用 `npm ci`（严格模式：lock 必须包含每个依赖的具体节点，否则拒绝安装），所以挂了。
+- 副诊断要点：`grep '"@tauri-apps/plugin-opener"' package-lock.json` 在 root deps 段能搜到（这只是 package.json 的回声），但 `node_modules/@tauri-apps/plugin-opener` 这个**实际包节点**不存在 → 这才是判断 lock 是否完整的真正标志。
+
+**修复**
+
+1. 本地跑 `npm install --package-lock-only` 自动补上缺失节点（10 行）。
+2. `npm ci --dry-run` 验证通过。
+3. 删除远端 tag `v0.2.6`（CI 失败时未生成 release，只删 tag 即可）。
+4. 提交 lock 修复 commit `fix(lock): add missing @tauri-apps/plugin-opener node` → push main → 重打 v0.2.6 tag → push tag。
+
+**预防措施**
+
+- 已在本文档第 5 步增加强制 `npm ci --dry-run` 前置校验。
+- 任何修改 `package.json` 依赖的 commit 必须同时更新 `package-lock.json`，否则 CI 必挂。
+- `npm install --package-lock-only` 显示 `up to date` ≠ lock 完整（它判断的是 root deps 段而非具体节点），必须用 `npm ci --dry-run` 才能真正校验。
