@@ -1,1 +1,1 @@
-【文档已完成同步更新】2026-05-21 — DVC数字振动支持多显示器，nvapi_set_dvc/nvapi_get_dvc_info按device_id枚举对应显示器handle
+【文档已完成同步更新】2026-05-24 — v0.2.6 集成 tauri-plugin-opener 插件、补全 updater/process/opener 权限；CHANGELOG 与 docs/README 已同步追加 v0.2.6 条目

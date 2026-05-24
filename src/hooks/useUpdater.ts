@@ -4,17 +4,37 @@ import { relaunch } from "@tauri-apps/plugin-process";
 
 export type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "done" | "error";
 
+const SNOOZE_KEY = "update_snooze_until";
+const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+
+function checkSnooze(): boolean {
+  const snoozeUntil = localStorage.getItem(SNOOZE_KEY);
+  if (!snoozeUntil) return false;
+  return Date.now() < parseInt(snoozeUntil, 10);
+}
+
+function setSnooze(): void {
+  localStorage.setItem(SNOOZE_KEY, String(Date.now() + THIRTY_DAYS));
+}
+
 export function useUpdater() {
   const [status, setStatus] = useState<UpdateStatus>("idle");
   const [version, setVersion] = useState("");
+  const [body, setBody] = useState("");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  const [snoozed, setSnoozed] = useState(() => checkSnooze());
 
   useEffect(() => {
     let cancelled = false;
 
     async function checkForUpdate() {
+      if (checkSnooze()) {
+        setSnoozed(true);
+        return;
+      }
+
       try {
         setStatus("checking");
         const update = await check();
@@ -22,6 +42,7 @@ export function useUpdater() {
 
         if (update) {
           setVersion(update.version);
+          setBody(update.body || "");
           setPendingUpdate(update);
           setStatus("available");
         } else {
@@ -68,5 +89,12 @@ export function useUpdater() {
     setPendingUpdate(null);
   }
 
-  return { status, version, progress, error, installUpdate, dismiss };
+  function snooze() {
+    setSnooze();
+    setSnoozed(true);
+    setStatus("idle");
+    setPendingUpdate(null);
+  }
+
+  return { status, version, body, progress, error, snoozed, installUpdate, dismiss, snooze };
 }

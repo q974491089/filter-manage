@@ -66,6 +66,19 @@
 
 ---
 
+### v0.2.6 — 2026-05-24 · 更新通知改造 + opener 集成
+
+更新提示 UI 升级为弹窗，新增 30 天 snooze；后端集成 `tauri-plugin-opener` 用于打开外部链接。
+
+| 功能 | 说明 | 文档 |
+|------|------|------|
+| opener 插件集成 | 注册 `tauri-plugin-opener`，前端通过 `@tauri-apps/plugin-opener` 调用 | [handoff/opener-frontend.md](./handoff/opener-frontend.md) |
+| 更新弹窗 | 自动更新提示由 Banner 改为 Modal，展示完整 release notes | — |
+| 更新 snooze | 用户可选择「30 天内不再提醒」 | — |
+| 权限补全 | `capabilities/default.json` 添加 `updater:default`、`process:allow-restart`、`opener:default` | — |
+
+---
+
 ## 固定参考文档
 
 | 文档 | 内容 |

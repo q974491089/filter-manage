@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for the app","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open","dialog:allow-save","dialog:allow-ask","dialog:allow-message","fs:default"]}}
+{"default":{"identifier":"default","description":"Default capabilities for the app","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open","dialog:allow-save","dialog:allow-ask","dialog:allow-message","fs:default","updater:default","process:allow-restart","opener:default"]}}

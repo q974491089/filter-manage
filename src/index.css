@@ -333,3 +333,28 @@ input[type="number"] {
 .focus-ring {
   @apply focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary;
 }
+
+/* Prose overrides for dark theme changelog */
+.prose {
+  --tw-prose-body: rgb(var(--color-on-surface-variant));
+  --tw-prose-headings: rgb(var(--color-on-surface));
+  --tw-prose-bold: rgb(var(--color-on-surface));
+  --tw-prose-links: rgb(var(--color-primary));
+  --tw-prose-bullets: rgb(var(--color-on-surface-variant));
+  --tw-prose-counters: rgb(var(--color-on-surface-variant));
+  --tw-prose-hr: rgb(var(--color-outline-variant));
+  --tw-prose-quotes: rgb(var(--color-on-surface-variant));
+  --tw-prose-quote-borders: rgb(var(--color-primary));
+}
+
+.dark .prose {
+  --tw-prose-body: rgb(var(--color-on-surface-variant));
+  --tw-prose-headings: rgb(var(--color-on-surface));
+  --tw-prose-bold: rgb(var(--color-on-surface));
+  --tw-prose-links: rgb(var(--color-primary));
+  --tw-prose-bullets: rgb(var(--color-on-surface-variant));
+  --tw-prose-counters: rgb(var(--color-on-surface-variant));
+  --tw-prose-hr: rgb(var(--color-outline-variant));
+  --tw-prose-quotes: rgb(var(--color-on-surface-variant));
+  --tw-prose-quote-borders: rgb(var(--color-primary));
+}

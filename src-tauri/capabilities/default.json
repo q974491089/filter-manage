@@ -9,6 +9,9 @@
     "dialog:allow-save",
     "dialog:allow-ask",
     "dialog:allow-message",
-    "fs:default"
+    "fs:default",
+    "updater:default",
+    "process:allow-restart",
+    "opener:default"
   ]
 }

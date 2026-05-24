@@ -5,7 +5,7 @@ import ColorAdjuster from "./components/ColorAdjuster";
 import PreviewImage from "./components/PreviewImage";
 import ConfigManager from "./components/ConfigManager";
 import SaveModal from "./components/SaveModal";
-import UpdateBanner from "./components/UpdateBanner";
+import UpdateModal from "./components/UpdateModal";
 import "./App.css";
 
 interface ColorConfig {
@@ -267,7 +267,7 @@ function App() {
 
   return (
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
-      <UpdateBanner />
+      <UpdateModal />
       {/* Header - Lumina Precision style */}
       <header data-name="header" className="bg-surface-container-low/80 backdrop-blur-md border-b border-outline-variant/20 flex items-center px-lg h-16 w-full z-50 fixed top-0">
         {/* Logo & Title */}
