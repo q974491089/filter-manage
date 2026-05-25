@@ -11,11 +11,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
+    "preview": "pnpm run build && wrangler dev",
     "tauri": "tauri",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "deploy": "pnpm run build && wrangler deploy"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
@@ -30,6 +31,7 @@
     "swiper": "^12.1.4"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.38.0",
     "@tailwindcss/typography": "^0.5.19",
     "@tauri-apps/cli": "^2.0.0",
     "@types/react": "^18.3.12",
@@ -40,6 +42,7 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.6.3",
     "vite": "^6.0.5",
-    "vitepress": "^1.6.4"
+    "vitepress": "^1.6.4",
+    "wrangler": "^4.94.0"
   }
 }

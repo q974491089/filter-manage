@@ -46,3 +46,9 @@ docs/.vitepress/dist/
 #key 
 *.key
 *.key.pub
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
