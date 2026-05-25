@@ -86,7 +86,7 @@ function PreviewImage({ showToast }: PreviewImageProps) {
   };
 
   return (
-    <div data-components="PreviewImage" className="flex-[1.5] flex flex-col min-h-0">
+    <div data-components="PreviewImage" className="flex-1 flex flex-col min-h-0">
       <div className="mb-md flex justify-between items-end">
         <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface font-medium">效果预览</h3>
         {imageSrc && (

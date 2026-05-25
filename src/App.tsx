@@ -6,6 +6,7 @@ import PreviewImage from "./components/PreviewImage";
 import ConfigManager from "./components/ConfigManager";
 import SaveModal from "./components/SaveModal";
 import UpdateModal from "./components/UpdateModal";
+import AboutModal from "./components/AboutModal";
 import "./App.css";
 
 interface ColorConfig {
@@ -42,6 +43,7 @@ function App() {
     const saved = localStorage.getItem("theme");
     return saved ? saved === "dark" : true;
   });
+  const [showAboutModal, setShowAboutModal] = useState(false);
   const [baseline, setBaseline] = useState({ brightness: 0, contrast: 0, gamma: 1.0, digitalVibrance: 50, iccProfile: "Default" });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -275,7 +277,13 @@ function App() {
           <img src="/favicon.png" alt="icon" className="w-8 h-8 rounded-md" />
           <div className="flex items-baseline gap-sm">
             <h1 className="font-headline-md text-headline-md font-medium text-primary">Filter Manage</h1>
-            <span className="font-label-sm text-label-sm text-on-surface-variant/60">v{__APP_VERSION__}</span>
+            <button
+              data-name="version-button"
+              onClick={() => setShowAboutModal(true)}
+              className="font-label-sm text-label-sm text-on-surface-variant/60 hover:text-primary underline-offset-2 hover:underline transition-colors"
+            >
+              v{__APP_VERSION__}
+            </button>
           </div>
         </div>
 
@@ -359,7 +367,7 @@ function App() {
       {/* Main Content */}
       <main data-name="main-content" className="pt-16 h-screen overflow-hidden">
         <div className="grid grid-cols-12 h-full gap-md p-md">
-          <div data-name="profile-panel" className="col-span-3 flex flex-col h-full">
+          <div data-name="profile-panel" className="col-span-3 flex flex-col min-h-0">
             <ProfileList
               activeProfile={activeProfile}
               onProfileSelect={handleProfileChange}
@@ -367,7 +375,7 @@ function App() {
               selectedDeviceId={selectedDeviceId}
             />
           </div>
-          <div data-name="adjuster-panel" className="col-span-5 flex flex-col h-full">
+          <div data-name="adjuster-panel" className="col-span-5 flex flex-col min-h-0 overflow-hidden">
             <ColorAdjuster
               brightness={brightness}
               contrast={contrast}
@@ -383,7 +391,7 @@ function App() {
               onDeviceChange={setSelectedDeviceId}
             />
           </div>
-          <div data-name="preview-config-panel" className="col-span-4 flex flex-col h-full gap-gutter">
+          <div data-name="preview-config-panel" className="col-span-4 flex flex-col min-h-0 overflow-hidden gap-gutter">
             <PreviewImage showToast={showToast} />
             <ConfigManager
               configs={configs}
@@ -400,6 +408,11 @@ function App() {
         onClose={() => setShowSaveModal(false)}
         onSave={handleSaveCurrent}
         loading={loading}
+      />
+
+      <AboutModal
+        open={showAboutModal}
+        onClose={() => setShowAboutModal(false)}
       />
     </div>
   );

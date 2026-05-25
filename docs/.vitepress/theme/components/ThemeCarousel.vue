@@ -3,7 +3,7 @@
     <div class="compare-container" ref="containerRef">
       <img src="/preview/dark-mode.png" alt="暗色模式" class="compare-img" />
       <div class="light-overlay" :style="{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }">
-        <img src="/preview/PixPin_2026-05-17_05-59-45.png" alt="亮色模式" class="compare-img light-img" />
+        <img src="/preview/light-mode.png" alt="亮色模式" class="compare-img light-img" />
       </div>
       <div class="slider-line" :style="{ left: sliderPosition + '%' }" @mousedown="startDrag">
         <div class="slider-handle">

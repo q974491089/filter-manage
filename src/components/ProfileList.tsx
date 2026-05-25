@@ -131,7 +131,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
 
   if (loading) {
     return (
-      <div data-components="ProfileList">
+      <div data-components="ProfileList" className="flex flex-col min-h-0 overflow-hidden">
         <div className="mb-md flex justify-between items-end">
           <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">ICC 配置文件</h3>
         </div>
@@ -150,7 +150,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
 
   if (error) {
     return (
-      <div data-components="ProfileList">
+      <div data-components="ProfileList" className="flex flex-col min-h-0 overflow-hidden">
         <div className="mb-md flex justify-between items-end">
           <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">ICC 配置文件</h3>
         </div>
@@ -170,7 +170,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
   }
 
   return (
-    <div data-components="ProfileList">
+    <div data-components="ProfileList" className="flex flex-col min-h-0 overflow-hidden">
       <div className="mb-md flex justify-between items-center">
         <div className="flex items-baseline gap-sm">
           <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">ICC 配置文件</h3>
