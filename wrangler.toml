@@ -2,4 +2,4 @@ name = "filter-manage"
 compatibility_date = "2024-01-01"
 
 [assets]
-directory = "docs/.vitepress/dist"
+directory = "dist-docs"

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  outDir: '../dist-docs',
   title: 'Filter Manage - ICC配置文件管理 & NVIDIA颜色设置工具',
   description: 'Windows 桌面应用，一键切换 ICC 颜色配置文件，精细调节 NVIDIA 显卡亮度、对比度、伽马、数字振动(Digital Vibrance)，支持配置预设保存与游戏模式快速切换。免费开源的显卡颜色管理器。',
   base: '/',
