@@ -45,4 +45,4 @@ docs/.vitepress/dist/
 
 #key 
 *.key
-*.key.pub
+*.key.pub.antigravitycli/
