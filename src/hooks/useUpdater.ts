@@ -37,19 +37,23 @@ export function useUpdater() {
 
       try {
         setStatus("checking");
+        console.log("[Updater] checking for updates...");
         const update = await check();
         if (cancelled) return;
 
         if (update) {
+          console.log("[Updater] update available:", update.version);
           setVersion(update.version);
           setBody(update.body || "");
           setPendingUpdate(update);
           setStatus("available");
         } else {
+          console.log("[Updater] no update available");
           setStatus("idle");
         }
       } catch (e) {
         if (cancelled) return;
+        console.error("[Updater] check failed:", e);
         setError(String(e));
         setStatus("error");
       }
@@ -96,5 +100,30 @@ export function useUpdater() {
     setPendingUpdate(null);
   }
 
-  return { status, version, body, progress, error, snoozed, installUpdate, dismiss, snooze };
+  async function checkForUpdate(): Promise<"available" | "latest" | "error"> {
+    try {
+      setStatus("checking");
+      console.log("[Updater] manual check...");
+      const update = await check();
+      if (update) {
+        console.log("[Updater] manual: update available:", update.version);
+        setVersion(update.version);
+        setBody(update.body || "");
+        setPendingUpdate(update);
+        setStatus("available");
+        return "available";
+      } else {
+        console.log("[Updater] manual: no update available");
+        setStatus("idle");
+        return "latest";
+      }
+    } catch (e) {
+      console.error("[Updater] manual check failed:", e);
+      setError(String(e));
+      setStatus("error");
+      return "error";
+    }
+  }
+
+  return { status, version, body, progress, error, snoozed, installUpdate, dismiss, snooze, checkForUpdate };
 }

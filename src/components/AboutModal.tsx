@@ -1,15 +1,35 @@
+import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 interface AboutModalProps {
   open: boolean;
   onClose: () => void;
+  onCheckUpdate: () => Promise<"available" | "latest" | "error">;
 }
 
-function AboutModal({ open, onClose }: AboutModalProps) {
+function AboutModal({ open, onClose, onCheckUpdate }: AboutModalProps) {
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
   if (!open) return null;
 
   const handleOpenWebsite = () => {
     openUrl("https://filter-manage.6ya.site/");
+  };
+
+  const handleCheckUpdate = async () => {
+    setChecking(true);
+    setCheckError(null);
+    setToastMsg(null);
+    const result = await onCheckUpdate();
+    if (result === "error") {
+      setCheckError("检查失败，请检查网络后重试");
+    } else if (result === "latest") {
+      setCheckError(null);
+      setToastMsg("已是最新版本");
+      setTimeout(() => setToastMsg(null), 3000);
+    }
+    setChecking(false);
   };
 
   return (
@@ -21,8 +41,14 @@ function AboutModal({ open, onClose }: AboutModalProps) {
       <div
         data-name="about-modal"
         onClick={(e) => e.stopPropagation()}
-        className="bg-surface-container rounded-2xl shadow-2xl border border-outline-variant/20 w-[420px] max-w-[90vw] overflow-hidden"
+        className="bg-surface-container rounded-2xl shadow-2xl border border-outline-variant/20 w-[420px] max-w-[90vw] overflow-hidden relative"
       >
+        {/* Toast */}
+        {toastMsg && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 px-md py-sm rounded-md bg-primary/90 text-on-primary font-label-md text-label-md shadow-lg backdrop-blur-sm">
+            {toastMsg}
+          </div>
+        )}
         {/* Header with icon */}
         <div className="flex flex-col items-center pt-8 pb-4">
           <img src="/favicon.png" alt="icon" className="w-16 h-16 rounded-2xl shadow-lg mb-4" />
@@ -50,6 +76,25 @@ function AboutModal({ open, onClose }: AboutModalProps) {
             <span className="material-symbols-outlined text-[18px]">language</span>
             访问官网
           </button>
+          <button
+            data-name="check-update-button"
+            onClick={handleCheckUpdate}
+            disabled={checking}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-surface-variant/50 text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/80 transition-colors disabled:opacity-50"
+          >
+            {checking ? (
+              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : (
+              <span className="material-symbols-outlined text-[18px]">system_update</span>
+            )}
+            {checking ? "检查中..." : "检查更新"}
+          </button>
+          {checkError && (
+            <p className="text-center text-error text-label-sm font-label-sm">{checkError}</p>
+          )}
           <button
             data-name="close-about-button"
             onClick={onClose}

@@ -7,6 +7,7 @@ import ConfigManager from "./components/ConfigManager";
 import SaveModal from "./components/SaveModal";
 import UpdateModal from "./components/UpdateModal";
 import AboutModal from "./components/AboutModal";
+import { useUpdater } from "./hooks/useUpdater";
 import "./App.css";
 
 interface ColorConfig {
@@ -44,6 +45,7 @@ function App() {
     return saved ? saved === "dark" : true;
   });
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const { checkForUpdate } = useUpdater();
   const [baseline, setBaseline] = useState({ brightness: 0, contrast: 0, gamma: 1.0, digitalVibrance: 50, iccProfile: "Default" });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -413,6 +415,7 @@ function App() {
       <AboutModal
         open={showAboutModal}
         onClose={() => setShowAboutModal(false)}
+        onCheckUpdate={checkForUpdate}
       />
     </div>
   );
