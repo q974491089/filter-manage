@@ -27,6 +27,7 @@ export default defineConfig({
       { text: '首页', link: '/' },
       { text: '使用指南', link: '/guide/' },
       { text: '更新日志', link: '/changelog' },
+      { text: '交流反馈', link: '/community' },
     ],
     sidebar: [
       {
@@ -42,6 +43,7 @@ export default defineConfig({
         text: '其他',
         items: [
           { text: '更新日志', link: '/changelog' },
+          { text: '交流反馈', link: '/community' },
         ]
       }
     ],
