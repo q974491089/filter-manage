@@ -1,3 +1,9 @@
+/* Fix header background and border on non-home pages */
+.VPNavBar:not(.home) {
+  background-color: var(--vp-nav-bg-color) !important;
+  border-bottom: 1px solid var(--vp-c-divider) !important;
+}
+
 /* Feature cards styling for light mode */
 .VPFeature {
   transition: all 0.3s ease;
