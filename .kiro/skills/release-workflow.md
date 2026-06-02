@@ -39,7 +39,49 @@
 - 变更描述
 ```
 
-### 3. 更新版本号（同步所有位置）
+### 3. 完善项目迭代记录（Agent 视角 · 必须！）
+
+> **⚠️ 这是给 Agent 看的完整技术记录，必须比 CHANGELOG 更详尽，不可跳过。**
+>
+> - `CHANGELOG.md` → 给**人**看：精简、面向用户、只说「变了什么」。
+> - `docs/README.md` 迭代记录 → 给 **Agent** 看：完整、面向技术，让后续 Agent 能快速知道「哪个版本动了什么、**为什么动**、**改了哪些文件**」。
+
+在 `docs/README.md` 的「迭代记录」中，为本次发布版本新开（或补全已有的）一个 `### vX.X.X` 块，**把本次所有改动一次性整合进去**。来源：
+
+- `git log <上次 tag>..HEAD` — 本次所有 commit（**前端、后端、配置、CI 全都要扫**）
+- `docs/handoff/*.md` — 本次涉及的前端交接内容
+- 开发过程中零散追加的迭代条目（合并去重）
+- 用户口述补充
+
+**关键要求：前端 + 后端改动都要写全，不能只记后端。** 每条改动覆盖：
+
+| 列 | 内容 |
+|----|------|
+| 类型 | 新功能 / 修复 / 改进 / 重构 |
+| 端 | 前端 / 后端 / 配置 / CI |
+| 说明 | 改了什么；**修复类必须写一句话根因** |
+| 涉及文件 | 关键文件路径 |
+| 文档 | 关联的 api/handoff 文档链接 |
+
+示例（注意比 CHANGELOG 多了「端 / 根因 / 涉及文件」）：
+
+```markdown
+### vX.X.X — YYYY-MM-DD · <主题>
+
+<一句话概述>
+
+| 类型 | 端 | 说明 | 涉及文件 | 文档 |
+|------|----|------|---------|------|
+| 修复 | 后端+配置 | 托盘菜单运行时不刷新：conf 重复 trayIcon（默认 id 也是 main）与代码托盘冲突 | tray.rs, tauri.conf.json | [config.md](./api/config.md) |
+| 修复 | 后端 | list_configs 误把 __settings__ 列为方案 | config.rs | [config.md](./api/config.md) |
+| 新功能 | 前端 | 显示适配页支持勾选托盘展示方案 | SettingsModal.tsx | [handoff/...](./handoff/) |
+```
+
+- **不修改历史版本块**，只新增/补全当前版本块
+- 与 CHANGELOG 的本质区别：CHANGELOG 不写根因和文件路径，迭代记录**必须写**
+- 完成后这一步的内容是第 5 步 CHANGELOG 的精简来源（删掉根因/文件路径即可）
+
+### 4. 更新版本号（同步所有位置）
 
 ```bash
 # 需要同步更新的文件：
@@ -59,7 +101,7 @@ src-tauri/Cargo.toml       → version = "X.X.X"
 > ```
 > 三处输出的版本号必须相同，且等于即将打的 tag（去掉 `v` 前缀）。
 
-### 4. 更新 CHANGELOG.md（必须！）
+### 5. 更新 CHANGELOG.md（必须！）
 
 > **⚠️ 此步骤不可跳过。** CHANGELOG.md 是唯一的变更记录来源，同时服务于：
 > - GitHub Release 发布说明（CI 自动提取对应版本段落）
@@ -88,7 +130,7 @@ src-tauri/Cargo.toml       → version = "X.X.X"
 - 分类按需使用，没有的不写
 - 不修改历史版本块
 
-### 5. 提交并推送代码
+### 6. 提交并推送代码
 
 > **⚠️ 提交前强制自检：lock 文件必须与 package.json 严格同步！**
 >
@@ -114,7 +156,7 @@ git commit -m "release: vX.X.X - <一句话概括>"
 git push
 ```
 
-### 6. 打 tag 触发构建
+### 7. 打 tag 触发构建
 
 ```bash
 git tag vX.X.X
@@ -125,7 +167,7 @@ git push origin vX.X.X
 - **Release workflow**（`.github/workflows/release.yml`）：在 Windows 环境构建 Tauri 应用，生成 `.exe` / `.msi` 安装包，创建 GitHub Release 并附加安装包，Release body 自动从 CHANGELOG.md 提取
 - **Docs workflow**（`.github/workflows/docs.yml`）：如果 `docs/` 目录有变更，自动构建并部署 VitePress 文档站
 
-### 7. 验证发布结果
+### 8. 验证发布结果
 
 ```bash
 # 检查 CI 状态
@@ -143,9 +185,11 @@ gh release view vX.X.X
 ## 文件关系图
 
 ```
-CHANGELOG.md（唯一维护点）
-├── → GitHub Release body（CI 自动提取当前版本段落）
-└── → 文档站 /changelog 页面（VitePress @include 引用）
+变更记录（双轨，发布前都要更新）
+├── docs/README.md 迭代记录 ── 给 Agent 看：完整，含类型/端/根因/涉及文件
+└── CHANGELOG.md ───────────── 给人看：精简，从迭代记录删根因/文件路径而来
+        ├── → GitHub Release body（CI 自动提取当前版本段落）
+        └── → 文档站 /changelog 页面（VitePress @include 引用）
 
 版本号（三处同步）
 ├── src-tauri/tauri.conf.json
@@ -205,6 +249,6 @@ CHANGELOG.md（唯一维护点）
 
 **预防措施**
 
-- 已在本文档第 5 步增加强制 `npm ci --dry-run` 前置校验。
+- 已在本文档第 6 步增加强制 `npm ci --dry-run` 前置校验。
 - 任何修改 `package.json` 依赖的 commit 必须同时更新 `package-lock.json`，否则 CI 必挂。
 - `npm install --package-lock-only` 显示 `up to date` ≠ lock 完整（它判断的是 root deps 段而非具体节点），必须用 `npm ci --dry-run` 才能真正校验。

@@ -355,7 +355,7 @@ fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
     Some(ramp)
 }
 
-fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -> Result<(), String> {
+pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -> Result<(), String> {
     use windows::Win32::UI::ColorSystem::*;
     use windows::core::PCWSTR;
 
@@ -482,30 +482,34 @@ pub fn get_current_icc_profile() -> Result<String, String> {
     Ok(icm_profile)
 }
 
+/// 同步恢复系统默认 sRGB 配置（清除 vcgt ramp），并将 DVC 复位为 50。
+/// 供托盘/快捷键等同步上下文直接调用（避免在回调里 block_on 跑 async）。
+pub(crate) fn restore_default_icc(device_id: Option<String>) -> Result<(), String> {
+    let color_dir = PathBuf::from("C:\\Windows\\System32\\spool\\drivers\\color");
+
+    let default_profile = [
+        "sRGB Color Space Profile.icm",
+        "sRGB IEC61966-2.1.icc",
+    ]
+    .iter()
+    .map(|name| color_dir.join(name))
+    .find(|p| p.exists())
+    .ok_or("Default sRGB profile not found".to_string())?;
+
+    let profile_path = default_profile.to_string_lossy().to_string();
+    eprintln!("ICC: Restoring default = {}", profile_path);
+
+    apply_icc_profile(&profile_path, device_id.clone())?;
+
+    // 恢复数字震动为 NVIDIA 面板默认 50%
+    crate::nvidia::set_nvidia_digital_vibrance(device_id, 50)
+}
+
 #[tauri::command]
 pub async fn restore_default_icc_profile(device_id: Option<String>) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let color_dir = PathBuf::from("C:\\Windows\\System32\\spool\\drivers\\color");
-
-        let default_profile = [
-            "sRGB Color Space Profile.icm",
-            "sRGB IEC61966-2.1.icc",
-        ]
-        .iter()
-        .map(|name| color_dir.join(name))
-        .find(|p| p.exists())
-        .ok_or("Default sRGB profile not found".to_string())?;
-
-        let profile_path = default_profile.to_string_lossy().to_string();
-        eprintln!("ICC: Restoring default = {}", profile_path);
-
-        apply_icc_profile(&profile_path, device_id.clone())?;
-
-        // 恢复数字震动为NVIDIA面板默认50%（DVC=31）
-        crate::nvidia::set_nvidia_digital_vibrance(device_id, 50)
-    })
-    .await
-    .map_err(|e| format!("Task join error: {}", e))?
+    tauri::async_runtime::spawn_blocking(move || restore_default_icc(device_id))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// 用资源管理器打开系统 ICC 目录

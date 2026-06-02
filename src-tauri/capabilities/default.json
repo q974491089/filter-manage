@@ -5,6 +5,7 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-hide",
     "dialog:allow-open",
     "dialog:allow-save",
     "dialog:allow-ask",
@@ -12,6 +13,9 @@
     "fs:default",
     "updater:default",
     "process:allow-restart",
-    "opener:default"
+    "process:allow-exit",
+    "opener:default",
+    "global-shortcut:default",
+    "autostart:default"
   ]
 }

@@ -20,6 +20,7 @@ impl Default for NvidiaSettings {
 static DISPLAY_SETTINGS: Mutex<Option<HashMap<String, NvidiaSettings>>> = Mutex::new(None);
 static DISPLAY_ICC_RAMPS: Mutex<Option<HashMap<String, [[u16; 256]; 3]>>> = Mutex::new(None);
 
+#[allow(dead_code)]
 fn get_settings_map() -> std::sync::MutexGuard<'static, Option<HashMap<String, NvidiaSettings>>> {
     DISPLAY_SETTINGS.lock().unwrap()
 }
@@ -51,6 +52,7 @@ pub fn set_icc_base_ramp_for_display(device_id: &str, ramp: Option<[[u16; 256]; 
 }
 
 /// 兼容旧调用：设置主显示器的 ICC base ramp
+#[allow(dead_code)]
 pub fn set_icc_base_ramp(ramp: Option<[[u16; 256]; 3]>) {
     // 找主显示器 device_id，fallback 到 \\.\DISPLAY1
     let primary = crate::icc::get_display_monitors()

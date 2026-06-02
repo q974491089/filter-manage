@@ -6,14 +6,14 @@
 
 1. **严格职责隔离** — 仅编写后端业务代码（Rust / Tauri 命令），禁止修改任何前端页面、组件、样式相关文件（`src/` 目录下所有 `.tsx` / `.ts` / `.css` 文件）。包括但不限于：创建、编辑、删除前端组件、hooks、样式文件。**无论用户是否要求完整实现，前端代码一律不碰。**
 
-6. **前端交接规范** — 当后端改动需要前端配合时（如新增插件、新增接口、变更调用方式），必须在 `docs/handoff/` 目录下创建交接文档，格式如下：
+6. **前端交接规范** — 当后端改动需要前端配合时（如新增插件、新增接口、变更调用方式），必须在 `.docs/handoff/` 目录下创建交接文档，格式如下：
    - 文件名：`<功能名>-frontend.md`
    - 内容包含：后端已完成的改动清单、前端需要安装的依赖、前端需要实现的代码（含完整示例）、行为说明
    - **绝不自行创建前端文件**，只提供文档由用户转交前端 Agent 执行
 
 2. **文档强制同步** — 每完成任意功能新增、接口修改、参数调整、逻辑改动，无论改动大小，必须第一时间同步更新以下两份文档：
-   - `docs/api/<module>.md` — 对应模块的接口文档（标注新增/修改/删除，末尾加日期）
-   - `docs/README.md` — 项目迭代目录（在当前版本块追加一行，不修改历史块）
+   - `.docs/api/<module>.md` — 对应模块的接口文档（标注新增/修改/删除，末尾加日期）
+   - `.docs/README.md` — 项目迭代目录（在当前版本块追加一行，不修改历史块）
 
 3. **变更描述完整** — 更新文档时清晰写明本次变更内容，标注新增、修改、删减的接口与字段，不遗漏任何细微调整。
 
@@ -22,9 +22,14 @@
    【文档已完成同步更新】YYYY-MM-DD — <本次变更简述>
    ```
 
-5. **文档规范统一** — 所有接口按 `docs/api/icc.md` 的格式书写：命令名、参数类型、返回值、代码示例、日期标注。
+5. **文档规范统一** — 所有接口按 `.docs/api/icc.md` 的格式书写：命令名、参数类型、返回值、代码示例、日期标注。
 
 ## Tool Usage Preferences
+
+### Code Reading & Navigation
+- **优先使用 codegraph** 系列工具（`codegraph_context`、`codegraph_search`、`codegraph_explore`、`codegraph_trace` 等）读取和理解代码
+- codegraph 不够用时，降级使用内置的 `code`、`read`、`grep` 等工具
+- 代码导航优先级：codegraph > code（AST） > read/grep
 
 ### Search & Research
 - **优先使用 ctx7 技能** (`npx ctx7@latest`) 查询官方文档（API 语法、配置、版本迁移等）
@@ -32,6 +37,7 @@
 - 不要使用 `WebSearch`，统一使用 Tavily
 
 ### General Rules
+- 代码阅读优先级：codegraph > code > read/grep
 - 查询文档优先级：ctx7 > Tavily > WebSearch
 - 遇到不熟悉的技术或 API，先查文档再写代码
 
@@ -112,15 +118,17 @@ For multi-step tasks, state a brief plan:
 
 ## Documentation Maintenance
 
-**Rule: 每次新增或修改后端接口后，必须同步更新 `docs/` 文档。**
+**Rule: 每次新增或修改后端接口后，必须同步更新 `.docs/` 文档。**
 
 ### 文档结构
 
 ```
-docs/
+.docs/
 ├── README.md              # 项目总入口（功能模块简介 + 文档导航）
 ├── architecture.md        # 技术栈、项目结构、数据流
 ├── frontend-guide.md      # 前端组件结构 + 新功能接入清单
+├── handoff/               # 前端交接文档
+├── plans/                 # 功能实现计划
 └── api/
     ├── icc.md             # ICC 管理接口（icc.rs）
     ├── nvidia.md          # NVIDIA 颜色接口（nvidia.rs）
@@ -131,13 +139,13 @@ docs/
 
 | 操作 | 需要更新的文档 |
 |------|--------------|
-| 新增 Tauri 命令 | 对应 `docs/api/*.md`，标注 `新增于：YYYY-MM-DD`；在 `docs/README.md` 当前迭代版本下追加一行 |
-| 修改命令签名/行为 | 对应 `docs/api/*.md`，更新参数/返回值说明；在 `docs/README.md` 当前迭代版本下追加一行 |
-| 删除命令 | 对应 `docs/api/*.md` 删除该条目；在 `docs/README.md` 当前迭代版本下追加一行 |
-| 新增业务模块（新 .rs 文件） | 新建 `docs/api/<module>.md`；在 `docs/README.md` 固定参考文档表格中添加导航 |
-| 影响前端接入方式的变更 | 同步更新 `docs/frontend-guide.md` |
+| 新增 Tauri 命令 | 对应 `.docs/api/*.md`，标注 `新增于：YYYY-MM-DD`；在 `.docs/README.md` 当前迭代版本下追加一行 |
+| 修改命令签名/行为 | 对应 `.docs/api/*.md`，更新参数/返回值说明；在 `.docs/README.md` 当前迭代版本下追加一行 |
+| 删除命令 | 对应 `.docs/api/*.md` 删除该条目；在 `.docs/README.md` 当前迭代版本下追加一行 |
+| 新增业务模块（新 .rs 文件） | 新建 `.docs/api/<module>.md`；在 `.docs/README.md` 固定参考文档表格中添加导航 |
+| 影响前端接入方式的变更 | 同步更新 `.docs/frontend-guide.md` |
 
-### docs/README.md 迭代目录格式
+### .docs/README.md 迭代目录格式
 
 ```markdown
 ### v<版本> — YYYY-MM-DD · <本次迭代主题>
@@ -174,3 +182,4 @@ Skills are located in `.kiro/skills/`. Before starting any task, check if a rele
 | `release-workflow.md` | 发布新版本（用户说"发布"、"发版"、"release"时） |
 
 **Rule**: If there's even a 1% chance a skill applies, read it first.
+

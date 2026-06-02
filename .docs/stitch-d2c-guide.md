@@ -187,7 +187,7 @@ fontFamily: {
 
 ---
 
-## 设计系统颜色快速参考 (Lumina Pro)
+## 设计系统颜色快速参考 (Filter Manage)
 
 ```
 Background:     #111317

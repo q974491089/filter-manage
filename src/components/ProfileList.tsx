@@ -39,8 +39,6 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
 
   useEffect(() => {
     loadData();
-    window.addEventListener("focus", loadData);
-    return () => window.removeEventListener("focus", loadData);
   }, [loadData]);
 
   useEffect(() => {

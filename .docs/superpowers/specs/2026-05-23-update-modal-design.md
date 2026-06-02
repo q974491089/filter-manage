@@ -16,7 +16,7 @@
 
 - 从固定顶部横幅改为居中模态弹窗
 - z-index 提升到 `z-[100]`
-- 使用 Lumina Pro 设计系统的 Glassmorphism 风格
+- 使用 Glassmorphism 设计风格
 - 添加 "30天不再提示" 勾选框
 
 **UI 结构：**
@@ -94,7 +94,7 @@ function setSnooze(): void {
 ## Success Criteria
 
 1. 更新弹窗在 header 之上显示（z-index > 50）
-2. 弹窗样式符合 Lumina Pro 设计规范
+2. 弹窗样式符合设计规范
 3. 勾选"30天不再提示"后，30天内不再弹出更新提醒
 4. 静默期到期后，恢复更新检查
 5. 下载进度条正常显示

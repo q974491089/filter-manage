@@ -1,12 +1,5 @@
 {
   "mcpServers": {
-    "tavily": {
-      "command": "npx",
-      "args": ["-y", "tavily-mcp"],
-      "env": {
-        "TAVILY_API_KEY": "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"
-      }
-    },
     "codegraph": {
       "command": "cmd.exe",
       "args": [
@@ -16,7 +9,8 @@
         "--mcp",
         "--path",
         "C:\\Users\\myuser\\Projects\\filter-manage"
-      ]
+      ],
+      "timeout": 120000
     }
   }
 }

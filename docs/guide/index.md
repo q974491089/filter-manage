@@ -12,7 +12,7 @@ Filter Manage 是一个 Windows 桌面应用程序，用于管理 ICC 颜色配�
 
 ## 主题系统
 
-Filter Manage 采用 **Lumina Precision** 设计语言，提供精致的视觉体验：
+Filter Manage 采用精致的设计语言，提供优质的视觉体验：
 
 ### 亮色模式
 - 清新明亮的白色基调

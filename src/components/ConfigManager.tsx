@@ -12,6 +12,7 @@ interface ColorConfig {
 
 interface ConfigManagerProps {
   configs: string[];
+  selectedConfig: string;
   onConfigLoad: (config: ColorConfig) => void;
   onConfigsChange: () => void;
   showToast: (type: "success" | "error", text: string) => void;
@@ -19,6 +20,7 @@ interface ConfigManagerProps {
 
 function ConfigManager({
   configs,
+  selectedConfig,
   onConfigLoad,
   onConfigsChange,
   showToast,
@@ -99,15 +101,26 @@ function ConfigManager({
         ) : (
           <div className="space-y-sm">
             {configs.map((name) => {
+              const isActive = selectedConfig === name;
               return (
                 <div
                   key={name}
                   onClick={() => handleLoad(name)}
-                  className="flex items-center justify-between p-sm bg-primary/8 hover:bg-primary/15 rounded-lg cursor-pointer transition-all group border border-primary/10 hover:border-primary/30"
+                  className={`flex items-center justify-between p-sm rounded-lg cursor-pointer transition-all group border ${
+                    isActive
+                      ? "bg-primary/15 border-primary/40"
+                      : "bg-primary/8 hover:bg-primary/15 border-primary/10 hover:border-primary/30"
+                  }`}
                 >
                   <div className="flex items-center gap-md">
                     {renderIcon({ name })}
                     <span className="font-label-md text-label-md text-on-surface font-medium">{name}</span>
+                    {isActive && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-primary/20 text-primary rounded-full text-[10px] font-medium">
+                        <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                        正在应用
+                      </span>
+                    )}
                   </div>
                   <button
                     onClick={(e) => handleDelete(e, name)}

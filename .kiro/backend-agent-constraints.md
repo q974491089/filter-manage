@@ -12,3 +12,11 @@
 - 前端 Agent（另一个 CLI）：React 组件、样式、页面布局
 
 绝不越权。
+
+【环境硬性规则 - 依赖安装与构建】
+
+本项目是 Windows 项目（WSL 编辑 + Windows 构建）。
+
+- 安装依赖（`npm install` / `pnpm add` / 等）必须在 **Windows PowerShell** 中执行，**禁止在 WSL 环境直接安装**。
+- 构建 / `cargo build` / `cargo check` / `npm run tauri` 等同样在 Windows 侧执行；WSL 缺少 GTK 等系统库，无法也不应在 WSL 跑这些。
+- WSL 侧仅用于编辑代码、读代码、改文档；验证编译以 Windows 构建结果为准。

@@ -1,6 +1,6 @@
 [package]
 name = "filter-manage"
-version = "0.2.8"
+version = "0.2.9"
 description = "ICC Filter & NVIDIA Color Settings Manager"
 authors = ["you"]
 edition = "2021"
@@ -13,12 +13,14 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"
@@ -28,4 +30,6 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Gdi",
     "Win32_System_LibraryLoader",
     "Win32_UI_ColorSystem",
+    "UI_Notifications",
+    "Data_Xml_Dom",
 ] }

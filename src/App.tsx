@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
+import { exit } from "@tauri-apps/plugin-process";
 import ProfileList from "./components/ProfileList";
 import ColorAdjuster from "./components/ColorAdjuster";
 import PreviewImage from "./components/PreviewImage";
@@ -7,6 +10,8 @@ import ConfigManager from "./components/ConfigManager";
 import SaveModal from "./components/SaveModal";
 import UpdateModal from "./components/UpdateModal";
 import AboutModal from "./components/AboutModal";
+import SettingsModal from "./components/SettingsModal";
+import ClosePromptModal from "./components/ClosePromptModal";
 import { useUpdater } from "./hooks/useUpdater";
 import "./App.css";
 
@@ -27,6 +32,14 @@ interface DisplayMonitor {
   is_primary: boolean;
 }
 
+interface AppSettings {
+  close_to_tray: boolean | null;  // null=未选择，true=最小化到托盘，false=直接关闭
+  close_prompted: boolean;
+  autostart: boolean;
+  tray_presets: string[];
+  shortcuts: { shortcut: string; config_name: string }[];
+}
+
 function App() {
   const [activeProfile, setActiveProfile] = useState<string>("Default");
   const [brightness, setBrightness] = useState(0);
@@ -40,11 +53,18 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [dark, setDark] = useState(() => {
-    const saved = localStorage.getItem("theme");
-    return saved ? saved === "dark" : true;
+  type ThemeMode = "light" | "dark" | "system";
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    return (localStorage.getItem("themeMode") as ThemeMode) || "dark";
   });
+  const [systemDark, setSystemDark] = useState(() => {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
+  const dark = themeMode === "system" ? systemDark : themeMode === "dark";
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showClosePrompt, setShowClosePrompt] = useState(false);
+  const [closePromptInitialTray, setClosePromptInitialTray] = useState<boolean | null>(null);
   const { checkForUpdate } = useUpdater();
   const [baseline, setBaseline] = useState({ brightness: 0, contrast: 0, gamma: 1.0, digitalVibrance: 50, iccProfile: "Default" });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
@@ -58,10 +78,19 @@ function App() {
     digitalVibrance !== baseline.digitalVibrance ||
     activeProfile !== baseline.iccProfile;
 
+  // 监听系统主题变化
+  useEffect(() => {
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+
+  // 应用主题到 DOM
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("theme", dark ? "dark" : "light");
-  }, [dark]);
+    localStorage.setItem("themeMode", themeMode);
+  }, [dark, themeMode]);
 
   // 更新滑动指示器位置
   useEffect(() => {
@@ -78,6 +107,96 @@ function App() {
       document.addEventListener("contextmenu", handler);
       return () => document.removeEventListener("contextmenu", handler);
     }
+  }, []);
+
+  // 监听窗口关闭事件
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+      console.log("[App] CloseRequested event received");
+      try {
+        const settings = await invoke<AppSettings>("get_app_settings");
+        console.log("[App] settings:", settings);
+
+        if (settings.close_to_tray === true) {
+          // 已设置为最小化到托盘 → 直接隐藏
+          console.log("[App] close_to_tray=true, hiding window");
+          event.preventDefault();
+          await getCurrentWindow().hide();
+          return;
+        }
+        if (settings.close_to_tray === false) {
+          // 已设置为直接关闭 → 直接退出
+          console.log("[App] close_to_tray=false, exiting");
+          // 不 preventDefault，让窗口正常关闭退出
+          return;
+        }
+
+        // close_to_tray === null → 未设置，弹窗询问
+        console.log("[App] close_to_tray=null, showing prompt");
+        event.preventDefault();
+        setClosePromptInitialTray(null);
+        setShowClosePrompt(true);
+      } catch (err) {
+        console.error("Failed to get settings:", err);
+        event.preventDefault();
+        setClosePromptInitialTray(null);
+        setShowClosePrompt(true);
+      }
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
+
+  // 监听快捷键/托盘应用方案事件
+  useEffect(() => {
+    const unlisten = listen<string>("config-applied", async (event) => {
+      const configName = event.payload;
+
+      if (configName === "__default__") {
+        // 恢复默认：重置所有 UI 状态
+        try {
+          const def = await invoke<ColorConfig | null>("load_default_config");
+          if (def) {
+            setBrightness(def.brightness);
+            setContrast(def.contrast);
+            setGamma(def.gamma);
+            setDigitalVibrance(def.digital_vibrance);
+            setActiveProfile("Default");
+            setSelectedConfig("");
+            setBaseline({
+              brightness: def.brightness,
+              contrast: def.contrast,
+              gamma: def.gamma,
+              digitalVibrance: def.digital_vibrance,
+              iccProfile: "Default",
+            });
+          }
+        } catch (err) {
+          console.error("Failed to sync UI after config-applied:", err);
+        }
+      } else {
+        // 应用了某个方案：加载该方案数据更新 UI
+        try {
+          const cfg = await invoke<ColorConfig>("load_config", { name: configName });
+          setBrightness(cfg.brightness);
+          setContrast(cfg.contrast);
+          setGamma(cfg.gamma);
+          setDigitalVibrance(cfg.digital_vibrance);
+          setActiveProfile(cfg.icc_profile || "Default");
+          setSelectedConfig(configName);
+          setBaseline({
+            brightness: cfg.brightness,
+            contrast: cfg.contrast,
+            gamma: cfg.gamma,
+            digitalVibrance: cfg.digital_vibrance,
+            iccProfile: cfg.icc_profile || "Default",
+          });
+        } catch (err) {
+          console.error("Failed to sync UI after config-applied:", err);
+        }
+      }
+    });
+
+    return () => { unlisten.then(fn => fn()); };
   }, []);
 
   const showToast = useCallback((type: "success" | "error", text: string) => {
@@ -256,6 +375,7 @@ function App() {
         icc_profile: activeProfile !== "Default" ? activeProfile : null,
       };
       await invoke("save_config", { config });
+      setSelectedConfig(name);
       showToast("success", `「${name}」已保存`);
       await refreshConfigs();
     } catch (err) {
@@ -266,13 +386,53 @@ function App() {
   };
 
   const handleConfigLoad = async (config: ColorConfig) => {
+    setSelectedConfig(config.name);
     await handleApply(config);
+    setBaseline({
+      brightness: config.brightness,
+      contrast: config.contrast,
+      gamma: config.gamma,
+      digitalVibrance: config.digital_vibrance,
+      iccProfile: config.icc_profile || "Default",
+    });
+  };
+
+  const handleClosePromptSelect = async (closeToTray: boolean, remember: boolean) => {
+    console.log("[ClosePrompt] handle select:", { closeToTray, remember });
+
+    // 保存到后端设置
+    try {
+      const settings = await invoke<AppSettings>("get_app_settings");
+      await invoke("save_app_settings", {
+        settings: {
+          ...settings,
+          // 勾选「记住」→ 写入具体值；不勾 → 保持 null（下次再问）
+          close_to_tray: remember ? closeToTray : null,
+          close_prompted: remember,
+        },
+      });
+      console.log("[ClosePrompt] settings saved");
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+    }
+
+    setShowClosePrompt(false);
+    console.log("[ClosePrompt] modal closed");
+
+    if (closeToTray) {
+      console.log("[ClosePrompt] hiding window...");
+      await getCurrentWindow().hide();   // 隐藏窗口到托盘
+      console.log("[ClosePrompt] window hidden");
+    } else {
+      console.log("[ClosePrompt] exiting...");
+      await exit(0);   // 退出应用
+    }
   };
 
   return (
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
       <UpdateModal />
-      {/* Header - Lumina Precision style */}
+      {/* Header - Filter Manage style */}
       <header data-name="header" className="bg-surface-container-low/80 backdrop-blur-md border-b border-outline-variant/20 flex items-center px-lg h-16 w-full z-50 fixed top-0">
         {/* Logo & Title */}
         <div className="flex items-center gap-md mr-lg">
@@ -344,18 +504,20 @@ function App() {
           <div className="w-[1px] h-6 bg-outline-variant/30 mx-sm"></div>
 
           <button
-            data-name="theme-toggle"
-            onClick={() => setDark(!dark)}
+            data-name="settings-button"
+            onClick={() => setShowSettingsModal(true)}
             className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-primary/10 transition-colors"
+            title="设置"
           >
-            <span className="material-symbols-outlined text-[20px]">{dark ? "light_mode" : "dark_mode"}</span>
+            <span className="material-symbols-outlined text-[20px]">settings</span>
           </button>
+
         </div>
       </header>
 
       {/* Toast */}
       {toast && (
-        <div data-name="toast" className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
+        <div data-name="toast" className="fixed top-20 left-1/2 -translate-x-1/2 z-[300]">
           <div className={`px-md py-sm rounded-md font-label-md text-label-md shadow-lg backdrop-blur-sm ${
             toast.type === "success"
               ? "bg-primary/90 text-on-primary"
@@ -397,6 +559,7 @@ function App() {
             <PreviewImage showToast={showToast} />
             <ConfigManager
               configs={configs}
+              selectedConfig={selectedConfig}
               onConfigLoad={handleConfigLoad}
               onConfigsChange={refreshConfigs}
               showToast={showToast}
@@ -416,6 +579,25 @@ function App() {
         open={showAboutModal}
         onClose={() => setShowAboutModal(false)}
         onCheckUpdate={checkForUpdate}
+      />
+
+      <SettingsModal
+        open={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        configs={configs}
+        showToast={showToast}
+        themeMode={themeMode}
+        onThemeModeChange={setThemeMode}
+        onShowAbout={() => {
+          setShowSettingsModal(false);
+          setShowAboutModal(true);
+        }}
+      />
+
+      <ClosePromptModal
+        open={showClosePrompt}
+        initialCloseToTray={closePromptInitialTray}
+        onSelect={handleClosePromptSelect}
       />
     </div>
   );

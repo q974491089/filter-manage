@@ -35,7 +35,7 @@ function AboutModal({ open, onClose, onCheckUpdate }: AboutModalProps) {
   return (
     <div
       data-name="about-overlay"
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm"
       onClick={onClose}
     >
       <div

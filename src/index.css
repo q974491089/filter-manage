@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Light Theme (Lumina Precision) ── */
+/* ── Light Theme (Filter Manage) ── */
 :root {
   /* Surface */
   --color-background: 247 249 251;
@@ -151,7 +151,7 @@ body {
   min-height: 100vh;
 }
 
-/* Glassmorphism card - Lumina Precision style */
+/* Glassmorphism card - Filter Manage style */
 @layer components {
   .glass-card {
     @apply rounded-lg;
@@ -357,4 +357,43 @@ input[type="number"] {
   --tw-prose-hr: rgb(var(--color-outline-variant));
   --tw-prose-quotes: rgb(var(--color-on-surface-variant));
   --tw-prose-quote-borders: rgb(var(--color-primary));
+}
+
+/* ── Settings Modal Animations (Stitch design) ── */
+@keyframes modal-spring-up {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -45%) scale(0.95);
+  }
+  60% {
+    opacity: 1;
+    transform: translate(-50%, -51%) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes slide-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom scrollbar for settings modal */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #424754;
+  border-radius: 10px;
 }

@@ -13,7 +13,7 @@ export default function UpdateModal() {
 
   if (status === "downloading" || status === "done") {
     return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm">
         <div className="bg-surface-container/80 backdrop-blur-md border border-outline-variant/20 rounded-xl p-xl shadow-2xl shadow-black/40 w-[360px]">
           <div className="flex items-center gap-md mb-lg">
             <span className="material-symbols-outlined text-[24px] text-primary">download</span>
@@ -42,7 +42,7 @@ export default function UpdateModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-surface-container/80 backdrop-blur-md border border-outline-variant/20 rounded-xl p-xl shadow-2xl shadow-black/40 w-[400px] max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-md mb-lg">
