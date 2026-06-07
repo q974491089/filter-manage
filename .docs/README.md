@@ -43,6 +43,7 @@
 | 修复 | 后端 | 快捷键「恢复默认」(`__default__`，icc 为 null) 不重置 ICC；含 ICC 方案 NVIDIA 被覆盖。**根因**：`apply_color_config` 顺序为 NVIDIA→ICC 且 `None` 时不处理 ICC，与前端 `handleApply`(ICC→NVIDIA、null 时恢 sRGB) 不一致。**修复**：改为 ICC 先/NVIDIA 后，`None` 时恢复 sRGB（新增同步 `icc::restore_default_icc`），ICC 缺文件只跳过不阻断 NVIDIA | `src-tauri/src/tray.rs`、`icc.rs` | — |
 | 修复 | 后端 | 快捷键绑定报"已绑定到已删除方案"。**根因**：删方案不清理 settings 里的快捷键记录。**修复**：`bind_shortcut` 前清理孤儿绑定（豁免 `__default__`），`init_shortcuts` 跳过已删方案 | `src-tauri/src/shortcut.rs` | — |
 | 新功能 | 后端 | 快捷键/托盘应用方案后 emit `config-applied` 事件（payload=方案名），供前端同步 UI 状态（前端待接入） | `src-tauri/src/shortcut.rs`、`tray.rs` | [handoff](./handoff/config-applied-event-frontend.md) |
+| 改进 | CI | 发布流程新增 AList 云盘自动上传：CI 构建后自动登录 AList 并将 exe 上传到夸克/阿里云盘的 `filter-manage/` 目录 | `.github/workflows/release.yml` | — |
 
 ---
 

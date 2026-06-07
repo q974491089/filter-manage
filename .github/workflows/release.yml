@@ -56,3 +56,65 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      - name: Upload to cloud drives via AList
+        shell: bash
+        env:
+          ALIST_URL: ${{ secrets.ALIST_URL }}
+          ALIST_USERNAME: ${{ secrets.ALIST_USERNAME }}
+          ALIST_PASSWORD: ${{ secrets.ALIST_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          STORAGES=("quark" "aliyundrive")
+          REMOTE_DIR="filter-manage"
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          echo "==> Logging in to AList..."
+          TOKEN=$(curl -s -X POST "${ALIST_URL}/api/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${ALIST_USERNAME}\",\"password\":\"${ALIST_PASSWORD}\"}")
+
+          TOKEN_VALUE=$(echo "$TOKEN" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+          if [ -z "$TOKEN_VALUE" ]; then
+            echo "::warning::AList login failed, skipping cloud upload"
+            echo "$TOKEN"
+            exit 0
+          fi
+          echo "AList login OK"
+
+          INSTALLER="src-tauri/target/release/bundle/nsis/Filter-Manage_${VERSION}_x64-setup.exe"
+          if [ ! -f "$INSTALLER" ]; then
+            echo "::warning::NSIS installer not found at $INSTALLER, skipping cloud upload"
+            exit 0
+          fi
+          echo "Found installer: $INSTALLER ($(du -h "$INSTALLER" | cut -f1))"
+
+          UPLOAD_FAILED=0
+          for STORAGE in "${STORAGES[@]}"; do
+            ENCODED_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('/${STORAGE}/${REMOTE_DIR}/Filter-Manage_${VERSION}_x64-setup.exe'))")
+            echo "Uploading to /${STORAGE}/${REMOTE_DIR}/ ..."
+            RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT "${ALIST_URL}/api/fs/put" \
+              -H "Authorization: ${TOKEN_VALUE}" \
+              -H "File-Path: ${ENCODED_PATH}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${INSTALLER}")
+
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+
+            if [ "$HTTP_CODE" = "200" ] && echo "$BODY" | grep -q '"code":200'; then
+              echo "Uploaded to ${STORAGE} OK"
+            else
+              echo "::warning::Upload to ${STORAGE} failed: HTTP ${HTTP_CODE} - ${BODY}"
+              UPLOAD_FAILED=1
+            fi
+          done
+
+          if [ "$UPLOAD_FAILED" -eq 1 ]; then
+            echo "::warning::Some cloud drive uploads failed, check logs above"
+          else
+            echo "All cloud drive uploads completed successfully"
+          fi

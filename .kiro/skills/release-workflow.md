@@ -181,6 +181,34 @@ gh release view vX.X.X
 - [ ] Release 页面有安装包附件（.exe, .msi）
 - [ ] Release body 显示了 CHANGELOG 内容
 - [ ] 文档站已更新（如有 docs 变更）
+- [ ] 云盘上传成功（查看 CI 日志中 "Upload to cloud drives via AList" 步骤）
+
+### 9. 云盘同步（CI 自动执行）
+
+CI 在构建完成后会自动执行以下步骤（见 `.github/workflows/release.yml` 的 `Upload to cloud drives via AList` 步骤）：
+
+1. 登录 AList 获取 token
+2. 从本地构建产物找到 NSIS 安装包
+3. 上传到所有已配置的云盘存储（`filter-manage/` 目录下）
+
+**当前配置的云盘**：
+- `/quark/filter-manage/` — 夸克网盘
+- `/aliyundrive/filter-manage/` — 阿里云盘
+
+**添加新云盘只需两步**：
+1. AList 后台添加存储驱动，挂载到 `/网盘名/`
+2. 在 `.github/workflows/release.yml` 的 `STORAGES` 数组中追加网盘名
+
+**依赖的 GitHub Secrets**：
+- `ALIST_URL` — AList 服务地址
+- `ALIST_USERNAME` — 登录用户名
+- `ALIST_PASSWORD` — 登录密码
+
+**注意**：云盘上传失败不会阻断 CI（只产生 warning），需检查 CI 日志确认。
+
+### 10. 更新文档站下载页（手动触发）
+
+当用户提供了云盘分享链接后，更新 `docs/guide/install.md` 中的下载渠道表格，添加各云盘的分享链接。
 
 ## 文件关系图
 
@@ -195,6 +223,14 @@ gh release view vX.X.X
 ├── src-tauri/tauri.conf.json
 ├── package.json
 └── src-tauri/Cargo.toml
+
+云盘同步（CI 自动）
+├── .github/workflows/release.yml → STORAGES 数组（添加新网盘在这里）
+├── GitHub Secrets → ALIST_URL / ALIST_USERNAME / ALIST_PASSWORD
+└── AList 后台 → 存储驱动挂载（/quark/ /aliyundrive/ 等）
+
+下载渠道
+└── docs/guide/install.md → GitHub Release + 云盘分享链接（用户提供后 Agent 更新）
 ```
 
 ## 注意事项

@@ -2,13 +2,17 @@
 
 ## 下载
 
-前往 [Releases](https://github.com/q974491089/filter-manage/releases) 页面下载最新版本。
+| 渠道 | 链接 | 说明 |
+|------|------|------|
+| GitHub Releases | [下载页](https://github.com/q974491089/filter-manage/releases) | 官方发布，含签名校验 |
+| 夸克网盘 | [下载](https://pan.quark.cn/s/b45313e695a4) | 国内高速下载 |
+| 阿里云盘 | [下载](https://www.alipan.com/s/JD7d7ZXwGtP) | 国内高速下载 |
 
 提供 NSIS 安装包格式：
 
 | 文件 | 说明 |
 |------|------|
-| `Filter Manage_x.x.x_x64-setup.exe` | NSIS 安装包 |
+| `Filter-Manage_x.x.x_x64-setup.exe` | NSIS 安装包 |
 
 ## 系统要求
 
