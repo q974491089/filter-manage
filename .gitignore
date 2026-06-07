@@ -43,6 +43,7 @@ docs/.vitepress/cache/
 docs/.vitepress/dist/
 
 
-#key 
+#key
 *.key
-*.key.pub.antigravitycli/
+*.key.pub
+.antigravitycli/
