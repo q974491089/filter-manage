@@ -189,7 +189,7 @@ function SliderControl({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full"
+        className="w-full pt-[6px]"
       />
     </div>
   );
