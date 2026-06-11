@@ -164,7 +164,7 @@ function SliderControl({
   onChange,
 }: SliderControlProps) {
   return (
-    <div data-components="SliderControl" data-name={label} className="space-y-sm">
+    <div data-components="SliderControl" data-name={label}>
       <div className="flex justify-between items-center">
         <label className="font-label-md text-label-md text-on-surface flex items-center gap-xs">
           <span className="material-symbols-outlined text-primary text-[18px]">{icon}</span>
@@ -189,7 +189,7 @@ function SliderControl({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full"
+        className="w-full mt-[16px] pt-[6px]"
       />
     </div>
   );
