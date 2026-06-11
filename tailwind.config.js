@@ -63,9 +63,9 @@ export default {
         "on-error-container": "rgb(var(--color-on-error-container) / <alpha-value>)",
       },
       fontFamily: {
-        "headline-lg": ["Hanken Grotesk"],
-        "headline-md": ["Hanken Grotesk"],
-        "headline-sm": ["Hanken Grotesk"],
+        "headline-lg": ["Inter"],
+        "headline-md": ["Inter"],
+        "headline-sm": ["Inter"],
         "body-lg": ["Inter"],
         "body-md": ["Inter"],
         "body-sm": ["Inter"],

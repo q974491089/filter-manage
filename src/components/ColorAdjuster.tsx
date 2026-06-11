@@ -89,6 +89,7 @@ function ColorAdjuster({
         <div className="space-y-lg">
         <SliderControl
           label="亮度 (Brightness)"
+          description="调整屏幕整体明暗程度"
           icon="light_mode"
           value={brightness}
           min={-125}
@@ -100,6 +101,7 @@ function ColorAdjuster({
 
         <SliderControl
           label="对比度 (Contrast)"
+          description="调整亮暗区域的差异程度"
           icon="contrast"
           value={contrast}
           min={-82}
@@ -111,6 +113,7 @@ function ColorAdjuster({
 
         <SliderControl
           label="伽马值 (Gamma)"
+          description="调整中间色调的亮度曲线"
           icon="Camera"
           value={gamma}
           min={0.1}
@@ -122,6 +125,7 @@ function ColorAdjuster({
 
         <SliderControl
           label="数字振动 (Digital Vibrance)"
+          description="调整色彩饱和度，数值越高颜色越鲜艳"
           icon="palette"
           value={digitalVibrance}
           min={0}
@@ -138,6 +142,7 @@ function ColorAdjuster({
 
 interface SliderControlProps {
   label: string;
+  description?: string;
   icon: string;
   value: number;
   min: number;
@@ -149,6 +154,7 @@ interface SliderControlProps {
 
 function SliderControl({
   label,
+  description,
   icon,
   value,
   min,
@@ -168,6 +174,9 @@ function SliderControl({
           {formatValue(value)}
         </span>
       </div>
+      {description && (
+        <p className="text-[11px] text-on-surface-variant/60 leading-snug">{description}</p>
+      )}
       <input
         type="range"
         min={min}

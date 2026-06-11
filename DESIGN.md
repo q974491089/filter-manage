@@ -74,13 +74,13 @@ Light mode: primary text at `#1a1c1e` against white/light-gray backgrounds (WCAG
 
 ## Typography
 
-**Hanken Grotesk** for display and headline text (crisp, technical personality). **Inter** for body text and labels (neutral, highly legible in dark environments).
+**Inter** as the single typeface — neutral, highly legible in dark environments, and well-suited for tool UIs. No font pairing needed; hierarchy is established through weight, size, and color.
 
 | Level | Font | Size | Weight | Line Height | Letter Spacing |
 |-------|------|------|--------|-------------|----------------|
-| headline-lg | Hanken Grotesk | 32px | 400 | 38.4px (1.2) | -0.01em |
-| headline-md | Hanken Grotesk | 24px | 400 | 28.8px (1.2) | normal |
-| headline-sm | Hanken Grotesk | 20px | 500 | 28px (1.4) | normal |
+| headline-lg | Inter | 32px | 400 | 38.4px (1.2) | -0.01em |
+| headline-md | Inter | 24px | 400 | 28.8px (1.2) | normal |
+| headline-sm | Inter | 20px | 500 | 28px (1.4) | normal |
 | body-lg | Inter | 16px | 400 | 25.6px (1.6) | normal |
 | body-md | Inter | 14px | 400 | 21px (1.5) | normal |
 | body-sm | Inter | 13px | 300 | 19.5px (1.5) | normal |
