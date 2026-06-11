@@ -4,7 +4,7 @@
 
 The design system is engineered for professional screen management, targeting creative professionals and power users who spend extended hours in front of displays. The personality is "Quietly Powerful" — it prioritizes the user's focus on the screen adjustments rather than the interface itself.
 
-The aesthetic blends **Modern Corporate** precision with **Glassmorphism** depth. It leverages a sophisticated dark environment to reduce eye strain, using translucent layers and subtle blurs to create a sense of physical space. The emotional goal is to evoke a sense of precision, technical reliability, and visual comfort.
+The aesthetic blends **Modern Corporate** precision with **Tonal Layering** for depth. It leverages a sophisticated dark environment to reduce eye strain, using solid surface colors at different elevations to create a sense of physical space. The emotional goal is to evoke a sense of precision, technical reliability, and visual comfort.
 
 ## Colors
 
@@ -74,17 +74,18 @@ Light mode: primary text at `#1a1c1e` against white/light-gray backgrounds (WCAG
 
 ## Typography
 
-**Inter** for neutral, highly legible dark-environment text. **Geist** for technical metadata and labels ("developer-tool" aesthetic).
+**Hanken Grotesk** for display and headline text (crisp, technical personality). **Inter** for body text and labels (neutral, highly legible in dark environments).
 
 | Level | Font | Size | Weight | Line Height | Letter Spacing |
 |-------|------|------|--------|-------------|----------------|
-| headline-lg | Inter | 32px | 700 | 40px | -0.02em |
-| headline-md | Inter | 24px | 600 | 32px | -0.01em |
-| headline-sm | Inter | 18px | 600 | 24px | normal |
-| body-lg | Inter | 16px | 400 | 24px | normal |
-| body-md | Inter | 14px | 400 | 20px | normal |
-| label-md | Geist | 12px | 500 | 16px | 0.05em |
-| label-sm | Geist | 11px | 600 | 14px | 0.02em |
+| headline-lg | Hanken Grotesk | 32px | 400 | 38.4px (1.2) | -0.01em |
+| headline-md | Hanken Grotesk | 24px | 400 | 28.8px (1.2) | normal |
+| headline-sm | Hanken Grotesk | 20px | 500 | 28px (1.4) | normal |
+| body-lg | Inter | 16px | 400 | 25.6px (1.6) | normal |
+| body-md | Inter | 14px | 400 | 21px (1.5) | normal |
+| body-sm | Inter | 13px | 300 | 19.5px (1.5) | normal |
+| label-md | Inter | 12px | 600 | 12px (1) | 0.05em |
+| label-sm | Inter | 11px | 600 | 11px (1) | 0.02em |
 
 ## Layout & Spacing
 
@@ -97,8 +98,8 @@ Light mode: primary text at `#1a1c1e` against white/light-gray backgrounds (WCAG
 | sm | 8px | Tight spacing |
 | md | 16px | Compact bars, sidebars |
 | lg | 24px | Cards, list items (airy feel) |
-| xl | 40px | Section gaps |
-| gutter | 20px | Column gutter |
+| xl | 32px | Section gaps |
+| gutter | 24px | Column gutter |
 | margin-mobile | 16px | Mobile margins |
 | margin-desktop | 32px | Desktop margins |
 
@@ -110,29 +111,29 @@ Light mode: primary text at `#1a1c1e` against white/light-gray backgrounds (WCAG
 
 ## Elevation & Depth
 
-Depth through **Tonal Layering** and **Glassmorphism**, not drop shadows.
+Depth through **Tonal Layering** (solid surface colors at different elevations), not blur effects or drop shadows.
 
 **Dark mode:**
 1. Base: `#111317` — the canvas.
 2. Middle (Cards/Panels): `#1a1c20` with 1px border `rgba(255, 255, 255, 0.08)`.
-3. Top (Modals/Popovers): `backdrop-filter: blur(20px)` with `rgba(30, 41, 59, 0.7)`.
+3. Top (Modals/Popovers): `#1e2024` with 1px border `rgba(255, 255, 255, 0.12)`.
 
 **Light mode:**
 1. Base: `#ffffff` — the canvas.
 2. Middle (Cards/Panels): `#f0f0f4` with 1px border `rgba(0, 0, 0, 0.08)`.
-3. Top (Modals/Popovers): `backdrop-filter: blur(20px)` with `rgba(255, 255, 255, 0.8)`.
+3. Top (Modals/Popovers): `#f5f5f8` with 1px border `rgba(0, 0, 0, 0.1)`.
 
-Inner glows (1px stroke inside top edge) on primary buttons for a "lit from within" appearance (dark mode). In light mode, use subtle shadow instead.
+Modals use a semi-transparent dark overlay (`bg-black/60`) for focus. No backdrop-filter blur on cards or panels. Reserve blur effects only for the modal overlay layer when needed to dim background content.
 
 ## Shapes (Border Radius)
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| sm | 0.25rem | Minimal rounding |
-| DEFAULT | 0.5rem | Buttons, inputs |
-| md | 0.75rem | Intermediate |
-| lg | 1rem | Cards, containers |
-| xl | 1.5rem | Large containers |
+| sm | 0.125rem | Minimal rounding |
+| DEFAULT | 0.25rem | Buttons, inputs |
+| md | 0.375rem | Intermediate |
+| lg | 0.5rem | Cards, containers |
+| xl | 0.75rem | Large containers |
 | full | 9999px | Pills, circles |
 
 ## Components
