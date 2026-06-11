@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
 import ShortcutInput from "./ShortcutInput";
+import Toggle from "./Toggle";
 
 interface ColorConfig {
   name: string;
@@ -502,14 +503,7 @@ function ConfigManager({
                         }`}
                       >
                         {/* 启用开关 */}
-                        <div
-                          onClick={() => handleToggleProcessRule(rule.id)}
-                          className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
-                        >
-                          <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.enabled ? "bg-primary" : "bg-surface-container-highest"}`}>
-                            <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.enabled ? "translate-x-full" : ""}`} />
-                          </div>
-                        </div>
+                        <Toggle size="sm" checked={rule.enabled} onChange={() => handleToggleProcessRule(rule.id)} />
 
                         {/* 进程名 */}
                         <span className="font-mono text-sm flex-1 text-on-surface">
@@ -519,14 +513,7 @@ function ConfigManager({
                         {/* 恢复开关 */}
                         <div className="flex items-center gap-1.5">
                           <span className="font-label-sm text-label-sm text-on-surface-variant">恢复</span>
-                          <div
-                            onClick={() => handleUpdateProcessRule(rule.id, { restore_on_exit: !rule.restore_on_exit })}
-                            className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
-                          >
-                            <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.restore_on_exit ? "bg-primary" : "bg-surface-container-highest"}`}>
-                              <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.restore_on_exit ? "translate-x-full" : ""}`} />
-                            </div>
-                          </div>
+                          <Toggle size="sm" checked={rule.restore_on_exit} onChange={() => handleUpdateProcessRule(rule.id, { restore_on_exit: !rule.restore_on_exit })} />
                         </div>
 
                         {/* 删除按钮 */}

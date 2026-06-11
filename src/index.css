@@ -229,13 +229,9 @@ input[type="range"] {
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
-  background: #2D3139;
+  background: rgb(var(--color-surface-container-highest));
   height: 6px;
   border-radius: 3px;
-}
-
-.dark input[type="range"]::-webkit-slider-runnable-track {
-  background: #2D3139;
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -255,7 +251,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 input[type="range"]::-moz-range-track {
-  background: #2D3139;
+  background: rgb(var(--color-surface-container-highest));
   height: 6px;
   border-radius: 3px;
 }
@@ -267,15 +263,6 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 50%;
   border: none;
   box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
-}
-
-/* Light mode slider track */
-input[type="range"]::-webkit-slider-runnable-track {
-  background: rgb(var(--color-surface-container-highest));
-}
-
-input[type="range"]::-moz-range-track {
-  background: rgb(var(--color-surface-container-highest));
 }
 
 /* Dark mode native select/option */

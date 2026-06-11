@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ShortcutInput from "./ShortcutInput";
+import Toggle from "./Toggle";
 
 interface ColorConfig {
   name: string;
@@ -521,11 +522,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                       在 Windows 启动时自动运行 Filter Manage
                     </p>
                   </div>
-                  <div className="relative inline-flex items-center active:scale-95 transition-transform duration-200 hover:scale-[1.02]">
-                    <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.autostart ? "bg-primary" : "bg-surface-container-highest"}`}>
-                      <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.autostart ? "translate-x-full" : ""}`} />
-                    </div>
-                  </div>
+                  <Toggle checked={settings.autostart} onChange={handleToggleAutostart} />
                 </button>
 
                 {/* Divider */}
@@ -541,10 +538,8 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                     >
                       <span className="material-symbols-outlined text-primary">notifications</span>
                       <span className="font-body-md text-body-md">切换方案时显示通知</span>
-                      <div className="ml-auto relative inline-flex items-center active:scale-95 transition-transform duration-200">
-                        <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.shortcut_notification ? "bg-primary" : "bg-surface-container-highest"}`}>
-                          <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.shortcut_notification ? "translate-x-full" : ""}`} />
-                        </div>
+                      <div className="ml-auto">
+                        <Toggle checked={settings.shortcut_notification} onChange={(v) => saveSettings({ ...settings, shortcut_notification: v })} />
                       </div>
                     </button>
                   </div>
@@ -686,30 +681,21 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                       当指定进程运行时自动切换配色方案
                     </p>
                   </div>
-                  <div
-                    onClick={handleToggleProcessWatcher}
-                    className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200 hover:scale-[1.02]"
-                  >
-                    <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.process_watcher_enabled ? "bg-primary" : "bg-surface-container-highest"}`}>
-                      <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.process_watcher_enabled ? "translate-x-full" : ""}`} />
-                    </div>
-                  </div>
+                  <Toggle checked={settings.process_watcher_enabled} onChange={handleToggleProcessWatcher} />
                 </div>
 
                 {/* 通知开关 */}
                 <div className="px-3 py-5 bg-surface-container-high/60 rounded-xl border border-outline-variant/20 transition-all duration-300 hover:bg-surface-container-high/80">
-                  <button
-                    onClick={() => saveSettings({ ...settings, process_notification: !settings.process_notification })}
-                    className="w-full flex items-center gap-3 hover:bg-white/5 p-2 rounded-lg transition-colors duration-200 cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined text-primary">notifications</span>
-                    <span className="font-body-md text-body-md">自动切换时显示通知</span>
-                    <div className="ml-auto relative inline-flex items-center active:scale-95 transition-transform duration-200">
-                      <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.process_notification ? "bg-primary" : "bg-surface-container-highest"}`}>
-                        <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.process_notification ? "translate-x-full" : ""}`} />
+                    <button
+                      onClick={() => saveSettings({ ...settings, process_notification: !settings.process_notification })}
+                      className="w-full flex items-center gap-3 hover:bg-white/5 p-2 rounded-lg transition-colors duration-200 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-primary">notifications</span>
+                      <span className="font-body-md text-body-md">自动切换时显示通知</span>
+                      <div className="ml-auto">
+                        <Toggle checked={settings.process_notification} onChange={(v) => saveSettings({ ...settings, process_notification: v })} />
                       </div>
-                    </div>
-                  </button>
+                    </button>
                 </div>
 
                 {/* Divider */}
@@ -759,14 +745,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
 
                           <div className="ml-8 flex items-center gap-3">
                             {/* 启用开关 */}
-                            <div
-                              onClick={() => handleToggleProcessRule(rule)}
-                              className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
-                            >
-                              <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.enabled ? "bg-primary" : "bg-surface-container-highest"}`}>
-                                <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.enabled ? "translate-x-full" : ""}`} />
-                              </div>
-                            </div>
+                            <Toggle size="sm" checked={rule.enabled} onChange={() => handleToggleProcessRule(rule)} />
 
                             {/* 进程名 */}
                             <span className="font-mono text-sm flex-1 text-on-surface">
@@ -794,14 +773,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                             {/* 恢复开关 */}
                             <div className="flex items-center gap-1.5">
                               <span className="font-label-sm text-label-sm text-on-surface-variant">恢复</span>
-                              <div
-                                onClick={() => handleUpdateProcessRule({ ...rule, restore_on_exit: !rule.restore_on_exit })}
-                                className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
-                              >
-                                <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.restore_on_exit ? "bg-primary" : "bg-surface-container-highest"}`}>
-                                  <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.restore_on_exit ? "translate-x-full" : ""}`} />
-                                </div>
-                              </div>
+                              <Toggle size="sm" checked={rule.restore_on_exit} onChange={() => handleUpdateProcessRule({ ...rule, restore_on_exit: !rule.restore_on_exit })} />
                             </div>
 
                             {/* 删除按钮 */}
