@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          STORAGES=("quark" "aliyundrive")
+          STORAGES=("quark" "aliyundrive" "115" "baidu" "lanzou" "uc" "wukong" "xiaofeiji")
           REMOTE_DIR="filter-manage"
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"

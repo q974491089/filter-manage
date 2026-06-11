@@ -7,6 +7,7 @@ use std::path::PathBuf;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ColorConfig {
     pub name: String,
+    pub icon: Option<String>,
     pub brightness: i32,
     pub contrast: i32,
     pub gamma: f64,
@@ -18,6 +19,16 @@ pub struct ColorConfig {
 pub struct ShortcutBinding {
     pub shortcut: String,
     pub config_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProcessRule {
+    pub id: String,
+    pub process_name: String,
+    pub config_name: String,
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub restore_on_exit: bool,
 }
 
 // ─── AppStore — 统一单文件结构 ───────────────────────────────────────────────
@@ -43,6 +54,12 @@ pub struct AppSettings {
     pub shortcuts: Vec<ShortcutBinding>,
     #[serde(default = "default_true")]
     pub shortcut_notification: bool,
+    #[serde(default = "default_true")]
+    pub process_watcher_enabled: bool,
+    #[serde(default = "default_true")]
+    pub process_notification: bool,
+    #[serde(default)]
+    pub process_rules: Vec<ProcessRule>,
 }
 
 fn default_true() -> bool { true }
@@ -56,6 +73,9 @@ impl Default for AppSettings {
             tray_presets: Vec::new(),
             shortcuts: Vec::new(),
             shortcut_notification: true,
+            process_watcher_enabled: true,
+            process_notification: true,
+            process_rules: Vec::new(),
         }
     }
 }
@@ -256,14 +276,14 @@ pub fn load_config(name: String) -> Result<ColorConfig, String> {
 }
 
 #[tauri::command]
-pub fn list_configs() -> Result<Vec<String>, String> {
+pub fn list_configs() -> Result<Vec<ColorConfig>, String> {
     let store = read_store()?;
-    let mut names: Vec<String> = store.presets.iter()
+    let mut configs: Vec<ColorConfig> = store.presets.iter()
         .filter(|p| p.name != DEFAULT_CONFIG_NAME)
-        .map(|p| p.name.clone())
+        .cloned()
         .collect();
-    names.sort();
-    Ok(names)
+    configs.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(configs)
 }
 
 #[tauri::command]

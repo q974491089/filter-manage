@@ -98,16 +98,17 @@ fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
 fn get_tray_preset_names() -> Result<Vec<String>, String> {
     let settings = config::get_app_settings()?;
     let all_configs = config::list_configs()?;
+    let all_names: Vec<String> = all_configs.iter().map(|c| c.name.clone()).collect();
 
     if settings.tray_presets.is_empty() {
         // 默认展示前5个
-        Ok(all_configs.into_iter().take(MAX_TRAY_PRESETS).collect())
+        Ok(all_names.into_iter().take(MAX_TRAY_PRESETS).collect())
     } else {
         // 只展示用户选择的（且仍然存在的）
         Ok(settings
             .tray_presets
             .into_iter()
-            .filter(|name| all_configs.contains(name))
+            .filter(|name| all_names.contains(name))
             .take(MAX_TRAY_PRESETS)
             .collect())
     }

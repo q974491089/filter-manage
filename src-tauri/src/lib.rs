@@ -1,6 +1,7 @@
 mod config;
 mod icc;
 mod nvidia;
+mod process_watcher;
 mod shortcut;
 mod tray;
 
@@ -30,6 +31,9 @@ pub fn run() {
 
             // 初始化全局快捷键（忽略错误，首次启动可能没有绑定）
             let _ = shortcut::init_shortcuts(&handle);
+
+            // 初始化进程监听（后台线程，自动匹配规则切换方案）
+            process_watcher::init_watcher(&handle);
 
             // 监听窗口关闭事件
             if let Some(window) = app.get_webview_window("main") {
@@ -95,6 +99,14 @@ pub fn run() {
             enable_autostart,
             disable_autostart,
             is_autostart_enabled,
+            // Process Watcher
+            process_watcher::get_process_rules,
+            process_watcher::add_process_rule,
+            process_watcher::update_process_rule,
+            process_watcher::delete_process_rule,
+            process_watcher::get_running_processes,
+            process_watcher::set_process_watcher_enabled,
+            process_watcher::get_watcher_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

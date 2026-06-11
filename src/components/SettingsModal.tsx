@@ -2,9 +2,33 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ShortcutInput from "./ShortcutInput";
 
+interface ColorConfig {
+  name: string;
+  icon?: string;
+  brightness: number;
+  contrast: number;
+  gamma: number;
+  digital_vibrance: number;
+  icc_profile: string | null;
+}
+
 interface ShortcutBinding {
   shortcut: string;
   config_name: string;
+}
+
+interface ProcessRule {
+  id: string;                    // UUID，前端生成（crypto.randomUUID()）
+  process_name: string;          // 进程名，如 "delta_force.exe"（不区分大小写）
+  config_name: string;           // 绑定的预设名
+  enabled: boolean;              // 是否启用
+  restore_on_exit: boolean;      // 进程退出时是否恢复上一方案（默认 true）
+}
+
+interface RunningProcess {
+  name: string;     // 进程名，如 "chrome.exe"
+  pid: number;      // 进程 ID
+  icon: string | null;  // 进程图标（base64 data URL）
 }
 
 interface AppSettings {
@@ -14,25 +38,77 @@ interface AppSettings {
   shortcut_notification: boolean;
   tray_presets: string[];
   shortcuts: ShortcutBinding[];
+  process_watcher_enabled: boolean;   // 进程监听总开关（默认 true）
+  process_notification: boolean;      // 自动切换时是否弹 Toast（默认 true）
+  process_rules: ProcessRule[];       // 规则列表
 }
 
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
-  configs: string[];
+  configs: ColorConfig[];
   showToast: (type: "success" | "error", text: string) => void;
   themeMode: "light" | "dark" | "system";
   onThemeModeChange: (mode: "light" | "dark" | "system") => void;
   onShowAbout: () => void;
 }
 
-type SettingsTab = "general" | "shortcuts" | "display";
+type SettingsTab = "general" | "shortcuts" | "display" | "process";
 
 const NAV_ITEMS: { id: SettingsTab; icon: string; label: string }[] = [
   { id: "general", icon: "settings", label: "常规设置" },
   { id: "shortcuts", icon: "keyboard", label: "快捷键" },
   { id: "display", icon: "monitor", label: "显示适配" },
+  { id: "process", icon: "terminal", label: "进程监听" },
 ];
+
+const PRESET_ICONS: Record<string, string> = {
+  movie: "bg-secondary-container",
+  sports_esports: "bg-tertiary-container",
+  edit_note: "bg-error-container",
+  photo_camera: "bg-primary-container",
+  palette: "bg-primary-container",
+  code: "bg-tertiary-container",
+  music_note: "bg-secondary-container",
+  visibility: "bg-primary-container",
+  auto_awesome: "bg-primary-container",
+  tune: "bg-primary-container",
+};
+
+function getDefaultIcon(name: string): string {
+  if (name.includes("电影") || name.toLowerCase().includes("theater")) return "movie";
+  if (name.includes("游戏") || name.toLowerCase().includes("gaming")) return "sports_esports";
+  if (name.includes("护眼") || name.toLowerCase().includes("reading")) return "edit_note";
+  if (name.includes("摄影") || name.toLowerCase().includes("photo")) return "photo_camera";
+  if (name.includes("设计") || name.toLowerCase().includes("design")) return "palette";
+  if (name.includes("编程") || name.toLowerCase().includes("code")) return "code";
+  return "tune";
+}
+
+function getIconBg(icon: string | undefined, name: string): string {
+  if (icon && PRESET_ICONS[icon]) return PRESET_ICONS[icon];
+  const fallback = getDefaultIcon(name);
+  return PRESET_ICONS[fallback] || "bg-primary-container";
+}
+
+function renderConfigIcon(config: { name: string; icon?: string }) {
+  const icon = config.icon || getDefaultIcon(config.name);
+  const bgClass = getIconBg(config.icon, config.name);
+
+  if (config.icon && config.icon.startsWith("http")) {
+    return (
+      <div className={`w-8 h-8 rounded-md ${bgClass} flex items-center justify-center overflow-hidden shadow-sm`}>
+        <img src={config.icon} alt="" className="w-full h-full object-cover" />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`w-8 h-8 rounded-md ${bgClass} flex items-center justify-center shadow-sm`}>
+      <span className="material-symbols-outlined text-on-primary text-[16px] leading-none relative top-[px]">{icon}</span>
+    </div>
+  );
+}
 
 function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeModeChange, onShowAbout }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
@@ -43,7 +119,15 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
     shortcut_notification: true,
     tray_presets: [],
     shortcuts: [],
+    process_watcher_enabled: true,
+    process_notification: true,
+    process_rules: [],
   });
+  const [processes, setProcesses] = useState<RunningProcess[]>([]);
+  const [showProcessPicker, setShowProcessPicker] = useState(false);
+  const [newRuleProcessName, setNewRuleProcessName] = useState("");
+  const [newRuleConfigName, setNewRuleConfigName] = useState("");
+  const [processSearchQuery, setProcessSearchQuery] = useState("");
 
   useEffect(() => {
     if (open) loadSettings();
@@ -53,7 +137,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
     try {
       const result = await invoke<AppSettings>("get_app_settings");
       // 清理已删除的托盘方案名（脏数据）
-      const validPresets = result.tray_presets.filter(name => configs.includes(name));
+      const validPresets = result.tray_presets.filter(name => configs.some(c => c.name === name));
       if (validPresets.length !== result.tray_presets.length) {
         const cleaned = { ...result, tray_presets: validPresets };
         setSettings(cleaned);
@@ -154,6 +238,106 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
     }
   };
 
+  // 进程监听相关函数
+  const loadRunningProcesses = async () => {
+    try {
+      const list = await invoke<RunningProcess[]>("get_running_processes");
+      // 去重并按名称排序
+      const unique = [...new Map(list.map(p => [p.name.toLowerCase(), p])).values()]
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setProcesses(unique);
+    } catch (err) {
+      console.error("Failed to load running processes:", err);
+      showToast("error", "获取进程列表失败");
+    }
+  };
+
+  const handleToggleProcessWatcher = async () => {
+    const newValue = !settings.process_watcher_enabled;
+    try {
+      await invoke("set_process_watcher_enabled", { enabled: newValue });
+      saveSettings({ ...settings, process_watcher_enabled: newValue });
+      showToast("success", newValue ? "已启用进程监听" : "已禁用进程监听");
+    } catch (err) {
+      console.error("Failed to toggle process watcher:", err);
+      showToast("error", "操作失败");
+    }
+  };
+
+  const handleAddProcessRule = async () => {
+    if (!newRuleProcessName.trim()) {
+      showToast("error", "请输入进程名");
+      return;
+    }
+    if (!newRuleConfigName) {
+      showToast("error", "请选择配置方案");
+      return;
+    }
+
+    try {
+      await invoke("add_process_rule", {
+        rule: {
+          id: crypto.randomUUID(),
+          process_name: newRuleProcessName.trim(),
+          config_name: newRuleConfigName,
+          enabled: true,
+          restore_on_exit: true,
+        }
+      });
+      // 重新加载设置以获取最新规则
+      await loadSettings();
+      setNewRuleProcessName("");
+      setNewRuleConfigName("");
+      setShowProcessPicker(false);
+      showToast("success", "规则添加成功");
+    } catch (err) {
+      console.error("Failed to add process rule:", err);
+      const errorMsg = String(err);
+      if (errorMsg.includes("进程名不能为空")) {
+        showToast("error", "请输入进程名");
+      } else if (errorMsg.includes("Config")) {
+        showToast("error", "选择的配置方案不存在");
+      } else if (errorMsg.includes("已存在规则")) {
+        showToast("error", "该进程已有规则，请勿重复添加");
+      } else {
+        showToast("error", `添加失败: ${errorMsg}`);
+      }
+    }
+  };
+
+  const handleDeleteProcessRule = async (id: string) => {
+    try {
+      await invoke("delete_process_rule", { id });
+      await loadSettings();
+      showToast("success", "规则已删除");
+    } catch (err) {
+      console.error("Failed to delete process rule:", err);
+      showToast("error", "删除失败");
+    }
+  };
+
+  const handleToggleProcessRule = async (rule: ProcessRule) => {
+    try {
+      await invoke("update_process_rule", {
+        rule: { ...rule, enabled: !rule.enabled }
+      });
+      await loadSettings();
+    } catch (err) {
+      console.error("Failed to toggle process rule:", err);
+      showToast("error", "更新失败");
+    }
+  };
+
+  const handleUpdateProcessRule = async (rule: ProcessRule) => {
+    try {
+      await invoke("update_process_rule", { rule });
+      await loadSettings();
+    } catch (err) {
+      console.error("Failed to update process rule:", err);
+      showToast("error", "更新失败");
+    }
+  };
+
   if (!open) return null;
 
   return (
@@ -213,11 +397,13 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 {activeTab === "general" && "常规设置"}
                 {activeTab === "shortcuts" && "快捷键绑定"}
                 {activeTab === "display" && "显示适配"}
+                {activeTab === "process" && "进程监听"}
               </h2>
               <p className="font-body-md text-body-md text-on-surface-variant">
                 {activeTab === "general" && "管理 Filter Manage 的核心运行行为"}
                 {activeTab === "shortcuts" && "为每个颜色方案绑定全局快捷键"}
                 {activeTab === "display" && "选择在系统托盘菜单中展示的方案"}
+                {activeTab === "process" && "根据运行中的进程自动切换配色方案"}
               </p>
             </div>
             <button
@@ -407,14 +593,18 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                       <p className="font-body-sm mt-1">请先在主界面保存颜色方案</p>
                     </div>
                   ) : (
-                    configs.map((configName) => {
+                    configs.map((config) => {
+                      const configName = config.name;
                       const binding = settings.shortcuts.find(s => s.config_name === configName);
                       return (
                         <div
                           key={configName}
                           className="flex items-center justify-between p-5 bg-surface-container-high/60 rounded-xl border border-outline-variant/20 hover:bg-surface-container-high/80 transition-all duration-300"
                         >
-                          <span className="font-title-sm text-title-sm">{configName}</span>
+                          <div className="flex items-center gap-3">
+                            {renderConfigIcon(config)}
+                            <span className="font-title-sm text-title-sm">{configName}</span>
+                          </div>
                           <div className="w-52">
                             <ShortcutInput
                               value={binding?.shortcut || ""}
@@ -447,7 +637,8 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 ) : (
                   <>
                     <div className="space-y-3">
-                      {configs.map((configName) => {
+                      {configs.map((config) => {
+                        const configName = config.name;
                         const isSelected = settings.tray_presets.includes(configName);
                         return (
                           <div
@@ -470,6 +661,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                                 </span>
                               )}
                             </div>
+                            {renderConfigIcon(config)}
                             <span className="font-title-sm text-title-sm">{configName}</span>
                           </div>
                         );
@@ -482,10 +674,299 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 )}
               </div>
             )}
+
+            {/* ===== 进程监听 ===== */}
+            {activeTab === "process" && (
+              <div className="space-y-6">
+                {/* 总开关 */}
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <h4 className="font-title-sm text-title-sm">进程监听</h4>
+                    <p className="font-label-sm text-label-sm text-on-surface-variant">
+                      当指定进程运行时自动切换配色方案
+                    </p>
+                  </div>
+                  <div
+                    onClick={handleToggleProcessWatcher}
+                    className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200 hover:scale-[1.02]"
+                  >
+                    <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.process_watcher_enabled ? "bg-primary" : "bg-surface-container-highest"}`}>
+                      <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.process_watcher_enabled ? "translate-x-full" : ""}`} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 通知开关 */}
+                <div className="px-3 py-5 bg-surface-container-high/60 rounded-xl border border-outline-variant/20 transition-all duration-300 hover:bg-surface-container-high/80">
+                  <button
+                    onClick={() => saveSettings({ ...settings, process_notification: !settings.process_notification })}
+                    className="w-full flex items-center gap-3 hover:bg-white/5 p-2 rounded-lg transition-colors duration-200 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-primary">notifications</span>
+                    <span className="font-body-md text-body-md">自动切换时显示通知</span>
+                    <div className="ml-auto relative inline-flex items-center active:scale-95 transition-transform duration-200">
+                      <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.process_notification ? "bg-primary" : "bg-surface-container-highest"}`}>
+                        <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.process_notification ? "translate-x-full" : ""}`} />
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Divider */}
+                <div className="h-px bg-outline-variant/30 w-full" />
+
+                {/* 规则列表 */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-primary text-[18px]">rule</span>
+                      <h4 className="font-title-sm text-title-sm">监听规则</h4>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowProcessPicker(true);
+                        setProcessSearchQuery("");
+                        loadRunningProcesses();
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/15 text-primary rounded-lg hover:bg-primary/25 transition-colors duration-200 active:scale-95"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">add</span>
+                      <span className="font-label-md text-label-md">添加规则</span>
+                    </button>
+                  </div>
+
+                  {settings.process_rules.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-on-surface-variant/40">
+                      <span className="material-symbols-outlined text-[48px] mb-4">terminal</span>
+                      <p className="font-body-md">暂无监听规则</p>
+                      <p className="font-body-sm mt-1">添加规则后，当指定进程运行时自动切换配色方案</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {settings.process_rules.map((rule, index) => (
+                        <div
+                          key={rule.id}
+                          className={`relative p-4 rounded-xl border transition-all duration-200 ${
+                            rule.enabled
+                              ? "bg-surface-container-high/60 border-outline-variant/20 hover:bg-surface-container-high/80"
+                              : "bg-surface-container-high/30 border-outline-variant/10 opacity-60"
+                          }`}
+                        >
+                          {/* 优先级指示器 */}
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-xs text-on-surface-variant/50">
+                            {index + 1}
+                          </div>
+
+                          <div className="ml-8 flex items-center gap-3">
+                            {/* 启用开关 */}
+                            <div
+                              onClick={() => handleToggleProcessRule(rule)}
+                              className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
+                            >
+                              <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.enabled ? "bg-primary" : "bg-surface-container-highest"}`}>
+                                <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.enabled ? "translate-x-full" : ""}`} />
+                              </div>
+                            </div>
+
+                            {/* 进程名 */}
+                            <span className="font-mono text-sm flex-1 text-on-surface">
+                              {rule.process_name}
+                            </span>
+
+                            {/* 绑定方案 */}
+                            <div className="relative">
+                              <select
+                                value={rule.config_name}
+                                onChange={(e) => handleUpdateProcessRule({ ...rule, config_name: e.target.value })}
+                                className="appearance-none bg-surface-container-highest/60 border border-outline-variant/40 text-on-surface font-label-md text-label-md rounded-lg px-3 py-1.5 pr-8 cursor-pointer hover:border-primary/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all duration-200"
+                              >
+                                {configs.map((config) => (
+                                  <option key={config.name} value={config.name}>
+                                    {config.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">
+                                expand_more
+                              </span>
+                            </div>
+
+                            {/* 恢复开关 */}
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-label-sm text-label-sm text-on-surface-variant">恢复</span>
+                              <div
+                                onClick={() => handleUpdateProcessRule({ ...rule, restore_on_exit: !rule.restore_on_exit })}
+                                className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
+                              >
+                                <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.restore_on_exit ? "bg-primary" : "bg-surface-container-highest"}`}>
+                                  <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.restore_on_exit ? "translate-x-full" : ""}`} />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 删除按钮 */}
+                            <button
+                              onClick={() => handleDeleteProcessRule(rule.id)}
+                              className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors duration-200 active:scale-90"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="font-label-sm text-on-surface-variant/50 mt-2">
+                    规则按列表顺序匹配，第一个命中的生效。进程名不区分大小写。
+                  </p>
+                </div>
+              </div>
+            )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* 进程选择器弹窗 */}
+      {showProcessPicker && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center">
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-md"
+            onClick={() => setShowProcessPicker(false)}
+          />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[120] w-[500px] max-h-[600px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
+            {/* Header */}
+            <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-outline-variant/20">
+              <h3 className="font-headline-sm text-headline-sm font-bold">添加进程规则</h3>
+              <button
+                onClick={() => setShowProcessPicker(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors duration-200 hover:bg-surface-variant/40 active:scale-90"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              {/* 进程名输入 */}
+              <div className="space-y-2">
+                <label className="font-label-md text-label-md text-on-surface">进程名</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newRuleProcessName}
+                    onChange={(e) => setNewRuleProcessName(e.target.value)}
+                    placeholder="例如: chrome.exe"
+                    className="flex-1 bg-surface-container-highest/60 border border-outline-variant/40 text-on-surface font-body-md text-body-md rounded-lg px-3 py-2 placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all duration-200"
+                  />
+                </div>
+              </div>
+
+              {/* 配置方案选择 */}
+              <div className="space-y-2">
+                <label className="font-label-md text-label-md text-on-surface">配置方案</label>
+                <div className="relative">
+                  <select
+                    value={newRuleConfigName}
+                    onChange={(e) => setNewRuleConfigName(e.target.value)}
+                    className="w-full appearance-none bg-surface-container-highest/60 border border-outline-variant/40 text-on-surface font-body-md text-body-md rounded-lg px-3 py-2 pr-8 cursor-pointer hover:border-primary/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all duration-200"
+                  >
+                    <option value="">请选择配置方案</option>
+                    {configs.map((config) => (
+                      <option key={config.name} value={config.name}>
+                        {config.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">
+                    expand_more
+                  </span>
+                </div>
+              </div>
+
+              {/* 运行中进程列表 */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-label-md text-label-md text-on-surface">运行中进程</label>
+                  <button
+                    onClick={loadRunningProcesses}
+                    className="flex items-center gap-1 px-2 py-1 text-primary hover:bg-primary/10 rounded transition-colors duration-200"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">refresh</span>
+                    <span className="font-label-sm text-label-sm">刷新</span>
+                  </button>
+                </div>
+                {/* 搜索框 */}
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/50 text-[18px] pointer-events-none">search</span>
+                  <input
+                    type="text"
+                    value={processSearchQuery}
+                    onChange={(e) => setProcessSearchQuery(e.target.value)}
+                    placeholder="搜索进程名..."
+                    className="w-full bg-surface-container-highest/60 border border-outline-variant/40 text-on-surface font-body-md text-body-md rounded-lg pl-9 pr-3 py-2 placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all duration-200"
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1 bg-surface-container-highest/30 rounded-lg p-2">
+                  {processes.length === 0 ? (
+                    <div className="text-center py-4 text-on-surface-variant/50">
+                      <span className="font-body-sm">点击"刷新"获取进程列表</span>
+                    </div>
+                  ) : (
+                    (() => {
+                      const filtered = processSearchQuery.trim()
+                        ? processes.filter(p => p.name.toLowerCase().includes(processSearchQuery.trim().toLowerCase()))
+                        : processes;
+                      return filtered.length === 0 ? (
+                        <div className="text-center py-4 text-on-surface-variant/50">
+                          <span className="font-body-sm">未找到匹配的进程</span>
+                        </div>
+                      ) : (
+                        filtered.map((p) => (
+                          <button
+                            key={p.name}
+                            onClick={() => setNewRuleProcessName(p.name)}
+                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors duration-200 active:scale-[0.98] flex items-center gap-2 ${
+                              newRuleProcessName === p.name
+                                ? "bg-primary/15 text-primary"
+                                : "hover:bg-surface-variant/40 text-on-surface"
+                            }`}
+                          >
+                            {p.icon ? (
+                              <img src={p.icon} alt="" className="w-5 h-5 rounded-sm object-contain" />
+                            ) : (
+                              <span className="material-symbols-outlined text-[18px] text-on-surface-variant/50">terminal</span>
+                            )}
+                            <span className="font-mono text-sm flex-1">{p.name}</span>
+                            <span className="text-xs text-on-surface-variant">PID: {p.pid}</span>
+                          </button>
+                        ))
+                      );
+                    })()
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-outline-variant/20">
+              <button
+                onClick={() => setShowProcessPicker(false)}
+                className="px-4 py-2 font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/40 rounded-lg transition-colors duration-200 active:scale-95"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleAddProcessRule}
+                className="px-4 py-2 font-label-md text-label-md bg-primary text-on-primary rounded-lg hover:bg-primary/90 transition-colors duration-200 active:scale-95"
+              >
+                添加规则
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

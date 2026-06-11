@@ -48,9 +48,10 @@ fn show_toast(_body: &str) {}
 pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
     let settings = config::get_app_settings()?;
     let existing_configs = config::list_configs().unwrap_or_default();
+    let existing_names: Vec<&str> = existing_configs.iter().map(|c| c.name.as_str()).collect();
     for binding in &settings.shortcuts {
         // 跳过方案已被删除的孤儿绑定（__default__ 是特殊的恢复默认，始终保留）
-        if binding.config_name != "__default__" && !existing_configs.contains(&binding.config_name) {
+        if binding.config_name != "__default__" && !existing_names.contains(&binding.config_name.as_str()) {
             continue;
         }
         register_shortcut(app, binding)?;
@@ -106,7 +107,7 @@ pub fn bind_shortcut(app: AppHandle, shortcut: String, config_name: String) -> R
     // 注意：__default__ 是特殊的"恢复默认"绑定，不在 list_configs 里但必须保留
     let existing_configs = config::list_configs().unwrap_or_default();
     let before_len = settings.shortcuts.len();
-    settings.shortcuts.retain(|b| b.config_name == "__default__" || existing_configs.contains(&b.config_name));
+    settings.shortcuts.retain(|b| b.config_name == "__default__" || existing_configs.iter().any(|c| c.name == b.config_name));
     let cleaned = before_len != settings.shortcuts.len();
 
     // 检查冲突：同一快捷键不能绑定多个方案

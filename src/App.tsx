@@ -48,7 +48,7 @@ function App() {
   const [digitalVibrance, setDigitalVibrance] = useState(50);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>();
 
-  const [configs, setConfigs] = useState<string[]>([]);
+  const [configs, setConfigs] = useState<ColorConfig[]>([]);
   const [selectedConfig, setSelectedConfig] = useState("");
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -206,7 +206,7 @@ function App() {
 
   const refreshConfigs = useCallback(async () => {
     try {
-      const result = await invoke<string[]>("list_configs");
+      const result = await invoke<ColorConfig[]>("list_configs");
       setConfigs(result);
     } catch (err) {
       console.error("Failed to load configs:", err);
