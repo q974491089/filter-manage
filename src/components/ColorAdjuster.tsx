@@ -86,7 +86,7 @@ function ColorAdjuster({
       </div>
 
       <div data-name="sliders-card" className="flex-1 bg-surface-container rounded-lg border border-outline-variant/20 p-lg shadow-sm">
-        <div className="space-y-lg">
+        <div className="space-y-md">
         <SliderControl
           label="亮度 (Brightness)"
           description="调整屏幕整体明暗程度"
@@ -164,7 +164,7 @@ function SliderControl({
   onChange,
 }: SliderControlProps) {
   return (
-    <div data-components="SliderControl" data-name={label} className="space-y-[20px]">
+    <div data-components="SliderControl" data-name={label} className="space-y-md">
       <div className="flex justify-between items-center">
         <label className="font-label-md text-label-md text-on-surface flex items-center gap-xs">
           <span className="material-symbols-outlined text-primary text-[18px]">{icon}</span>
