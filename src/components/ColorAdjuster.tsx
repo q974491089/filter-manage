@@ -169,14 +169,19 @@ function SliderControl({
         <label className="font-label-md text-label-md text-on-surface flex items-center gap-xs">
           <span className="material-symbols-outlined text-primary text-[18px]">{icon}</span>
           {label}
+          {description && (
+            <span className="relative group inline-flex items-center ml-xs">
+              <span className="material-symbols-outlined text-on-surface-variant/40 text-[14px] cursor-help hover:text-on-surface-variant/70 transition-colors">info</span>
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-md bg-surface-container-highest text-on-surface text-[11px] leading-snug whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg border border-outline-variant/20 z-10">
+                {description}
+              </span>
+            </span>
+          )}
         </label>
         <span className="text-primary font-medium font-label-md text-label-md bg-primary/10 px-sm py-xs rounded">
           {formatValue(value)}
         </span>
       </div>
-      {description && (
-        <p className="text-[11px] text-on-surface-variant/60 leading-snug">{description}</p>
-      )}
       <input
         type="range"
         min={min}
