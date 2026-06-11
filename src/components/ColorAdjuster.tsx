@@ -164,7 +164,7 @@ function SliderControl({
   onChange,
 }: SliderControlProps) {
   return (
-    <div data-components="SliderControl" data-name={label} className="space-y-lg">
+    <div data-components="SliderControl" data-name={label} className="space-y-[20px]">
       <div className="flex justify-between items-center">
         <label className="font-label-md text-label-md text-on-surface flex items-center gap-xs">
           <span className="material-symbols-outlined text-primary text-[18px]">{icon}</span>
