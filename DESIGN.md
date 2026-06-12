@@ -125,6 +125,22 @@ Depth through **Tonal Layering** (solid surface colors at different elevations),
 
 Modals use a semi-transparent dark overlay (`bg-black/60`) for focus. No backdrop-filter blur on cards or panels. Reserve blur effects only for the modal overlay layer when needed to dim background content.
 
+## Z-Index Scale
+
+Semantic z-index layers. Never use arbitrary values.
+
+| Layer | Value | Usage |
+|-------|-------|-------|
+| base | 0 | Default content |
+| dropdown | 50 | Select dropdowns, popovers |
+| header | 50 | Fixed header bar |
+| modal-backdrop | 100 | Modal overlay (bg-black/60) |
+| modal-panel | 110 | Modal content panel |
+| modal-nested-backdrop | 120 | Modal-in-modal backdrop |
+| modal-nested-panel | 130 | Modal-in-modal panel |
+| notification | 200 | Update/ClosePrompt modals |
+| toast | 300 | Toast notifications |
+
 ## Shapes (Border Radius)
 
 | Token | Value | Usage |
@@ -146,7 +162,7 @@ Modals use a semi-transparent dark overlay (`bg-black/60`) for focus. No backdro
 
 ### Inputs & Sliders
 
-- **Sliders:** Track `#2D3139`, active fill Primary Blue, thumb high-contrast white circle.
+- **Sliders:** Track uses `surface-container-highest` token, active fill Primary Blue, thumb high-contrast white circle.
 - **Inputs:** Darker than surface for "inset" feel. Focus: 2px Primary Blue glow.
 
 ### Cards

@@ -47,7 +47,7 @@ function SaveModal({ open, onClose, onSave, loading }: SaveModalProps) {
   if (!open) return null;
 
   return (
-    <div data-components="SaveModal" className="fixed inset-0 z-50 flex items-center justify-center">
+    <div data-components="SaveModal" className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div data-name="modal" className="relative bg-surface-container-high border border-outline-variant/30 rounded-xl shadow-xl w-full max-w-sm mx-4 overflow-hidden">

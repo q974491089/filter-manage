@@ -13,7 +13,6 @@ import AboutModal from "./components/AboutModal";
 import SettingsModal from "./components/SettingsModal";
 import ClosePromptModal from "./components/ClosePromptModal";
 import { useUpdater } from "./hooks/useUpdater";
-import "./App.css";
 
 interface ColorConfig {
   name: string;

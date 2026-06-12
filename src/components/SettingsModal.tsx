@@ -355,7 +355,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
       {/* Modal Container - 900x650 glass panel */}
       <div
         data-name="settings-modal"
-        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] flex w-[900px] h-[650px] rounded-xl shadow-2xl overflow-hidden animate-[modal-spring-up_0.5s_cubic-bezier(0.2,0.8,0.2,1)_forwards] bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20"
+        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[110] flex w-[900px] h-[650px] rounded-xl shadow-2xl overflow-hidden animate-[modal-spring-up_0.5s_cubic-bezier(0.2,0.8,0.2,1)_forwards] bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20"
       >
         {/* Sidebar */}
         <div className="w-64 bg-surface-container-low/50 border-r border-outline-variant/20 flex flex-col gap-2 p-6">
@@ -802,12 +802,12 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
 
       {/* 进程选择器弹窗 */}
       {showProcessPicker && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center">
           <div
             className="fixed inset-0 bg-black/60 backdrop-blur-md"
             onClick={() => setShowProcessPicker(false)}
           />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[120] w-[500px] max-h-[600px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[130] w-[500px] max-h-[600px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
             {/* Header */}
             <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-outline-variant/20">
               <h3 className="font-headline-sm text-headline-sm font-bold">添加进程规则</h3>
