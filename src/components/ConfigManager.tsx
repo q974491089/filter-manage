@@ -560,7 +560,7 @@ function ConfigManager({
             className="fixed inset-0 bg-black/60 backdrop-blur-md"
             onClick={() => setShowProcessPicker(false)}
           />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[130] w-[400px] max-h-[500px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[130] w-[500px] max-h-[600px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
             {/* Header */}
             <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-outline-variant/20">
               <h3 className="font-headline-sm text-headline-sm font-bold">选择进程</h3>
