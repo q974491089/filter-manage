@@ -12,7 +12,33 @@
 
 ## 迭代记录
 
-### v0.2.9（开发中 · 未发布）— 系统托盘常驻 + 全局快捷键 + 开机自启 + 配置重构
+### v0.3.0 — 2026-06-13 · 设计系统优化 + UI 体验改进
+
+设计系统全面优化，移除玻璃拟态效果，统一暗色调风格；字体系统规范化；滑块、Toggle、进程规则列表等组件体验改进。
+
+| 类型 | 端 | 说明 | 涉及文件 | 文档 |
+|------|----|------|---------|------|
+| 改进 | 配置+前端 | 设计系统优化：移除玻璃拟态（backdrop-filter）、统一暗色调背景、减少透明度使用 | `DESIGN.md`、`src/index.css`、多个组件 | [DESIGN.md](../DESIGN.md) |
+| 改进 | 配置+前端 | 字体系统统一：标题 16px/1.4、正文 14px/1.5、标签 12px/1.4，统一行高和文字大小 | `DESIGN.md`、`tailwind.config.js`、多个组件 | [DESIGN.md](../DESIGN.md) |
+| 改进 | 前端 | 滑块组件间距优化：标题与轨道间距多次调整，最终稳定为合理间距 | `src/components/ColorAdjuster.tsx` | — |
+| 改进 | 前端 | 滑块说明文字改为 info icon + tooltip，减少视觉干扰 | `src/components/ColorAdjuster.tsx` | — |
+| 改进 | 前端 | 滑块键盘步进行为改进：移除自定义 handler，依赖原生 step 行为，强制使用 step 值 | `src/components/ColorAdjuster.tsx` | — |
+| 改进 | 前端 | Toggle 开关无障碍改进：新增 role、aria-checked、aria-label、tabIndex 属性 | `src/components/Toggle.tsx` | — |
+| 新功能 | 前端 | 新增 TextSwitch 组件：支持文字标签的二态切换（如"是/否"） | `src/components/TextSwitch.tsx` | — |
+| 改进 | 前端 | 进程规则列表 UI 改进：优化卡片样式、圆角（12px→16px）、间距、悬停效果、"退出时恢复"改用 TextSwitch | `src/components/ConfigManager.tsx` | — |
+| 改进 | 前端 | 进程选择器弹窗尺寸优化：从 400×500 调整为 500×600，列表高度 48→56，改进滚动条样式 | `src/components/ConfigManager.tsx` | — |
+| 改进 | 前端 | 进程规则空状态增加说明文字："添加进程后，当其运行时自动切换到此方案" | `src/components/ConfigManager.tsx` | — |
+| 改进 | 前端 | 配置管理器操作按钮可见性优化：移除 hover 才显示的逻辑，始终显示操作按钮 | `src/components/ConfigManager.tsx` | — |
+| 改进 | 前端 | 设置弹窗样式调整：优化标题、分隔线、卡片间距 | `src/components/SettingsModal.tsx` | — |
+| 改进 | 配置 | Tailwind 配置同步 DESIGN.md：字体大小、行高、圆角等 token 更新 | `tailwind.config.js` | — |
+| 改进 | 文档 | 完善多 Agent 协作框架：`.agent/`（角色定义）、`.rules/`（工具规则）、`.skills/`（共享技能） | `.agent/`、`.rules/`、`.skills/` | [AGENTS.md](../AGENTS.md) |
+| 改进 | 文档 | CodeGraph 工具使用规则：优先级说明、工具选择策略、WSL 环境配置 | `.claude/rules/codegraph.md`、`.claude/rules/codegraph-context-priority.md` | — |
+| 新功能 | 文档 | 进程监听 API 文档完善 | `.docs/api/process_watcher.md` | [api/process_watcher.md](./api/process_watcher.md) |
+| 新功能 | 文档 | 前端交接文档：icon 字段、进程监听 UI | `.docs/handoff/icon-field-frontend.md`、`.docs/handoff/process-watcher-frontend.md` | — |
+
+---
+
+### v0.2.9 — 2026-06-02 · 系统托盘常驻 + 全局快捷键 + 开机自启 + 配置重构
 
 应用支持最小化到系统托盘常驻运行、全局快捷键一键切换方案、开机自启可选，并修复托盘双实例与配置列表问题；配置存储重构为单文件 app.json，新增原子写+备份兜底。
 
