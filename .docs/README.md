@@ -44,6 +44,12 @@
 | 修复 | 后端 | 快捷键绑定报"已绑定到已删除方案"。**根因**：删方案不清理 settings 里的快捷键记录。**修复**：`bind_shortcut` 前清理孤儿绑定（豁免 `__default__`），`init_shortcuts` 跳过已删方案 | `src-tauri/src/shortcut.rs` | — |
 | 新功能 | 后端 | 快捷键/托盘应用方案后 emit `config-applied` 事件（payload=方案名），供前端同步 UI 状态（前端待接入） | `src-tauri/src/shortcut.rs`、`tray.rs` | [handoff](./handoff/config-applied-event-frontend.md) |
 | 改进 | CI | 发布流程新增 AList 云盘自动上传：CI 构建后自动登录 AList 并将 exe 上传到夸克/阿里云盘的 `filter-manage/` 目录 | `.github/workflows/release.yml` | — |
+| 新功能 | 后端 | 进程监听自动切换方案：后台线程轮询进程列表，匹配规则自动应用配色方案，进程退出恢复。新增 `ProcessRule` + 7 个 Tauri 命令 | `src-tauri/src/process_watcher.rs`、`config.rs`、`lib.rs` | [api/process_watcher.md](./api/process_watcher.md) |
+| 重构 | 后端 | 进程监听重构为 WMI 事件驱动（`windows` crate 原生 `IWbemObjectSink`）+ 管理员权限（`build.rs` `requireAdministrator`）+ 按规则定向订阅；新增 `windows-core` 依赖；`WatcherStatus` 新增 `subscribed_processes` 字段 | `src-tauri/src/process_watcher.rs`、`build.rs`、`Cargo.toml` | [api/process_watcher.md](./api/process_watcher.md) |
+| 修复 | 后端 | `list_running_processes` 中文进程名乱码。**根因**：使用 ANSI 版 ToolHelp32 API（GBK 字节被当 UTF-8 解码）。**修复**：改用 Unicode API `Process32FirstW` / `PROCESSENTRY32W` + `String::from_utf16_lossy` | `src-tauri/src/process_watcher.rs` | [api/process_watcher.md](./api/process_watcher.md) |
+| 改进 | 后端 | `ColorConfig` 新增 `icon: Option<String>` 字段，支持为每个配色方案指定 Material Icon 名称，serde 兼容旧配置（缺失时自动为 `None`） | `src-tauri/src/config.rs` | [api/config.md](./api/config.md) |
+| 改进 | 后端 | `list_configs` 返回类型由 `Vec<String>` 改为 `Vec<ColorConfig>`，前端一次调用获取全部配置（含 icon），无需逐个 `load_config` | `src-tauri/src/config.rs`、`tray.rs`、`shortcut.rs` | [api/config.md](./api/config.md) |
+| 新功能 | 后端 | `get_running_processes` 返回进程图标（`RunningProcess.icon`），通过 `ExtractIconExW` + GDI + PNG 编码 base64 返回，同名进程去重缓存 | `src-tauri/src/process_watcher.rs` | [api/process_watcher.md](./api/process_watcher.md) |
 
 ---
 
@@ -159,4 +165,5 @@
 | [api/icc.md](./api/icc.md) | ICC 全部命令 |
 | [api/nvidia.md](./api/nvidia.md) | NVIDIA 颜色全部命令 |
 | [api/config.md](./api/config.md) | 配置预设 + 应用设置 + 快捷键 + 自启 + 托盘全部命令 |
+| [api/process_watcher.md](./api/process_watcher.md) | 进程监听自动切换方案命令 |
 | [updater-setup.md](./updater-setup.md) | 自动更新密钥生成与 CI 配置 |

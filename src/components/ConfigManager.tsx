@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
 import ShortcutInput from "./ShortcutInput";
+import Toggle from "./Toggle";
+import TextSwitch from "./TextSwitch";
 
 interface ColorConfig {
   name: string;
@@ -333,7 +335,7 @@ function ConfigManager({
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <div className="flex items-center gap-1 transition-all">
                     <button
                       onClick={(e) => handleEdit(e, name)}
                       className="p-xs rounded hover:bg-primary-container/30 transition-all flex items-center"
@@ -486,53 +488,45 @@ function ConfigManager({
 
                 {/* 进程规则列表 */}
                 {getConfigRules().length === 0 ? (
-                  <div className="text-center py-6 text-on-surface-variant/40">
-                    <span className="material-symbols-outlined text-[32px] mb-2">terminal</span>
+                  <div className="flex flex-col items-center justify-center py-8 text-on-surface-variant/40">
+                    <span className="material-symbols-outlined text-[36px] mb-3">terminal</span>
                     <p className="font-body-sm">暂无监听进程</p>
+                    <p className="font-label-sm mt-1">添加进程后，当其运行时自动切换到此方案</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {getConfigRules().map((rule) => (
                       <div
                         key={rule.id}
-                        className={`flex items-center gap-3 p-3 rounded-lg border transition-all duration-200 ${
+                        className={`group flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200 ${
                           rule.enabled
-                            ? "bg-surface-container-high/60 border-outline-variant/20"
-                            : "bg-surface-container-high/30 border-outline-variant/10 opacity-60"
+                            ? "bg-surface-container-high/60 border-outline-variant/20 hover:bg-surface-container-high/80"
+                            : "bg-surface-container-high/25 border-outline-variant/10"
                         }`}
                       >
                         {/* 启用开关 */}
-                        <div
-                          onClick={() => handleToggleProcessRule(rule.id)}
-                          className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
-                        >
-                          <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.enabled ? "bg-primary" : "bg-surface-container-highest"}`}>
-                            <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.enabled ? "translate-x-full" : ""}`} />
-                          </div>
-                        </div>
+                        <Toggle size="sm" checked={rule.enabled} onChange={() => handleToggleProcessRule(rule.id)} />
 
                         {/* 进程名 */}
-                        <span className="font-mono text-sm flex-1 text-on-surface">
+                        <span className={`font-mono text-[14px] font-medium flex-1 min-w-0 truncate ${rule.enabled ? "text-on-surface" : "text-on-surface-variant/50"}`}>
                           {rule.process_name}
                         </span>
 
-                        {/* 恢复开关 */}
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-label-sm text-label-sm text-on-surface-variant">恢复</span>
-                          <div
-                            onClick={() => handleUpdateProcessRule(rule.id, { restore_on_exit: !rule.restore_on_exit })}
-                            className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
-                          >
-                            <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.restore_on_exit ? "bg-primary" : "bg-surface-container-highest"}`}>
-                              <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.restore_on_exit ? "translate-x-full" : ""}`} />
-                            </div>
-                          </div>
+                        {/* 退出时恢复 */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[12px] text-on-surface-variant/60">退出时恢复</span>
+                          <TextSwitch
+                            checked={rule.restore_on_exit}
+                            onChange={(v) => handleUpdateProcessRule(rule.id, { restore_on_exit: v })}
+                            checkedLabel="是"
+                            uncheckedLabel="否"
+                          />
                         </div>
 
                         {/* 删除按钮 */}
                         <button
                           onClick={() => handleDeleteProcessRule(rule.id)}
-                          className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors duration-200 active:scale-90"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg text-on-surface-variant/40 hover:text-error hover:bg-error/10 transition-all duration-200 active:scale-90 shrink-0"
                         >
                           <span className="material-symbols-outlined text-[18px]">delete</span>
                         </button>
@@ -573,7 +567,7 @@ function ConfigManager({
             className="fixed inset-0 bg-black/60 backdrop-blur-md"
             onClick={() => setShowProcessPicker(false)}
           />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[130] w-[400px] max-h-[500px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[130] w-[500px] max-h-[600px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
             {/* Header */}
             <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-outline-variant/20">
               <h3 className="font-headline-sm text-headline-sm font-bold">选择进程</h3>
@@ -624,7 +618,7 @@ function ConfigManager({
                     className="w-full bg-surface-container-highest/60 border border-outline-variant/40 text-on-surface font-body-md text-body-md rounded-lg pl-9 pr-3 py-2 placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all duration-200"
                   />
                 </div>
-                <div className="max-h-48 overflow-y-auto space-y-1 bg-surface-container-highest/30 rounded-lg p-2">
+                <div className="max-h-56 overflow-y-auto space-y-1 bg-surface-container-highest/30 rounded-xl p-1.5 custom-scrollbar">
                   {processes.length === 0 ? (
                     <div className="text-center py-4 text-on-surface-variant/50">
                       <span className="font-body-sm">点击"刷新"获取进程列表</span>
@@ -643,19 +637,41 @@ function ConfigManager({
                           <button
                             key={p.name}
                             onClick={() => setNewProcessName(p.name)}
-                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors duration-200 active:scale-[0.98] flex items-center gap-2 ${
+                            className={`w-full text-left px-3 py-2.5 rounded-xl transition-all duration-200 active:scale-[0.98] flex items-center gap-3 ${
                               newProcessName === p.name
-                                ? "bg-primary/15 text-primary"
-                                : "hover:bg-surface-variant/40 text-on-surface"
+                                ? "bg-primary/15 border border-primary/30 shadow-sm shadow-primary/5"
+                                : "border border-transparent hover:bg-surface-variant/40 text-on-surface"
                             }`}
                           >
-                            {p.icon ? (
-                              <img src={p.icon} alt="" className="w-5 h-5 rounded-sm object-contain" />
-                            ) : (
-                              <span className="material-symbols-outlined text-[18px] text-on-surface-variant/50">terminal</span>
+                            {/* 进程图标 */}
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 overflow-hidden ${
+                              newProcessName === p.name ? "bg-primary/10" : "bg-surface-container-highest/40"
+                            }`}>
+                              {p.icon ? (
+                                <img src={p.icon} alt="" className="w-5 h-5 object-contain" />
+                              ) : (
+                                <span className={`material-symbols-outlined text-[18px] ${
+                                  newProcessName === p.name ? "text-primary" : "text-on-surface-variant/40"
+                                }`}>terminal</span>
+                              )}
+                            </div>
+
+                            {/* 进程信息 */}
+                            <div className="flex-1 min-w-0">
+                              <span className={`font-mono text-sm block truncate ${
+                                newProcessName === p.name ? "text-primary font-medium" : "text-on-surface"
+                              }`}>
+                                {p.name}
+                              </span>
+                              <span className="font-mono text-[11px] text-on-surface-variant/40 block">
+                                PID {p.pid}
+                              </span>
+                            </div>
+
+                            {/* 选中标记 */}
+                            {newProcessName === p.name && (
+                              <span className="material-symbols-outlined text-[18px] text-primary shrink-0">check_circle</span>
                             )}
-                            <span className="font-mono text-sm flex-1">{p.name}</span>
-                            <span className="text-xs text-on-surface-variant">PID: {p.pid}</span>
                           </button>
                         ))
                       );

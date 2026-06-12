@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ShortcutInput from "./ShortcutInput";
+import Toggle from "./Toggle";
+import TextSwitch from "./TextSwitch";
 
 interface ColorConfig {
   name: string;
@@ -354,7 +356,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
       {/* Modal Container - 900x650 glass panel */}
       <div
         data-name="settings-modal"
-        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] flex w-[900px] h-[650px] rounded-xl shadow-2xl overflow-hidden animate-[modal-spring-up_0.5s_cubic-bezier(0.2,0.8,0.2,1)_forwards] bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20"
+        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[110] flex w-[900px] h-[650px] rounded-xl shadow-2xl overflow-hidden animate-[modal-spring-up_0.5s_cubic-bezier(0.2,0.8,0.2,1)_forwards] bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20"
       >
         {/* Sidebar */}
         <div className="w-64 bg-surface-container-low/50 border-r border-outline-variant/20 flex flex-col gap-2 p-6">
@@ -521,11 +523,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                       在 Windows 启动时自动运行 Filter Manage
                     </p>
                   </div>
-                  <div className="relative inline-flex items-center active:scale-95 transition-transform duration-200 hover:scale-[1.02]">
-                    <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.autostart ? "bg-primary" : "bg-surface-container-highest"}`}>
-                      <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.autostart ? "translate-x-full" : ""}`} />
-                    </div>
-                  </div>
+                  <Toggle checked={settings.autostart} onChange={handleToggleAutostart} />
                 </button>
 
                 {/* Divider */}
@@ -541,10 +539,8 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                     >
                       <span className="material-symbols-outlined text-primary">notifications</span>
                       <span className="font-body-md text-body-md">切换方案时显示通知</span>
-                      <div className="ml-auto relative inline-flex items-center active:scale-95 transition-transform duration-200">
-                        <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.shortcut_notification ? "bg-primary" : "bg-surface-container-highest"}`}>
-                          <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.shortcut_notification ? "translate-x-full" : ""}`} />
-                        </div>
+                      <div className="ml-auto">
+                        <Toggle checked={settings.shortcut_notification} onChange={(v) => saveSettings({ ...settings, shortcut_notification: v })} />
                       </div>
                     </button>
                   </div>
@@ -680,47 +676,48 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
               <div className="space-y-6">
                 {/* 总开关 */}
                 <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <h4 className="font-title-sm text-title-sm">进程监听</h4>
-                    <p className="font-label-sm text-label-sm text-on-surface-variant">
-                      当指定进程运行时自动切换配色方案
-                    </p>
-                  </div>
-                  <div
-                    onClick={handleToggleProcessWatcher}
-                    className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200 hover:scale-[1.02]"
-                  >
-                    <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.process_watcher_enabled ? "bg-primary" : "bg-surface-container-highest"}`}>
-                      <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.process_watcher_enabled ? "translate-x-full" : ""}`} />
+                  <div className="flex items-center gap-3">
+                    <span className="material-symbols-outlined text-primary text-[18px]">monitoring</span>
+                    <div className="space-y-0.5">
+                      <h4 className="font-title-sm text-title-sm">进程监听</h4>
+                      <p className="font-label-sm text-label-sm text-on-surface-variant">
+                        当指定进程运行时自动切换配色方案
+                      </p>
                     </div>
                   </div>
+                  <Toggle checked={settings.process_watcher_enabled} onChange={handleToggleProcessWatcher} />
                 </div>
 
                 {/* 通知开关 */}
-                <div className="px-3 py-5 bg-surface-container-high/60 rounded-xl border border-outline-variant/20 transition-all duration-300 hover:bg-surface-container-high/80">
-                  <button
-                    onClick={() => saveSettings({ ...settings, process_notification: !settings.process_notification })}
-                    className="w-full flex items-center gap-3 hover:bg-white/5 p-2 rounded-lg transition-colors duration-200 cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined text-primary">notifications</span>
-                    <span className="font-body-md text-body-md">自动切换时显示通知</span>
-                    <div className="ml-auto relative inline-flex items-center active:scale-95 transition-transform duration-200">
-                      <div className={`w-11 h-6 rounded-full transition-colors duration-300 ${settings.process_notification ? "bg-primary" : "bg-surface-container-highest"}`}>
-                        <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${settings.process_notification ? "translate-x-full" : ""}`} />
-                      </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="material-symbols-outlined text-primary text-[18px]">notifications</span>
+                    <div className="space-y-0.5">
+                      <h4 className="font-title-sm text-title-sm">切换通知</h4>
+                      <p className="font-label-sm text-label-sm text-on-surface-variant">
+                        自动切换配色方案时弹出 Toast 提示
+                      </p>
                     </div>
-                  </button>
+                  </div>
+                  <Toggle checked={settings.process_notification} onChange={(v) => saveSettings({ ...settings, process_notification: v })} />
                 </div>
 
                 {/* Divider */}
                 <div className="h-px bg-outline-variant/30 w-full" />
 
-                {/* 规则列表 */}
-                <div className="space-y-3">
+                {/* 规则列表区域 — 跟随总开关状态 */}
+                <div className={`space-y-3 transition-opacity duration-300 ${settings.process_watcher_enabled ? "opacity-100" : "opacity-40 pointer-events-none"}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="material-symbols-outlined text-primary text-[18px]">rule</span>
                       <h4 className="font-title-sm text-title-sm">监听规则</h4>
+                      <div className="group relative flex items-center">
+                        <span className="material-symbols-outlined text-[16px] text-on-surface-variant/40 cursor-help hover:text-on-surface-variant/70 transition-colors leading-none relative -top-px">help</span>
+                        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-[240px] px-3 py-2.5 rounded-lg bg-surface-container-highest text-on-surface text-[12px] leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none shadow-lg border border-outline-variant/20 z-50">
+                          规则按列表顺序匹配，第一个命中的生效。当指定进程运行时，自动切换到绑定的配色方案。进程退出后可选择是否恢复上一方案。
+                          <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 bg-surface-container-highest rotate-45 -mt-1 border-r border-b border-outline-variant/20" />
+                        </div>
+                      </div>
                     </div>
                     <button
                       onClick={() => {
@@ -743,83 +740,90 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {settings.process_rules.map((rule, index) => (
+                       {settings.process_rules.map((rule, index) => (
                         <div
                           key={rule.id}
-                          className={`relative p-4 rounded-xl border transition-all duration-200 ${
+                          className={`group relative rounded-xl border transition-all duration-200 ${
                             rule.enabled
                               ? "bg-surface-container-high/60 border-outline-variant/20 hover:bg-surface-container-high/80"
-                              : "bg-surface-container-high/30 border-outline-variant/10 opacity-60"
+                              : "bg-surface-container-high/25 border-outline-variant/10"
                           }`}
                         >
-                          {/* 优先级指示器 */}
-                          <div className="absolute left-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-xs text-on-surface-variant/50">
-                            {index + 1}
-                          </div>
-
-                          <div className="ml-8 flex items-center gap-3">
-                            {/* 启用开关 */}
-                            <div
-                              onClick={() => handleToggleProcessRule(rule)}
-                              className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
-                            >
-                              <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.enabled ? "bg-primary" : "bg-surface-container-highest"}`}>
-                                <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.enabled ? "translate-x-full" : ""}`} />
-                              </div>
+                          {/* Row 1: 优先级 + Toggle + 进程名 + 方案标签 + 删除 */}
+                          <div className="flex items-center gap-3 px-4 py-3">
+                            {/* 优先级徽章 */}
+                            <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold shrink-0 ${
+                              index === 0
+                                ? "bg-primary/20 text-primary"
+                                : "bg-surface-container-highest/60 text-on-surface-variant/60"
+                            }`}>
+                              {index + 1}
                             </div>
 
+                            <Toggle size="sm" checked={rule.enabled} onChange={() => handleToggleProcessRule(rule)} />
+
                             {/* 进程名 */}
-                            <span className="font-mono text-sm flex-1 text-on-surface">
+                            <span className={`font-mono text-[14px] font-medium flex-1 min-w-0 truncate ${rule.enabled ? "text-on-surface" : "text-on-surface-variant/50"}`}>
                               {rule.process_name}
                             </span>
 
-                            {/* 绑定方案 */}
-                            <div className="relative">
-                              <select
-                                value={rule.config_name}
-                                onChange={(e) => handleUpdateProcessRule({ ...rule, config_name: e.target.value })}
-                                className="appearance-none bg-surface-container-highest/60 border border-outline-variant/40 text-on-surface font-label-md text-label-md rounded-lg px-3 py-1.5 pr-8 cursor-pointer hover:border-primary/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all duration-200"
-                              >
-                                {configs.map((config) => (
-                                  <option key={config.name} value={config.name}>
-                                    {config.name}
-                                  </option>
-                                ))}
-                              </select>
-                              <span className="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">
-                                expand_more
-                              </span>
-                            </div>
+                            {/* 方案标签 */}
+                            <span className={`text-[13px] font-semibold px-2.5 py-1 rounded-lg shrink-0 ${
+                              rule.enabled
+                                ? "bg-primary/10 text-primary"
+                                : "bg-surface-container-highest/40 text-on-surface-variant/50"
+                            }`}>
+                              {rule.config_name}
+                            </span>
 
-                            {/* 恢复开关 */}
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-label-sm text-label-sm text-on-surface-variant">恢复</span>
-                              <div
-                                onClick={() => handleUpdateProcessRule({ ...rule, restore_on_exit: !rule.restore_on_exit })}
-                                className="relative inline-flex items-center cursor-pointer active:scale-95 transition-transform duration-200"
-                              >
-                                <div className={`w-9 h-5 rounded-full transition-colors duration-300 ${rule.restore_on_exit ? "bg-primary" : "bg-surface-container-highest"}`}>
-                                  <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${rule.restore_on_exit ? "translate-x-full" : ""}`} />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* 删除按钮 */}
+                            {/* 删除 */}
                             <button
                               onClick={() => handleDeleteProcessRule(rule.id)}
-                              className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors duration-200 active:scale-90"
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-on-surface-variant/40 hover:text-error hover:bg-error/10 transition-all duration-200 active:scale-90 shrink-0"
                             >
                               <span className="material-symbols-outlined text-[18px]">delete</span>
                             </button>
+                          </div>
+
+                          {/* Row 2: 方案下拉（左）+ 退出时恢复（右） */}
+                          <div className="flex items-center justify-between px-4 pb-3 pt-0">
+                            {/* 方案切换下拉 */}
+                            <div className="flex items-center gap-2">
+                              <div className="relative">
+                                <select
+                                  value={rule.config_name}
+                                  onChange={(e) => handleUpdateProcessRule({ ...rule, config_name: e.target.value })}
+                                  className="appearance-none bg-surface-container-highest/40 border border-outline-variant/30 text-on-surface-variant text-[13px] font-normal rounded-lg px-2.5 py-1 pr-7 cursor-pointer hover:border-primary/40 hover:text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all duration-200"
+                                >
+                                  {configs.map((config) => (
+                                    <option key={config.name} value={config.name}>
+                                      {config.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="material-symbols-outlined absolute right-1 top-1/2 -translate-y-1/2 text-on-surface-variant/50 text-[16px] pointer-events-none">
+                                  expand_more
+                                </span>
+                              </div>
+                              <span className="text-[12px] text-on-surface-variant/60">可切换</span>
+                            </div>
+
+                            {/* 退出时恢复 */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[12px] text-on-surface-variant/60">退出时恢复</span>
+                              <TextSwitch
+                                checked={rule.restore_on_exit}
+                                onChange={(v) => handleUpdateProcessRule({ ...rule, restore_on_exit: v })}
+                                checkedLabel="是"
+                                uncheckedLabel="否"
+                              />
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  <p className="font-label-sm text-on-surface-variant/50 mt-2">
-                    规则按列表顺序匹配，第一个命中的生效。进程名不区分大小写。
-                  </p>
                 </div>
               </div>
             )}
@@ -830,12 +834,12 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
 
       {/* 进程选择器弹窗 */}
       {showProcessPicker && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center">
           <div
             className="fixed inset-0 bg-black/60 backdrop-blur-md"
             onClick={() => setShowProcessPicker(false)}
           />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[120] w-[500px] max-h-[600px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[130] w-[500px] max-h-[600px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
             {/* Header */}
             <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-outline-variant/20">
               <h3 className="font-headline-sm text-headline-sm font-bold">添加进程规则</h3>
@@ -908,7 +912,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                     className="w-full bg-surface-container-highest/60 border border-outline-variant/40 text-on-surface font-body-md text-body-md rounded-lg pl-9 pr-3 py-2 placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all duration-200"
                   />
                 </div>
-                <div className="max-h-48 overflow-y-auto space-y-1 bg-surface-container-highest/30 rounded-lg p-2">
+                <div className="max-h-56 overflow-y-auto space-y-1 bg-surface-container-highest/30 rounded-xl p-1.5 custom-scrollbar">
                   {processes.length === 0 ? (
                     <div className="text-center py-4 text-on-surface-variant/50">
                       <span className="font-body-sm">点击"刷新"获取进程列表</span>
@@ -923,23 +927,45 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                           <span className="font-body-sm">未找到匹配的进程</span>
                         </div>
                       ) : (
-                        filtered.map((p) => (
+                         filtered.map((p) => (
                           <button
                             key={p.name}
                             onClick={() => setNewRuleProcessName(p.name)}
-                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors duration-200 active:scale-[0.98] flex items-center gap-2 ${
+                            className={`w-full text-left px-3 py-2.5 rounded-xl transition-all duration-200 active:scale-[0.98] flex items-center gap-3 ${
                               newRuleProcessName === p.name
-                                ? "bg-primary/15 text-primary"
-                                : "hover:bg-surface-variant/40 text-on-surface"
+                                ? "bg-primary/15 border border-primary/30 shadow-sm shadow-primary/5"
+                                : "border border-transparent hover:bg-surface-variant/40 text-on-surface"
                             }`}
                           >
-                            {p.icon ? (
-                              <img src={p.icon} alt="" className="w-5 h-5 rounded-sm object-contain" />
-                            ) : (
-                              <span className="material-symbols-outlined text-[18px] text-on-surface-variant/50">terminal</span>
+                            {/* 进程图标 */}
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 overflow-hidden ${
+                              newRuleProcessName === p.name ? "bg-primary/10" : "bg-surface-container-highest/40"
+                            }`}>
+                              {p.icon ? (
+                                <img src={p.icon} alt="" className="w-5 h-5 object-contain" />
+                              ) : (
+                                <span className={`material-symbols-outlined text-[18px] ${
+                                  newRuleProcessName === p.name ? "text-primary" : "text-on-surface-variant/40"
+                                }`}>terminal</span>
+                              )}
+                            </div>
+
+                            {/* 进程信息 */}
+                            <div className="flex-1 min-w-0">
+                              <span className={`font-mono text-sm block truncate ${
+                                newRuleProcessName === p.name ? "text-primary font-medium" : "text-on-surface"
+                              }`}>
+                                {p.name}
+                              </span>
+                              <span className="font-mono text-[11px] text-on-surface-variant/40 block">
+                                PID {p.pid}
+                              </span>
+                            </div>
+
+                            {/* 选中标记 */}
+                            {newRuleProcessName === p.name && (
+                              <span className="material-symbols-outlined text-[18px] text-primary shrink-0">check_circle</span>
                             )}
-                            <span className="font-mono text-sm flex-1">{p.name}</span>
-                            <span className="text-xs text-on-surface-variant">PID: {p.pid}</span>
                           </button>
                         ))
                       );

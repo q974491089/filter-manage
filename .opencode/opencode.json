@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [".opencode/instructions.md"],
+  "agent": {
+    "frontend": {
+      "description": "Frontend development agent",
+      "instructions": [".opencode/modes/frontend.md"]
+    }
+  },
+  "default_agent": "frontend"
+}

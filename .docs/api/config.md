@@ -18,7 +18,7 @@
   "version": 1,
   "default_preset": "__default__",
   "presets": [
-    { "name": "游戏模式", "brightness": 10, "contrast": 5, "gamma": 1.2, "digital_vibrance": 80, "icc_profile": null }
+    { "name": "游戏模式", "icon": "sports_esports", "brightness": 10, "contrast": 5, "gamma": 1.2, "digital_vibrance": 80, "icc_profile": null }
   ],
   "settings": {
     "close_to_tray": true,
@@ -42,6 +42,7 @@
 ```ts
 interface ColorConfig {
   name: string
+  icon?: string | null
   brightness: number
   contrast: number
   gamma: number
@@ -49,6 +50,8 @@ interface ColorConfig {
   icc_profile: string | null
 }
 ```
+
+**更新于**：2026-06-11 — `ColorConfig` 新增 `icon` 字段（`Option<String>`，Material Icon 名称，旧配置自动为 `null`）
 
 ## 命令列表
 
@@ -59,6 +62,7 @@ interface ColorConfig {
 await invoke('save_config', {
   config: {
     name: '游戏模式',
+    icon: 'sports_esports',
     brightness: 10,
     contrast: 5,
     gamma: 1.2,
@@ -80,13 +84,13 @@ const config: ColorConfig = await invoke('load_config', { name: '游戏模式' }
 ---
 
 ### `list_configs`
-列出所有用户配置预设名称（不含内部默认配置 `__default__` 与设置文件 `__settings__`）。
+列出所有用户配置预设（不含内部默认配置 `__default__` 与设置文件 `__settings__`），返回完整 `ColorConfig` 列表（含 `icon` 字段），按名称排序。
 
 ```ts
-const names: string[] = await invoke('list_configs')
+const configs: ColorConfig[] = await invoke('list_configs')
 ```
 
-**更新于**：2026-05-31 — 修复 `__settings__.json` 被误列为配置方案的问题
+**更新于**：2026-06-11 — 返回类型由 `string[]` 改为 `ColorConfig[]`，前端无需再逐个调用 `load_config` 获取 `icon`
 
 ---
 

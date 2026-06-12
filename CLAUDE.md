@@ -1,5 +1,19 @@
 # Project Guidelines
 
+> **🚀 Multi-Agent Framework**
+> 
+> 本项目采用多 Agent 协作框架。你的职责、代码范围、协作规则都在框架中定义。
+> 
+> **请先读以下文件（按顺序）**：
+> 1. **`AGENTS.md`** - Agent 注册表，找到你的角色
+> 2. **`.agent/<your-role>.md`** - 你的详细职责文档
+> 3. **`.rules/*.md`** - 统一工具规则（必读）
+>
+> 当前 Claude Code 的角色：**Universal (全栈)**  
+> 详见：`.agent/universal.md`
+
+---
+
 ## Tool Usage Preferences
 
 ### 代码读取（最高优先级）
@@ -11,6 +25,8 @@
   - `codegraph_explore` — 批量探索多个相关符号
 - **codegraph 不够时降级使用** `Read`、`Grep`、`Glob` 等传统工具
 - **适用场景**：理解代码结构、查找函数定义、追踪调用链、分析依赖关系、重构前评估影响范围
+
+**详见**：`.rules/tools.md`
 
 ### Search & Research
 - **优先使用 ctx7 技能** (`npx ctx7@latest`) 查询官方文档（API 语法、配置、版本迁移等）
@@ -38,13 +54,14 @@
 
 ## Agent 协作规则
 
-本项目采用多 Agent 协作。详见 `docs/agents.md`。
+本项目采用多 Agent 协作。详见 `AGENTS.md` 和 `.agent/` 目录。
 
 **核心约束：**
-1. **后端知识获取**：优先读 `docs/api/*.md`，不够再读 `src-tauri/src/*.rs` 源码
-2. **切勿修改后端代码**（`src-tauri/` 目录）— 需要修改时提建议，由 Backend Agent 执行
-3. **前端代码范围**：`src/`、`tailwind.config.js`、`index.css`、`package.json`
-4. **文档共管**：`docs/` 目录前后端 Agent 都可以修改
+1. **后端知识获取**：优先读 `.docs/api/*.md`，不够再读 `src-tauri/src/*.rs` 源码
+2. **当前角色是 Universal（全栈）**：前端 + 后端都可以修改
+3. **如果切换到其他角色**：严格遵循 `.agent/<role>.md` 的代码范围限制
+4. **文档同步**：后端 API 变更必须同步更新文档，详见 `.rules/docs.md`
+5. **Agent 交接**：需要协作时，在 `.docs/handoff/` 创建交接文档，详见 `.rules/handoff.md`
 
 ## WSL2 开发环境网络配置
 

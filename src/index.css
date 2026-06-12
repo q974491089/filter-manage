@@ -151,27 +151,25 @@ body {
   min-height: 100vh;
 }
 
-/* Glassmorphism card - Filter Manage style */
+/* Solid surface card - Filter Manage style */
 @layer components {
   .glass-card {
     @apply rounded-lg;
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: rgb(var(--color-surface-container));
+    border: 1px solid rgb(var(--color-outline-variant) / 0.2);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   }
 
   .dark .glass-card {
-    background: rgba(30, 41, 59, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    background: rgb(var(--color-surface-container-low));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   }
 
   .glass-card-solid {
     @apply rounded-lg;
     background: rgb(var(--color-surface-container));
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   }
 
   .glass-surface {
@@ -231,13 +229,9 @@ input[type="range"] {
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
-  background: #2D3139;
+  background: rgb(var(--color-surface-container-highest));
   height: 6px;
   border-radius: 3px;
-}
-
-.dark input[type="range"]::-webkit-slider-runnable-track {
-  background: #2D3139;
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -257,7 +251,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 input[type="range"]::-moz-range-track {
-  background: #2D3139;
+  background: rgb(var(--color-surface-container-highest));
   height: 6px;
   border-radius: 3px;
 }
@@ -269,15 +263,6 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 50%;
   border: none;
   box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
-}
-
-/* Light mode slider track */
-input[type="range"]::-webkit-slider-runnable-track {
-  background: rgb(var(--color-surface-container-highest));
-}
-
-input[type="range"]::-moz-range-track {
-  background: rgb(var(--color-surface-container-highest));
 }
 
 /* Dark mode native select/option */

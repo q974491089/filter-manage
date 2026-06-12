@@ -13,7 +13,6 @@ import AboutModal from "./components/AboutModal";
 import SettingsModal from "./components/SettingsModal";
 import ClosePromptModal from "./components/ClosePromptModal";
 import { useUpdater } from "./hooks/useUpdater";
-import "./App.css";
 
 interface ColorConfig {
   name: string;
@@ -433,7 +432,7 @@ function App() {
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
       <UpdateModal />
       {/* Header - Filter Manage style */}
-      <header data-name="header" className="bg-surface-container-low/80 backdrop-blur-md border-b border-outline-variant/20 flex items-center px-lg h-16 w-full z-50 fixed top-0">
+      <header data-name="header" className="bg-surface-container-low border-b border-outline-variant/20 flex items-center px-lg h-16 w-full z-50 fixed top-0">
         {/* Logo & Title */}
         <div className="flex items-center gap-md mr-lg">
           <img src="/favicon.png" alt="icon" className="w-8 h-8 rounded-md" />

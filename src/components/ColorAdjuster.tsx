@@ -86,9 +86,10 @@ function ColorAdjuster({
       </div>
 
       <div data-name="sliders-card" className="flex-1 bg-surface-container rounded-lg border border-outline-variant/20 p-lg shadow-sm">
-        <div className="space-y-lg">
+        <div className="space-y-md">
         <SliderControl
           label="亮度 (Brightness)"
+          description="调整屏幕整体明暗程度"
           icon="light_mode"
           value={brightness}
           min={-125}
@@ -100,6 +101,7 @@ function ColorAdjuster({
 
         <SliderControl
           label="对比度 (Contrast)"
+          description="调整亮暗区域的差异程度"
           icon="contrast"
           value={contrast}
           min={-82}
@@ -111,6 +113,7 @@ function ColorAdjuster({
 
         <SliderControl
           label="伽马值 (Gamma)"
+          description="调整中间色调的亮度曲线"
           icon="Camera"
           value={gamma}
           min={0.1}
@@ -122,6 +125,7 @@ function ColorAdjuster({
 
         <SliderControl
           label="数字振动 (Digital Vibrance)"
+          description="调整色彩饱和度，数值越高颜色越鲜艳"
           icon="palette"
           value={digitalVibrance}
           min={0}
@@ -138,6 +142,7 @@ function ColorAdjuster({
 
 interface SliderControlProps {
   label: string;
+  description?: string;
   icon: string;
   value: number;
   min: number;
@@ -149,6 +154,7 @@ interface SliderControlProps {
 
 function SliderControl({
   label,
+  description,
   icon,
   value,
   min,
@@ -158,11 +164,19 @@ function SliderControl({
   onChange,
 }: SliderControlProps) {
   return (
-    <div data-components="SliderControl" data-name={label} className="space-y-sm">
+    <div data-components="SliderControl" data-name={label}>
       <div className="flex justify-between items-center">
         <label className="font-label-md text-label-md text-on-surface flex items-center gap-xs">
           <span className="material-symbols-outlined text-primary text-[18px]">{icon}</span>
           {label}
+          {description && (
+            <span className="relative group inline-flex items-center ml-xs">
+              <span className="material-symbols-outlined text-on-surface-variant/40 text-[14px] cursor-help hover:text-on-surface-variant/70 transition-colors">info</span>
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-md bg-surface-container-highest text-on-surface text-[11px] leading-snug whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg border border-outline-variant/20 z-10">
+                {description}
+              </span>
+            </span>
+          )}
         </label>
         <span className="text-primary font-medium font-label-md text-label-md bg-primary/10 px-sm py-xs rounded">
           {formatValue(value)}
@@ -175,7 +189,7 @@ function SliderControl({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full"
+        className="w-full mt-[16px] pt-[6px]"
       />
     </div>
   );

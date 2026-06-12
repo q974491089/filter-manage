@@ -1,6 +1,6 @@
 {
-  "pid": 6634,
+  "pid": 12160,
   "version": "0.9.7",
-  "socketPath": "/mnt/c/Users/myuser/Projects/filter-manage/.codegraph/daemon.sock",
-  "startedAt": 1780375066001
+  "socketPath": "\\\\.\\pipe\\codegraph-2b70a4ee1000b954",
+  "startedAt": 1781269992033
 }
