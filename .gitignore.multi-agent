@@ -1,0 +1,8 @@
+# Multi-Agent Framework - 建议添加到项目 .gitignore
+
+# 临时文件（如果有）
+.agent/.tmp/
+.skills/.tmp/
+
+# 备份目录（确认稳定后可删除）
+# .backup/20260611-multi-agent-framework/

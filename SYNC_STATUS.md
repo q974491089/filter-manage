@@ -27,3 +27,9 @@
 【文档已完成同步更新】2026-06-02 — 配置存储重构为单文件 profiles.json，兼容旧格式迁移
 【文档已完成同步更新】2026-06-02 — 合并 profiles.json + __settings__.json 为单文件 app.json
 【文档已完成同步更新】2026-06-07 — 发布流程新增 AList 云盘自动上传步骤（CI 构建后自动同步 exe 到夸克/阿里云盘），docs/guide/install.md 新增下载渠道表格
+【文档已完成同步更新】2026-06-09 — 新增进程监听自动切换方案功能（process_watcher 模块：ProcessRule + 7 个 Tauri 命令 + 后台轮询线程）；docs/api/process_watcher.md、docs/README.md、docs/handoff/process-watcher-frontend.md 已同步
+【文档已完成同步更新】2026-06-10 — 进程监听重构为 WMI 事件驱动（windows crate 原生 IWbemObjectSink + ExecNotificationQueryAsync）+ 管理员权限（build.rs requireAdministrator）+ 按规则定向订阅 + windows-core 依赖 + WatcherStatus 新增 subscribed_processes 字段；docs/api/process_watcher.md、docs/handoff/process-watcher-frontend.md、docs/README.md 已同步
+【文档已完成同步更新】2026-06-10 — 修复 list_running_processes 中文进程名乱码（ANSI→Unicode API：Process32FirstW / PROCESSENTRY32W + from_utf16_lossy）；docs/api/process_watcher.md、docs/README.md 已同步
+【文档已完成同步更新】2026-06-11 — ColorConfig 新增 icon: Option<String> 字段（Material Icon 名称，旧配置兼容）；docs/api/config.md、docs/README.md 已同步
+【文档已完成同步更新】2026-06-11 — list_configs 返回类型由 Vec<String> 改为 Vec<ColorConfig>（前端一次调用获取全部配置含 icon）；docs/api/config.md、docs/README.md、docs/handoff/icon-field-frontend.md 已同步
+【文档已完成同步更新】2026-06-11 — get_running_processes 新增进程图标（RunningProcess.icon，ExtractIconExW + GDI + PNG base64，同名进程去重缓存）；docs/api/process_watcher.md、docs/README.md、docs/handoff/process-watcher-frontend.md 已同步

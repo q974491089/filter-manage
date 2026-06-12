@@ -1,185 +1,192 @@
-# Project Guidelines
+# Multi-Agent Collaboration Framework
 
-## 后端 Agent 硬性规则
+**统一的 Agent 注册表** - 所有 AI CLI 的入口。
 
-> 本 Agent 为项目专属后端开发 Agent，以下规则优先级高于一切，无例外。
+---
 
-1. **严格职责隔离** — 仅编写后端业务代码（Rust / Tauri 命令），禁止修改任何前端页面、组件、样式相关文件（`src/` 目录下所有 `.tsx` / `.ts` / `.css` 文件）。包括但不限于：创建、编辑、删除前端组件、hooks、样式文件。**无论用户是否要求完整实现，前端代码一律不碰。**
+## 当前 Agent 分配
 
-6. **前端交接规范** — 当后端改动需要前端配合时（如新增插件、新增接口、变更调用方式），必须在 `.docs/handoff/` 目录下创建交接文档，格式如下：
-   - 文件名：`<功能名>-frontend.md`
-   - 内容包含：后端已完成的改动清单、前端需要安装的依赖、前端需要实现的代码（含完整示例）、行为说明
-   - **绝不自行创建前端文件**，只提供文档由用户转交前端 Agent 执行
+| CLI | 模型 | 当前角色 | 职责文档 | Skills |
+|-----|------|---------|---------|--------|
+| **Claude Code** (`claude`) | Claude Opus 4.8 | **Universal** (全栈) | `.agent/universal.md` | `shared/` + `frontend/` + `backend/` |
+| **OpenCode** | Xiaomi | **Frontend** | `.agent/frontend.md` | `shared/` + `frontend/` |
+| **QoderCLI** (`qoder`) | Qwen | **Backend** | `.agent/backend.md` | `shared/` + `backend/` |
+| **Kiro CLI** (`kiro`) | - | （暂未使用） | - | - |
 
-2. **文档强制同步** — 每完成任意功能新增、接口修改、参数调整、逻辑改动，无论改动大小，必须第一时间同步更新以下两份文档：
-   - `.docs/api/<module>.md` — 对应模块的接口文档（标注新增/修改/删除，末尾加日期）
-   - `.docs/README.md` — 项目迭代目录（在当前版本块追加一行，不修改历史块）
+**注**：Codex（未来可能负责服务端）
 
-3. **变更描述完整** — 更新文档时清晰写明本次变更内容，标注新增、修改、删减的接口与字段，不遗漏任何细微调整。
+---
 
-4. **完成信号** — 两份文档全部更新完毕后，在项目根目录的 `SYNC_STATUS.md` 写入固定标识：
-   ```
-   【文档已完成同步更新】YYYY-MM-DD — <本次变更简述>
-   ```
-
-5. **文档规范统一** — 所有接口按 `.docs/api/icc.md` 的格式书写：命令名、参数类型、返回值、代码示例、日期标注。
-
-## Tool Usage Preferences
-
-### Code Reading & Navigation
-- **优先使用 codegraph** 系列工具（`codegraph_context`、`codegraph_search`、`codegraph_explore`、`codegraph_trace` 等）读取和理解代码
-- codegraph 不够用时，降级使用内置的 `code`、`read`、`grep` 等工具
-- 代码导航优先级：codegraph > code（AST） > read/grep
-
-### Search & Research
-- **优先使用 ctx7 技能** (`npx ctx7@latest`) 查询官方文档（API 语法、配置、版本迁移等）
-- **ctx7 没找到的内容，降级使用 Tavily MCP** (`mcp__Tavily__tavily_search` 或 `mcp__Tavily__tavily_research`) 搜索
-- 不要使用 `WebSearch`，统一使用 Tavily
-
-### General Rules
-- 代码阅读优先级：codegraph > code > read/grep
-- 查询文档优先级：ctx7 > Tavily > WebSearch
-- 遇到不熟悉的技术或 API，先查文档再写代码
-
-## Project Overview
-- **Tech Stack**: Tauri 2 (Rust backend) + React/Vite (TypeScript frontend) + Tailwind CSS
-- **Purpose**: ICC color profile manager and NVIDIA color settings manager
-- **Platform**: Windows 10/11
-
-## Coding Behavior Guidelines
-
-### ⚠️ CI 构建硬性规则
-
-> **严禁修改 `.github/workflows/` 中的包管理器配置。**
-
-- 本地开发使用 **pnpm**，CI 构建使用 **npm**（pnpm 在 GitHub Actions 上有兼容性问题无法运行）
-- 不要把 CI 里的 `npm ci` 改成 `pnpm install`
-- 不要添加 `pnpm/action-setup` action
-- 不要修改 workflow 文件中任何与包管理器相关的配置
-- 两个 lock 文件共存：`pnpm-lock.yaml`（本地）+ `package-lock.json`（CI），都需要提交到仓库
-
-Behavioral guidelines to reduce common LLM coding mistakes.
-
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-
-### 1. Think Before Coding
-
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-### 2. Simplicity First
-
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-### 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-### 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-## Documentation Maintenance
-
-**Rule: 每次新增或修改后端接口后，必须同步更新 `.docs/` 文档。**
-
-### 文档结构
+## 工作流程
 
 ```
-.docs/
-├── README.md              # 项目总入口（功能模块简介 + 文档导航）
-├── architecture.md        # 技术栈、项目结构、数据流
-├── frontend-guide.md      # 前端组件结构 + 新功能接入清单
-├── handoff/               # 前端交接文档
-├── plans/                 # 功能实现计划
-└── api/
-    ├── icc.md             # ICC 管理接口（icc.rs）
-    ├── nvidia.md          # NVIDIA 颜色接口（nvidia.rs）
-    └── config.md          # 配置预设接口（config.rs）
+1. 你的 CLI 启动
+   ↓
+2. 读入口文件（CLAUDE.md / .kiro/README.md 等）
+   ↓
+3. 入口指示："读 AGENTS.md 找到你的角色"
+   ↓
+4. 在此文件找到你的 CLI → 看"职责文档"列
+   ↓
+5. 读职责文档（如 .agent/frontend.md）
+   ↓
+6. 遵循统一规则（.rules/*.md）
+   ↓
+7. 加载 skills（通过 symlink 自动链接）
 ```
 
-### 更新规则
+---
 
-| 操作 | 需要更新的文档 |
-|------|--------------|
-| 新增 Tauri 命令 | 对应 `.docs/api/*.md`，标注 `新增于：YYYY-MM-DD`；在 `.docs/README.md` 当前迭代版本下追加一行 |
-| 修改命令签名/行为 | 对应 `.docs/api/*.md`，更新参数/返回值说明；在 `.docs/README.md` 当前迭代版本下追加一行 |
-| 删除命令 | 对应 `.docs/api/*.md` 删除该条目；在 `.docs/README.md` 当前迭代版本下追加一行 |
-| 新增业务模块（新 .rs 文件） | 新建 `.docs/api/<module>.md`；在 `.docs/README.md` 固定参考文档表格中添加导航 |
-| 影响前端接入方式的变更 | 同步更新 `.docs/frontend-guide.md` |
+## 角色定义
 
-### .docs/README.md 迭代目录格式
+### Universal（全栈）
+- **代码范围**：前端 + 后端都可以修改
+- **适用场景**：单人开发、快速原型、跨层功能
+- **文档**：`.agent/universal.md`
 
-```markdown
-### v<版本> — YYYY-MM-DD · <本次迭代主题>
+### Frontend（前端）
+- **代码范围**：`src/`, `tailwind.config.js`, `package.json`
+- **禁止修改**：`src-tauri/`, `Cargo.toml`
+- **文档**：`.agent/frontend.md`
 
-<一句话描述>
+### Backend（后端）
+- **代码范围**：`src-tauri/`, `Cargo.toml`, `.docs/api/`
+- **禁止修改**：`src/`, `tailwind.config.js`
+- **文档**：`.agent/backend.md`
 
-| 功能 | 说明 | 文档 |
+### DevOps（运维）
+- **代码范围**：`.github/workflows/`, `Dockerfile`
+- **文档**：`.agent/devops.md`（待创建）
+
+---
+
+## 共享规则
+
+**所有 Agent 必须遵循**：
+
+| 规则 | 文件 | 说明 |
 |------|------|------|
-| 功能名 | 简洁描述 | [具体文档链接] |
+| **工具使用** | `.rules/tools.md` | CodeGraph, ctx7, Tavily 使用规范 |
+| **文档同步** | `.rules/docs.md` | API 文档、迭代记录、同步信号 |
+| **交接格式** | `.rules/handoff.md` | Agent 间交接文档模板 |
+| **Git 规范** | `.rules/git.md` | Commit message 格式、分支策略 |
+
+---
+
+## 协作机制
+
+### Frontend ↔ Backend
+
+**Frontend 需要后端支持**：
+1. 创建 `.docs/handoff/<feature>-backend.md`
+2. Backend Agent 实现功能
+3. Backend 更新 `.docs/api/<module>.md`
+4. Backend 创建 `.docs/handoff/<feature>-frontend.md`
+5. Backend 写入 `SYNC_STATUS.md` 完成信号
+6. Frontend 看到信号，重新读取文档
+
+**Backend API 变更**：
+1. 修改代码
+2. 更新 `.docs/api/<module>.md`
+3. 更新 `.docs/README.md` 迭代记录
+4. 写入 `SYNC_STATUS.md` 完成信号
+5. 必要时创建交接文档
+
+---
+
+## 角色切换
+
+**让某个 CLI 切换到不同角色**：
+
+```bash
+# 语法
+./scripts/sync-skills.sh <cli-name> <role>
+
+# 示例：让 Claude Code 切换到后端角色
+./scripts/sync-skills.sh claude backend
+
+# 示例：恢复全栈角色
+./scripts/sync-skills.sh claude universal
+
+# 示例：让 Kiro CLI 接管前端
+./scripts/sync-skills.sh kiro frontend
 ```
 
-- 每次迭代新开一个 `### v<版本>` 块，**不修改历史块**
-- 每行只写一个功能点，说明控制在 20 字以内
-- 文档链接直接指向具体文件（可带锚点）
+**原理**：
+- 脚本读取此文件的映射表
+- 清理旧的 skill symlinks
+- 重建新角色需要的 symlinks
+- CLI 重启后自动加载新角色
 
-### 更新格式要求
+---
 
-- 新增接口末尾加一行：`**新增于**：YYYY-MM-DD`
-- 修改接口末尾加一行：`**更新于**：YYYY-MM-DD — <简短说明>`
-- 保持代码示例与实际签名一致（参数名用 camelCase 对应 Rust snake_case）
+## Skill 自动链接
 
-## Superpowers Skills
+各角色通过 **symlink** 自动加载需要的 skills：
 
-Skills are located in `.kiro/skills/`. Before starting any task, check if a relevant skill applies and read it.
+| 角色 | 链接的 Skills |
+|------|--------------|
+| **Universal** | `shared/` + `frontend/` + `backend/`（全部） |
+| **Frontend** | `shared/` + `frontend/` |
+| **Backend** | `shared/` + `backend/` |
+| **DevOps** | `shared/` + `devops/`（待创建） |
 
-| Skill | When to use |
-|-------|-------------|
-| `using-superpowers.md` | Start of any session |
-| `systematic-debugging.md` | Debugging any issue |
-| `test-driven-development.md` | Writing or fixing code |
-| `verification-before-completion.md` | Before declaring a fix done |
-| `writing-plans.md` | Multi-step implementation tasks |
-| `requesting-code-review.md` | Before submitting changes |
-| `release-workflow.md` | 发布新版本（用户说"发布"、"发版"、"release"时） |
+**Skills 源文件**在 `.skills/` 目录，各 CLI 的 `skills/` 目录只是 symlink。
 
-**Rule**: If there's even a 1% chance a skill applies, read it first.
+---
 
+## 添加新 CLI
+
+1. 确定角色（frontend / backend / universal / devops）
+2. 在此文件的"当前 Agent 分配"表中添加一行
+3. 在 `.claude/`, `.kiro/` 等目录类比，创建 `.<cli-name>/` 目录
+4. 创建入口文件（如 `.newcli/README.md`），指示读 `AGENTS.md`
+5. 运行 `./scripts/sync-skills.sh <cli-name> <role>` 链接 skills
+
+---
+
+## 添加新角色
+
+1. 在 `.agent/` 创建 `<role>.md` 文档
+2. （可选）在 `.skills/<role>/` 创建角色专属 skills
+3. 在此文件的"角色定义"章节添加说明
+4. 更新 `scripts/sync-skills.sh` 支持新角色
+
+---
+
+## 常见问题
+
+### Q: 我怎么知道我是什么角色？
+
+**A**: 读你的 CLI 入口文件（`CLAUDE.md` / `.kiro/README.md`），会指向 `AGENTS.md`，然后在"当前 Agent 分配"表中找到你的 CLI。
+
+### Q: 我想切换角色怎么办？
+
+**A**: 让用户运行 `./scripts/sync-skills.sh <your-cli> <new-role>`，或者让用户直接修改此文件的"当前 Agent 分配"表 + 手动重建 symlinks。
+
+### Q: 我需要修改其他角色的代码怎么办？
+
+**A**: 
+- 如果是协作需求：创建 `.docs/handoff/` 交接文档
+- 如果是临时例外：告知用户这跨越了职责边界，询问是否确认
+- 如果需要永久切换：让用户运行角色切换脚本
+
+### Q: Skills 在哪？
+
+**A**: 
+- **源文件**：`.skills/shared/`, `.skills/frontend/`, `.skills/backend/`
+- **你的 CLI 目录**：`.claude/skills/`, `.kiro/skills/` 等（symlink）
+
+### Q: 我该读哪些规则？
+
+**A**: **必读** `.rules/` 目录下所有文件：
+- `tools.md` - 工具使用（codegraph, ctx7, tavily）
+- `docs.md` - 文档同步
+- `handoff.md` - Agent 交接
+- `git.md` - Git 规范
+
+---
+
+## 框架说明
+
+详见 `.agent/README.md` 和 `.agent/IMPLEMENTATION_REPORT.md`。
