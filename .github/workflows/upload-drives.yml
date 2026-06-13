@@ -1,0 +1,107 @@
+name: Upload to Cloud Drives
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to upload (e.g. 0.3.0, without v prefix)'
+        required: true
+        type: string
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          ASSET="Filter-Manage_${VERSION}_x64-setup.exe"
+          echo "Downloading ${ASSET} from GitHub Release v${VERSION}..."
+          gh release download "v${VERSION}" --pattern "${ASSET}" --dir /tmp
+          if [ ! -f "/tmp/${ASSET}" ]; then
+            echo "::error::Asset ${ASSET} not found in release v${VERSION}"
+            exit 1
+          fi
+          echo "Downloaded: $(ls -lh /tmp/${ASSET} | awk '{print $5}')"
+
+      - name: Upload to cloud drives via AList
+        shell: bash
+        env:
+          ALIST_URL: ${{ secrets.ALIST_URL }}
+          ALIST_USERNAME: ${{ secrets.ALIST_USERNAME }}
+          ALIST_PASSWORD: ${{ secrets.ALIST_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          STORAGES=("quark" "aliyundrive" "115" "baidu" "lanzou" "uc" "yandex" "doubao")
+          REMOTE_DIR="filter-manage"
+          VERSION="${{ inputs.version }}"
+
+          echo "==> Logging in to AList..."
+          TOKEN=$(curl -s -X POST "${ALIST_URL}/api/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${ALIST_USERNAME}\",\"password\":\"${ALIST_PASSWORD}\"}")
+
+          TOKEN_VALUE=$(echo "$TOKEN" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+          if [ -z "$TOKEN_VALUE" ]; then
+            echo "::error::AList login failed"
+            echo "$TOKEN"
+            exit 1
+          fi
+          echo "AList login OK"
+
+          INSTALLER="/tmp/Filter-Manage_${VERSION}_x64-setup.exe"
+
+          upload_file() {
+            local storage="$1"
+            local local_path="$2"
+            local remote_filename="$3"
+            local encoded_path
+            encoded_path=$(python3 -c "import urllib.parse; print(urllib.parse.quote('/${storage}/${REMOTE_DIR}/${remote_filename}'))")
+            echo "Uploading to /${storage}/${REMOTE_DIR}/${remote_filename} ..."
+            local response
+            response=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT "${ALIST_URL}/api/fs/put" \
+              -H "Authorization: ${TOKEN_VALUE}" \
+              -H "File-Path: ${encoded_path}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${local_path}")
+            local http_code body
+            http_code=$(echo "$response" | tail -1)
+            body=$(echo "$response" | sed '$d')
+            if [ "$http_code" = "200" ] && echo "$body" | grep -q '"code":200'; then
+              echo "Uploaded to ${storage} OK"
+              return 0
+            else
+              echo "::warning::Upload to ${storage} failed: HTTP ${http_code} - ${body}"
+              return 1
+            fi
+          }
+
+          UPLOAD_FAILED=0
+          EXE_FILENAME="Filter-Manage_${VERSION}_x64-setup.exe"
+          for STORAGE in "${STORAGES[@]}"; do
+            if ! upload_file "$STORAGE" "$INSTALLER" "$EXE_FILENAME"; then
+              UPLOAD_FAILED=1
+            fi
+          done
+
+          # WuKong blocks .exe uploads (error 80003), zip it first
+          ZIP_FILE="/tmp/Filter-Manage_${VERSION}_x64-setup.zip"
+          echo "Creating zip for WuKong..."
+          zip -j "$ZIP_FILE" "$INSTALLER"
+          ZIP_FILENAME="Filter-Manage_${VERSION}_x64-setup.zip"
+          if ! upload_file "wukong" "$ZIP_FILE" "$ZIP_FILENAME"; then
+            UPLOAD_FAILED=1
+          fi
+
+          if [ "$UPLOAD_FAILED" -eq 1 ]; then
+            echo "::warning::Some cloud drive uploads failed, check logs above"
+          else
+            echo "All cloud drive uploads completed successfully"
+          fi
