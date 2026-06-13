@@ -6,11 +6,11 @@
         本站提供多个镜像站点，如访问缓慢可尝试切换：
         <a href="https://filter-manage.6ya.site/" :class="{ active: currentSite === '6ya.site' }">主站</a>
         <span class="divider">·</span>
-        <a href="https://filter-manage.vercel.app/" :class="{ active: currentSite === 'vercel.app' }">Vercel</a>
+        <a href="https://filter-manage.vercel.app/" :class="{ active: currentSite === 'vercel.app' }">镜像 1</a>
         <span class="divider">·</span>
-        <a href="https://filter-manage.xy18600.ggff.net/" :class="{ active: currentSite === 'xy18600.ggff.net' }">Vercel(自定义)</a>
+        <a href="https://filter-manage.xy18600.ggff.net/" :class="{ active: currentSite === 'xy18600.ggff.net' }">镜像 2</a>
         <span class="divider">·</span>
-        <a href="https://filter-manage.xyls.us.kg/" :class="{ active: currentSite === 'xyls.us.kg' }">Cloudflare</a>
+        <a href="https://filter-manage.xyls.us.kg/" :class="{ active: currentSite === 'xyls.us.kg' }">镜像 3</a>
       </span>
       <button class="close-btn" @click="close" aria-label="关闭">×</button>
     </div>

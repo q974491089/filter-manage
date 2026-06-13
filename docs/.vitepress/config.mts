@@ -31,10 +31,10 @@ export default defineConfig({
       {
         text: '镜像站点',
         items: [
-          { text: '🏠 主站 (6ya.site)', link: 'https://filter-manage.6ya.site/' },
-          { text: '▲ Vercel', link: 'https://filter-manage.vercel.app/' },
-          { text: '▲ Vercel (自定义域名)', link: 'https://filter-manage.xy18600.ggff.net/' },
-          { text: '☁️ Cloudflare', link: 'https://filter-manage.xyls.us.kg/' },
+          { text: '主站', link: 'https://filter-manage.6ya.site/' },
+          { text: '镜像站点 1', link: 'https://filter-manage.vercel.app/' },
+          { text: '镜像站点 2', link: 'https://filter-manage.xy18600.ggff.net/' },
+          { text: '镜像站点 3', link: 'https://filter-manage.xyls.us.kg/' },
         ]
       },
     ],
