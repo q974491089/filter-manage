@@ -40,6 +40,10 @@ features:
 
 <FeatureShowcase />
 
+## 界面预览
+
+<ThemeCarousel />
+
 ## 主题特色
 
 Filter Manage 支持亮色/暗色主题切换，点击右上角的太阳/月亮图标即可一键切换：
