@@ -28,6 +28,14 @@ export default defineConfig({
       { text: '使用指南', link: '/guide/' },
       { text: '更新日志', link: '/changelog' },
       { text: '交流反馈', link: '/community' },
+      {
+        text: '镜像站点',
+        items: [
+          { text: '🏠 主站 (6ya.site)', link: 'https://filter-manage.6ya.site/' },
+          { text: '▲ Vercel 站点', link: 'https://filter-manage.vercel.app/' },
+          { text: '☁️ Cloudflare 站点', link: 'https://filter-manage.xyls.us.kg/' },
+        ]
+      },
     ],
     sidebar: [
       {
