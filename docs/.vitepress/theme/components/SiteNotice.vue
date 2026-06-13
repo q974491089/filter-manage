@@ -8,6 +8,8 @@
         <span class="divider">·</span>
         <a href="https://filter-manage.vercel.app/" :class="{ active: currentSite === 'vercel.app' }">Vercel</a>
         <span class="divider">·</span>
+        <a href="https://filter-manage.xy18600.ggff.net/" :class="{ active: currentSite === 'xy18600.ggff.net' }">Vercel(自定义)</a>
+        <span class="divider">·</span>
         <a href="https://filter-manage.xyls.us.kg/" :class="{ active: currentSite === 'xyls.us.kg' }">Cloudflare</a>
       </span>
       <button class="close-btn" @click="close" aria-label="关闭">×</button>
@@ -24,6 +26,7 @@ const currentSite = ref('')
 onMounted(() => {
   const host = window.location.hostname
   if (host.includes('6ya.site')) currentSite.value = '6ya.site'
+  else if (host.includes('xy18600.ggff.net')) currentSite.value = 'xy18600.ggff.net'
   else if (host.includes('vercel.app')) currentSite.value = 'vercel.app'
   else if (host.includes('xyls.us.kg')) currentSite.value = 'xyls.us.kg'
   else currentSite.value = host

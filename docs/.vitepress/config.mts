@@ -32,8 +32,9 @@ export default defineConfig({
         text: '镜像站点',
         items: [
           { text: '🏠 主站 (6ya.site)', link: 'https://filter-manage.6ya.site/' },
-          { text: '▲ Vercel 站点', link: 'https://filter-manage.vercel.app/' },
-          { text: '☁️ Cloudflare 站点', link: 'https://filter-manage.xyls.us.kg/' },
+          { text: '▲ Vercel', link: 'https://filter-manage.vercel.app/' },
+          { text: '▲ Vercel (自定义域名)', link: 'https://filter-manage.xy18600.ggff.net/' },
+          { text: '☁️ Cloudflare', link: 'https://filter-manage.xyls.us.kg/' },
         ]
       },
     ],
