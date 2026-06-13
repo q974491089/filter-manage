@@ -1,35 +1,37 @@
 <template>
   <div class="feature-showcase">
-    <div class="showcase-content">
-      <div class="showcase-image">
-        <Transition name="fade" mode="out-in">
-          <img 
-            :key="currentSlide" 
-            :src="slides[currentSlide].image" 
-            :alt="slides[currentSlide].title"
-            loading="lazy"
-          />
-        </Transition>
-      </div>
-      <div class="showcase-info">
-        <Transition name="slide-up" mode="out-in">
-          <div :key="currentSlide" class="info-content">
-            <span class="slide-badge">{{ currentSlide + 1 }} / {{ slides.length }}</span>
-            <h3 class="slide-title">{{ slides[currentSlide].title }}</h3>
-            <p class="slide-desc">{{ slides[currentSlide].description }}</p>
+    <div class="showcase-container">
+      <Transition name="fade" mode="out-in">
+        <img 
+          :key="currentSlide" 
+          :src="slides[currentSlide].image" 
+          :alt="slides[currentSlide].title"
+          class="showcase-image"
+          loading="lazy"
+        />
+      </Transition>
+      <div class="showcase-overlay">
+        <div class="overlay-content">
+          <Transition name="slide-up" mode="out-in">
+            <div :key="currentSlide" class="info-block">
+              <span class="slide-badge">{{ currentSlide + 1 }} / {{ slides.length }}</span>
+              <h3 class="slide-title">{{ slides[currentSlide].title }}</h3>
+              <p class="slide-desc">{{ slides[currentSlide].description }}</p>
+            </div>
+          </Transition>
+          <div class="slide-dots">
+            <button 
+              v-for="(slide, index) in slides" 
+              :key="index"
+              :class="['dot', { active: currentSlide === index }]"
+              @click="goTo(index)"
+              :aria-label="slide.title"
+            />
           </div>
-        </Transition>
-        <div class="slide-dots">
-          <button 
-            v-for="(slide, index) in slides" 
-            :key="index"
-            :class="['dot', { active: currentSlide === index }]"
-            @click="goTo(index)"
-            :aria-label="slide.title"
-          />
         </div>
       </div>
     </div>
+    <p class="showcase-hint">点击圆点或等待自动切换浏览功能截图</p>
   </div>
 </template>
 
@@ -110,43 +112,39 @@ onUnmounted(() => {
 
 <style scoped>
 .feature-showcase {
-  max-width: 900px;
-  margin: 0 auto;
+  margin: 2rem 0;
 }
 
-.showcase-content {
-  display: flex;
-  gap: 40px;
-  align-items: center;
+.showcase-container {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  cursor: default;
 }
 
 .showcase-image {
-  flex: 1;
-  min-width: 0;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  background: var(--vp-c-bg-soft);
-}
-
-.showcase-image img {
-  display: block;
   width: 100%;
-  height: auto;
+  display: block;
   aspect-ratio: 16/10;
   object-fit: cover;
 }
 
-.showcase-info {
-  flex: 0 0 280px;
-  min-height: 180px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+.showcase-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 60px 32px 28px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
 }
 
-.info-content {
-  margin-bottom: 24px;
+.overlay-content {
+  max-width: 600px;
+}
+
+.info-block {
+  margin-bottom: 16px;
 }
 
 .slide-badge {
@@ -154,25 +152,28 @@ onUnmounted(() => {
   padding: 2px 10px;
   font-size: 12px;
   font-weight: 500;
-  color: var(--vp-c-brand-1);
-  background: var(--vp-c-brand-soft);
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  backdrop-filter: blur(4px);
 }
 
 .slide-title {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 700;
-  color: var(--vp-c-text-1);
-  margin: 0 0 10px 0;
+  color: #ffffff;
+  margin: 0 0 8px 0;
   line-height: 1.3;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .slide-desc {
-  font-size: 14px;
-  color: var(--vp-c-text-2);
-  line-height: 1.7;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.6;
   margin: 0;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .slide-dots {
@@ -184,27 +185,35 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  border: none;
-  background: var(--vp-c-divider);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: transparent;
   cursor: pointer;
   padding: 0;
   transition: all 0.3s ease;
 }
 
 .dot:hover {
-  background: var(--vp-c-text-3);
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .dot.active {
-  background: var(--vp-c-brand-1);
+  background: #ffffff;
+  border-color: #ffffff;
   width: 24px;
   border-radius: 4px;
+}
+
+.showcase-hint {
+  text-align: center;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #6b7280;
 }
 
 /* 动画 */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s ease;
+  transition: opacity 0.4s ease;
 }
 
 .fade-enter-from,
@@ -213,7 +222,7 @@ onUnmounted(() => {
 }
 
 .slide-up-enter-active {
-  transition: all 0.3s ease;
+  transition: all 0.4s ease;
 }
 
 .slide-up-leave-active {
@@ -222,7 +231,7 @@ onUnmounted(() => {
 
 .slide-up-enter-from {
   opacity: 0;
-  transform: translateY(10px);
+  transform: translateY(15px);
 }
 
 .slide-up-leave-to {
@@ -231,19 +240,16 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
-  .showcase-content {
-    flex-direction: column;
-    gap: 24px;
+  .showcase-overlay {
+    padding: 40px 20px 20px;
   }
   
-  .showcase-info {
-    flex: 1;
-    min-height: auto;
-    text-align: center;
+  .slide-title {
+    font-size: 22px;
   }
   
-  .slide-dots {
-    justify-content: center;
+  .slide-desc {
+    font-size: 13px;
   }
 }
 </style>
