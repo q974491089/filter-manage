@@ -21,13 +21,19 @@ features:
   - title: 多站点加速
     details: "提供多个镜像站点，确保全球快速访问"
   - title: ICC 配置文件管理
-    details: 扫描、切换、导入导出系统 ICC 配置文件
+    details: 扫描、切换、导入导出系统 ICC 配置文件，支持多显示器
   - title: NVIDIA 颜色调节
-    details: 亮度、对比度、伽马、数字振动精细调节
+    details: 亮度、对比度、伽马、数字振动精细调节，实时预览效果
   - title: 配置预设
-    details: 保存/加载配置，一键切换游戏模式与正常模式
-  - title: 日夜模式切换
-    details: 支持亮色/暗色主题，保护您的眼睛
+    details: 保存/加载配置，一键切换游戏模式与日常模式
+  - title: 进程规则
+    details: 设置进程规则，启动指定程序时自动切换配置
+  - title: 系统托盘
+    details: 最小化到托盘，右键快速切换方案，支持全局快捷键
+  - title: 自动更新
+    details: 启动时自动检查新版本，支持手动检查更新
+  - title: 日夜模式
+    details: 支持亮色/暗色主题切换，保护您的眼睛
 ---
 
 ## 界面预览
