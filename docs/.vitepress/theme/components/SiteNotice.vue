@@ -86,7 +86,7 @@ defineExpose({ currentSite, sites })
 <style scoped>
 .notification-container {
   position: fixed;
-  top: 76px;
+  top: 12px;
   right: 24px;
   z-index: 1000;
   pointer-events: none;
