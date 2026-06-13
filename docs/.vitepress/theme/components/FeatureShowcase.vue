@@ -126,8 +126,6 @@ onUnmounted(() => {
 .showcase-image {
   width: 100%;
   display: block;
-  aspect-ratio: 16/10;
-  object-fit: cover;
 }
 
 .showcase-overlay {
