@@ -94,8 +94,10 @@ defineExpose({ currentSite, sites })
 
 .notification {
   position: relative;
-  width: 380px;
-  padding: 14px 18px;
+  width: fit-content;
+  min-width: 300px;
+  max-width: 380px;
+  padding: 14px 16px;
   background: var(--vp-c-bg);
   border-radius: 8px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
@@ -150,14 +152,14 @@ defineExpose({ currentSite, sites })
 .site-link {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  font-size: 13px;
+  gap: 3px;
+  padding: 3px 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--vp-c-text-1);
   background: var(--vp-c-bg-soft);
   border: 1px solid var(--vp-c-divider);
-  border-radius: 6px;
+  border-radius: 4px;
   text-decoration: none;
   transition: all 0.2s ease;
   cursor: pointer;
