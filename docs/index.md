@@ -20,8 +20,6 @@ hero:
 features:
   - title: 多站点加速
     details: "提供多个镜像站点，确保全球快速访问"
-    link: /guide/install
-    linkText: 立即下载
   - title: ICC 配置文件管理
     details: 扫描、切换、导入导出系统 ICC 配置文件
   - title: NVIDIA 颜色调节
