@@ -1,34 +1,48 @@
 <template>
-  <div class="site-notice" v-if="visible">
-    <div class="notice-content">
-      <span class="notice-icon">🌐</span>
-      <span class="notice-text">
-        本站提供多个镜像站点，如访问缓慢可尝试切换：
-        <a href="https://filter-manage.6ya.site/" :class="{ active: currentSite === '6ya.site' }">主站</a>
-        <span class="divider">·</span>
-        <a href="https://filter-manage.vercel.app/" :class="{ active: currentSite === 'vercel.app' }">镜像 1</a>
-        <span class="divider">·</span>
-        <a href="https://filter-manage.xy18600.ggff.net/" :class="{ active: currentSite === 'xy18600.ggff.net' }">镜像 2</a>
-        <span class="divider">·</span>
-        <a href="https://filter-manage.xyls.us.kg/" :class="{ active: currentSite === 'xyls.us.kg' }">镜像 3</a>
-      </span>
-      <button class="close-btn" @click="close" aria-label="关闭">×</button>
-    </div>
-  </div>
+  <Teleport to="body">
+    <Transition name="slide">
+      <div class="site-notice" v-if="visible && isClient">
+        <div class="notice-header">
+          <span class="notice-icon">🌐</span>
+          <span class="notice-title">镜像站点</span>
+          <button class="close-btn" @click="close" aria-label="关闭">×</button>
+        </div>
+        <div class="notice-body">
+          <p>如访问缓慢可尝试切换：</p>
+          <div class="site-links">
+            <a 
+              v-for="site in sites" 
+              :key="site.key"
+              :href="site.url" 
+              :class="['site-link', { active: currentSite === site.key }]"
+            >
+              {{ site.name }}
+            </a>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted } from 'vue'
 
 const visible = ref(false)
 const currentSite = ref('')
 const isClient = ref(false)
 
+const sites = [
+  { key: '6ya.site', name: '主站', url: 'https://filter-manage.6ya.site/' },
+  { key: 'vercel.app', name: '镜像 1', url: 'https://filter-manage.vercel.app/' },
+  { key: 'xy18600.ggff.net', name: '镜像 2', url: 'https://filter-manage.xy18600.ggff.net/' },
+  { key: 'xyls.us.kg', name: '镜像 3', url: 'https://filter-manage.xyls.us.kg/' },
+]
+
 onMounted(() => {
   isClient.value = true
   
   const host = window.location.hostname
-  console.log('Current hostname:', host) // 调试用
   
   if (host.includes('6ya.site')) currentSite.value = '6ya.site'
   else if (host.includes('xy18600.ggff.net')) currentSite.value = 'xy18600.ggff.net'
@@ -36,97 +50,163 @@ onMounted(() => {
   else if (host.includes('xyls.us.kg')) currentSite.value = 'xyls.us.kg'
   else currentSite.value = host
 
-  // 检查是否已关闭过
-  const closed = localStorage.getItem('site-notice-closed')
-  if (closed !== 'true') visible.value = true
+  // 检查是否已关闭过（24小时后重新显示）
+  const closedTime = localStorage.getItem('site-notice-closed-time')
+  if (closedTime) {
+    const hoursPassed = (Date.now() - parseInt(closedTime)) / (1000 * 60 * 60)
+    if (hoursPassed < 24) return
+  }
+  visible.value = true
 })
 
 function close() {
   visible.value = false
-  localStorage.setItem('site-notice-closed', 'true')
+  localStorage.setItem('site-notice-closed-time', Date.now().toString())
 }
+
+// 暴露当前站点信息供外部使用
+defineExpose({ currentSite, sites })
 </script>
 
 <style scoped>
 .site-notice {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 0;
-  margin-bottom: 20px;
-  border-radius: 8px;
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  width: 280px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+  z-index: 1000;
   overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-.notice-content {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 10px 24px;
+.notice-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 14px;
+  gap: 8px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
 }
 
 .notice-icon {
-  font-size: 18px;
-  flex-shrink: 0;
+  font-size: 16px;
 }
 
-.notice-text {
+.notice-title {
   flex: 1;
-  line-height: 1.5;
-}
-
-.notice-text a {
-  color: rgba(255, 255, 255, 0.9);
-  text-decoration: none;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.notice-text a:hover {
-  color: white;
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.notice-text a.active {
-  color: white;
-  background: rgba(255, 255, 255, 0.3);
   font-weight: 600;
-}
-
-.divider {
-  opacity: 0.6;
-  margin: 0 2px;
+  font-size: 14px;
 }
 
 .close-btn {
   background: none;
   border: none;
   color: rgba(255, 255, 255, 0.8);
-  font-size: 20px;
+  font-size: 18px;
   cursor: pointer;
-  padding: 0 4px;
+  padding: 0;
   line-height: 1;
   transition: color 0.2s ease;
-  flex-shrink: 0;
 }
 
 .close-btn:hover {
   color: white;
 }
 
-@media (max-width: 768px) {
-  .notice-content {
-    padding: 8px 16px;
-    font-size: 13px;
-    flex-wrap: wrap;
+.notice-body {
+  padding: 14px 16px;
+}
+
+.notice-body p {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.site-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.site-link {
+  display: block;
+  padding: 8px 12px;
+  color: #333;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  background: #f5f5f5;
+}
+
+.site-link:hover {
+  background: #e8e8e8;
+  color: #667eea;
+}
+
+.site-link.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+/* 动画 */
+.slide-enter-active {
+  animation: slideIn 0.3s ease;
+}
+
+.slide-leave-active {
+  animation: slideOut 0.2s ease;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
   }
-  
-  .notice-text {
-    flex-basis: calc(100% - 40px);
+  to {
+    transform: translateX(0);
+    opacity: 1;
   }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* 暗色模式 */
+:root.dark .site-notice {
+  background: #1e1e1e;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:root.dark .notice-body p {
+  color: #999;
+}
+
+:root.dark .site-link {
+  background: #2a2a2a;
+  color: #e0e0e0;
+}
+
+:root.dark .site-link:hover {
+  background: #333;
+  color: #8b9cf7;
+}
+
+:root.dark .site-link.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
 }
 </style>
