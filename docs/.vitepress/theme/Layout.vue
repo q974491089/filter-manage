@@ -1,6 +1,6 @@
 <template>
   <Layout>
-    <template #layout-top>
+    <template #doc-top>
       <SiteNotice />
     </template>
   </Layout>

@@ -44,9 +44,9 @@ function close() {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   padding: 0;
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  margin-bottom: 20px;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .notice-content {
