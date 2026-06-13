@@ -3,12 +3,11 @@
     <Transition name="slide">
       <div class="site-notice" v-if="visible && isClient">
         <div class="notice-header">
-          <span class="notice-icon">🌐</span>
           <span class="notice-title">镜像站点</span>
           <button class="close-btn" @click="close" aria-label="关闭">×</button>
         </div>
         <div class="notice-body">
-          <p>如访问缓慢可尝试切换：</p>
+          <p class="notice-desc">如访问缓慢可尝试切换</p>
           <div class="site-links">
             <a 
               v-for="site in sites" 
@@ -16,7 +15,8 @@
               :href="site.url" 
               :class="['site-link', { active: currentSite === site.key }]"
             >
-              {{ site.name }}
+              <span class="site-name">{{ site.name }}</span>
+              <span class="site-check" v-if="currentSite === site.key">✓</span>
             </a>
           </div>
         </div>
@@ -64,7 +64,6 @@ function close() {
   localStorage.setItem('site-notice-closed-time', Date.now().toString())
 }
 
-// 暴露当前站点信息供外部使用
 defineExpose({ currentSite, sites })
 </script>
 
@@ -73,39 +72,34 @@ defineExpose({ currentSite, sites })
   position: fixed;
   top: 80px;
   right: 20px;
-  width: 280px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+  width: 240px;
+  background: var(--vp-c-bg);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
   z-index: 1000;
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--vp-c-divider);
 }
 
 .notice-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.notice-icon {
-  font-size: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--vp-c-divider);
 }
 
 .notice-title {
   flex: 1;
+  font-size: 13px;
   font-weight: 600;
-  font-size: 14px;
+  color: var(--vp-c-text-1);
 }
 
 .close-btn {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 18px;
+  color: var(--vp-c-text-3);
+  font-size: 16px;
   cursor: pointer;
   padding: 0;
   line-height: 1;
@@ -113,59 +107,67 @@ defineExpose({ currentSite, sites })
 }
 
 .close-btn:hover {
-  color: white;
+  color: var(--vp-c-text-1);
 }
 
 .notice-body {
-  padding: 14px 16px;
+  padding: 10px 14px 12px;
 }
 
-.notice-body p {
-  margin: 0 0 12px 0;
-  font-size: 13px;
-  color: #666;
+.notice-desc {
+  margin: 0 0 10px 0;
+  font-size: 12px;
+  color: var(--vp-c-text-3);
 }
 
 .site-links {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .site-link {
-  display: block;
-  padding: 8px 12px;
-  color: #333;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  color: var(--vp-c-text-2);
   text-decoration: none;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   border-radius: 6px;
-  transition: all 0.2s ease;
-  background: #f5f5f5;
+  border: 1px solid var(--vp-c-divider);
+  transition: all 0.15s ease;
+  background: var(--vp-c-bg-soft);
 }
 
 .site-link:hover {
-  background: #e8e8e8;
-  color: #667eea;
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
 }
 
 .site-link.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  border-color: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+}
+
+.site-check {
+  font-size: 10px;
 }
 
 /* 动画 */
 .slide-enter-active {
-  animation: slideIn 0.3s ease;
+  animation: slideIn 0.2s ease;
 }
 
 .slide-leave-active {
-  animation: slideOut 0.2s ease;
+  animation: slideOut 0.15s ease;
 }
 
 @keyframes slideIn {
   from {
-    transform: translateX(100%);
+    transform: translateX(20px);
     opacity: 0;
   }
   to {
@@ -180,33 +182,18 @@ defineExpose({ currentSite, sites })
     opacity: 1;
   }
   to {
-    transform: translateX(100%);
+    transform: translateX(20px);
     opacity: 0;
   }
 }
 
-/* 暗色模式 */
-:root.dark .site-notice {
-  background: #1e1e1e;
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-:root.dark .notice-body p {
-  color: #999;
-}
-
-:root.dark .site-link {
-  background: #2a2a2a;
-  color: #e0e0e0;
-}
-
-:root.dark .site-link:hover {
-  background: #333;
-  color: #8b9cf7;
-}
-
-:root.dark .site-link.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+@media (max-width: 768px) {
+  .site-notice {
+    top: auto;
+    bottom: 20px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+  }
 }
 </style>
