@@ -9,6 +9,9 @@ hero:
     alt: Filter Manage - Windows ICC颜色配置文件管理与NVIDIA显卡颜色设置工具
   actions:
     - theme: brand
+      text: 立即下载
+      link: /guide/install
+    - theme: alt
       text: 使用指南
       link: /guide/
     - theme: alt
