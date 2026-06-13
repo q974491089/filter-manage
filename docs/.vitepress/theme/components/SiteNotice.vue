@@ -94,8 +94,8 @@ defineExpose({ currentSite, sites })
 
 .notification {
   position: relative;
-  width: 320px;
-  padding: 16px 20px;
+  width: 380px;
+  padding: 14px 18px;
   background: var(--vp-c-bg);
   border-radius: 8px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
