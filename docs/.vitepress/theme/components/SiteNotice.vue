@@ -18,13 +18,18 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 
-const visible = ref(true)
+const visible = ref(false)
 const currentSite = ref('')
+const isClient = ref(false)
 
 onMounted(() => {
+  isClient.value = true
+  
   const host = window.location.hostname
+  console.log('Current hostname:', host) // 调试用
+  
   if (host.includes('6ya.site')) currentSite.value = '6ya.site'
   else if (host.includes('xy18600.ggff.net')) currentSite.value = 'xy18600.ggff.net'
   else if (host.includes('vercel.app')) currentSite.value = 'vercel.app'
@@ -33,7 +38,7 @@ onMounted(() => {
 
   // 检查是否已关闭过
   const closed = localStorage.getItem('site-notice-closed')
-  if (closed === 'true') visible.value = false
+  if (closed !== 'true') visible.value = true
 })
 
 function close() {
