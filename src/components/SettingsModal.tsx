@@ -839,9 +839,9 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
             className="fixed inset-0 bg-black/60 backdrop-blur-md"
             onClick={() => setShowProcessPicker(false)}
           />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[130] w-[500px] max-h-[600px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20">
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[130] w-[500px] max-h-[600px] rounded-xl shadow-2xl overflow-hidden bg-surface-container/80 backdrop-blur-xl border border-outline-variant/20 flex flex-col">
             {/* Header */}
-            <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-outline-variant/20">
+            <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-outline-variant/20 shrink-0">
               <h3 className="font-headline-sm text-headline-sm font-bold">添加进程规则</h3>
               <button
                 onClick={() => setShowProcessPicker(false)}
@@ -852,7 +852,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
             </div>
 
             {/* Content */}
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 flex-1 overflow-y-auto">
               {/* 进程名输入 */}
               <div className="space-y-2">
                 <label className="font-label-md text-label-md text-on-surface">进程名</label>
@@ -976,7 +976,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
             </div>
 
             {/* Footer */}
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-outline-variant/20">
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-outline-variant/20 shrink-0">
               <button
                 onClick={() => setShowProcessPicker(false)}
                 className="px-4 py-2 font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/40 rounded-lg transition-colors duration-200 active:scale-95"
