@@ -153,14 +153,16 @@ src-tauri/Cargo.toml       → version = "X.X.X"
 ```bash
 git add -A
 git commit -m "release: vX.X.X - <一句话概括>"
-git push
+git -c credential.helper='!gh auth git-credential' push
 ```
+
+> **⚠️ 必须用 gh 认证推送**：仓库 remote 是 HTTPS，非交互环境下 `git push` 会因 `terminal prompts disabled` 失败。通过 `-c credential.helper='!gh auth git-credential'` 让 git 使用 gh 的 token 认证，无需手动输入凭据。
 
 ### 7. 打 tag 触发构建
 
 ```bash
 git tag vX.X.X
-git push origin vX.X.X
+git -c credential.helper='!gh auth git-credential' push origin vX.X.X
 ```
 
 这会自动触发：
@@ -189,20 +191,37 @@ CI 在构建完成后会自动执行以下步骤（见 `.github/workflows/releas
 
 1. 登录 AList 获取 token
 2. 从本地构建产物找到 NSIS 安装包
-3. 上传到所有已配置的云盘存储（`filter-manage/` 目录下）
+3. 上传 `.exe` 到大部分云盘存储
+4. 将 `.exe` 打包成 `.zip`，上传到悟空网盘（悟空禁止上传 .exe 文件）
 
-**当前配置的云盘**：
-- `/quark/filter-manage/` — 夸克网盘
-- `/aliyundrive/filter-manage/` — 阿里云盘
+**当前配置的云盘（9 个）**：
+
+| 云盘 | 挂载路径 | 上传格式 | 备注 |
+|------|---------|---------|------|
+| 夸克网盘 | `/quark/filter-manage/` | .exe | Cookie 认证，可能过期 |
+| 阿里云盘 | `/aliyundrive/filter-manage/` | .exe | OAuth token |
+| 115 网盘 | `/115/filter-manage/` | .exe | OAuth token |
+| 百度网盘 | `/baidu/filter-manage/` | .exe | OAuth token |
+| 蓝奏云 | `/lanzou/filter-manage/` | .exe | 账号密码认证 |
+| UC 网盘 | `/uc/filter-manage/` | .exe | Cookie 认证，可能过期 |
+| Yandex 云盘 | `/yandex/filter-manage/` | .exe | OAuth token |
+| 豆包 | `/doubao/filter-manage/` | .exe | DoubaoNew 驱动，token ~7 天过期 |
+| 悟空网盘 | `/wukong/filter-manage/` | **.zip** | 禁止 .exe，CI 自动打包 zip |
+
+**已移除的云盘**：
+- ~~小飞机 (xiaofeiji)~~ — AList FeijiPan 驱动存在已知 bug（[GitHub #8298](https://github.com/AlistGo/alist/issues/8298)），mkdir/upload 返回成功但实际操作不生效，等官方修复后加回
 
 **添加新云盘只需两步**：
 1. AList 后台添加存储驱动，挂载到 `/网盘名/`
-2. 在 `.github/workflows/release.yml` 的 `STORAGES` 数组中追加网盘名
+2. 在 `.github/workflows/release.yml` 的 `STORAGES` 数组中追加网盘名（如果需要特殊处理如 zip，单独写在循环外）
 
 **依赖的 GitHub Secrets**：
 - `ALIST_URL` — AList 服务地址
 - `ALIST_USERNAME` — 登录用户名
 - `ALIST_PASSWORD` — 登录密码
+
+**Token 健康检查**：
+发版前运行 `./scripts/update-alist-tokens.sh` 检测所有 Cookie 类网盘是否过期，豆包过期时脚本会引导更新。
 
 **注意**：云盘上传失败不会阻断 CI（只产生 warning），需检查 CI 日志确认。
 
@@ -225,9 +244,10 @@ CI 在构建完成后会自动执行以下步骤（见 `.github/workflows/releas
 └── src-tauri/Cargo.toml
 
 云盘同步（CI 自动）
-├── .github/workflows/release.yml → STORAGES 数组（添加新网盘在这里）
+├── .github/workflows/release.yml → STORAGES 数组 + wukong zip 处理
 ├── GitHub Secrets → ALIST_URL / ALIST_USERNAME / ALIST_PASSWORD
-└── AList 后台 → 存储驱动挂载（/quark/ /aliyundrive/ 等）
+├── AList 后台 → 存储驱动挂载（/quark/ /aliyundrive/ /115/ /baidu/ /lanzou/ /uc/ /yandex/ /doubao/ /wukong/）
+└── scripts/update-alist-tokens.sh → 发版前检测 token 健康状态
 
 下载渠道
 └── docs/guide/install.md → GitHub Release + 云盘分享链接（用户提供后 Agent 更新）

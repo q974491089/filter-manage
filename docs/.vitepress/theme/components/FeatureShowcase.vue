@@ -1,42 +1,63 @@
 <template>
   <div class="feature-showcase">
     <div class="showcase-container">
-      <Transition name="fade" mode="out-in">
-        <img 
-          :key="currentSlide" 
-          :src="slides[currentSlide].image" 
-          :alt="slides[currentSlide].title"
-          class="showcase-image"
-          loading="lazy"
-        />
-      </Transition>
-      <div class="showcase-overlay">
-        <div class="overlay-content">
-          <Transition name="slide-up" mode="out-in">
-            <div :key="currentSlide" class="info-block">
-              <span class="slide-badge">{{ currentSlide + 1 }} / {{ slides.length }}</span>
-              <h3 class="slide-title">{{ slides[currentSlide].title }}</h3>
-              <p class="slide-desc">{{ slides[currentSlide].description }}</p>
-            </div>
-          </Transition>
-          <div class="slide-dots">
-            <button 
-              v-for="(slide, index) in slides" 
-              :key="index"
-              :class="['dot', { active: currentSlide === index }]"
-              @click="goTo(index)"
-              :aria-label="slide.title"
-            />
+      <Swiper
+        :modules="[Navigation, Pagination, Autoplay, EffectFade]"
+        :slides-per-view="1"
+        :loop="true"
+        :effect="'fade'"
+        :fade-effect="{ crossFade: true }"
+        :speed="1000"
+        :autoplay="autoPlay ? { delay: interval, disableOnInteraction: false } : false"
+        :navigation="{ prevEl: '.showcase-prev', nextEl: '.showcase-next' }"
+        @swiper="onSwiper"
+        @slide-change="onSlideChange"
+        class="showcase-swiper"
+      >
+        <SwiperSlide v-for="(slide, index) in slides" :key="index">
+          <img 
+            :src="slide.image" 
+            :alt="slide.title"
+            class="slide-image"
+            loading="lazy"
+          />
+        </SwiperSlide>
+      </Swiper>
+      
+      <!-- 自定义箭头 - 放在 Swiper 外部 -->
+      <div class="showcase-prev" @click="slidePrev">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="showcase-next" @click="slideNext">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M8 4L14 10L8 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      
+      <!-- 浮动内容层 -->
+      <div class="showcase-content">
+        <Transition name="content-fade" mode="out-in">
+          <div :key="activeIndex" class="content-inner">
+            <span class="slide-badge">{{ activeIndex + 1 }} / {{ slides.length }}</span>
+            <h3 class="slide-title">{{ slides[activeIndex].title }}</h3>
+            <p class="slide-desc">{{ slides[activeIndex].description }}</p>
           </div>
-        </div>
+        </Transition>
       </div>
     </div>
-    <p class="showcase-hint">点击圆点或等待自动切换浏览功能截图</p>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
+import { Swiper, SwiperSlide } from 'swiper/vue'
+import { Navigation, Autoplay, EffectFade } from 'swiper/modules'
+import 'swiper/css'
+import 'swiper/css/navigation'
+import 'swiper/css/pagination'
+import 'swiper/css/effect-fade'
 
 const props = defineProps({
   autoPlay: {
@@ -82,32 +103,30 @@ const slides = [
   }
 ]
 
-const currentSlide = ref(0)
-let timer = null
+const activeIndex = ref(0)
+let swiperInstance = null
 
-function next() {
-  currentSlide.value = (currentSlide.value + 1) % slides.length
+function onSwiper(swiper) {
+  swiperInstance = swiper
 }
 
-function goTo(index) {
-  currentSlide.value = index
-  resetTimer()
-}
-
-function resetTimer() {
-  if (timer) clearInterval(timer)
-  if (props.autoPlay) {
-    timer = setInterval(next, props.interval)
+function onSlideChange() {
+  if (swiperInstance) {
+    activeIndex.value = swiperInstance.realIndex
   }
 }
 
-onMounted(() => {
-  resetTimer()
-})
+function slidePrev() {
+  if (swiperInstance) {
+    swiperInstance.slidePrev()
+  }
+}
 
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
-})
+function slideNext() {
+  if (swiperInstance) {
+    swiperInstance.slideNext()
+  }
+}
 </script>
 
 <style scoped>
@@ -118,31 +137,34 @@ onUnmounted(() => {
 .showcase-container {
   position: relative;
   border-radius: 12px;
-  overflow: hidden;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  cursor: default;
 }
 
-.showcase-image {
+.showcase-swiper {
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.slide-image {
   width: 100%;
   display: block;
 }
 
-.showcase-overlay {
+/* 浮动内容层 */
+.showcase-content {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
   padding: 60px 32px 28px;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
+  z-index: 10;
+  pointer-events: none;
 }
 
-.overlay-content {
+.content-inner {
   max-width: 600px;
-}
-
-.info-block {
-  margin-bottom: 16px;
 }
 
 .slide-badge {
@@ -174,71 +196,93 @@ onUnmounted(() => {
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
-.slide-dots {
-  display: flex;
-  gap: 8px;
+/* 文案动画 - 与 Swiper 淡入淡出同步 */
+.content-fade-enter-active {
+  transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+  transition-delay: 0.2s;
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.6);
-  background: transparent;
-  cursor: pointer;
-  padding: 0;
-  transition: all 0.3s ease;
+.content-fade-leave-active {
+  transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-.dot:hover {
-  background: rgba(255, 255, 255, 0.5);
-}
-
-.dot.active {
-  background: #ffffff;
-  border-color: #ffffff;
-  width: 24px;
-  border-radius: 4px;
-}
-
-.showcase-hint {
-  text-align: center;
-  margin-top: 12px;
-  font-size: 13px;
-  color: #6b7280;
-}
-
-/* 动画 */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.4s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
+.content-fade-enter-from {
   opacity: 0;
+  transform: translateY(20px);
 }
 
-.slide-up-enter-active {
-  transition: all 0.4s ease;
-}
-
-.slide-up-leave-active {
-  transition: all 0.2s ease;
-}
-
-.slide-up-enter-from {
-  opacity: 0;
-  transform: translateY(15px);
-}
-
-.slide-up-leave-to {
+.content-fade-leave-to {
   opacity: 0;
   transform: translateY(-10px);
 }
 
+/* 自定义箭头样式 */
+.showcase-prev,
+.showcase-next {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  color: #ffffff;
+  z-index: 20;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  opacity: 0;
+}
+
+.showcase-container:hover .showcase-prev,
+.showcase-container:hover .showcase-next {
+  opacity: 1;
+}
+
+.showcase-prev:hover,
+.showcase-next:hover {
+  background: rgba(0, 0, 0, 0.5);
+  transform: translateY(-50%) scale(1.05);
+}
+
+.showcase-prev {
+  left: 12px;
+}
+
+.showcase-next {
+  right: 12px;
+}
+
+/* Swiper 分页器样式 */
+:deep(.swiper-pagination) {
+  bottom: 16px !important;
+  z-index: 20;
+}
+
+:deep(.swiper-pagination-bullet) {
+  width: 10px;
+  height: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  opacity: 1;
+  transition: all 0.3s ease;
+  margin: 0 4px !important;
+}
+
+:deep(.swiper-pagination-bullet:hover) {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+:deep(.swiper-pagination-bullet-active) {
+  background: rgba(0, 0, 0, 0.7);
+  width: 28px;
+  border-radius: 5px;
+}
+
 @media (max-width: 768px) {
-  .showcase-overlay {
+  .showcase-content {
     padding: 40px 20px 20px;
   }
   
@@ -248,6 +292,20 @@ onUnmounted(() => {
   
   .slide-desc {
     font-size: 13px;
+  }
+  
+  :deep(.swiper-button-prev),
+  :deep(.swiper-button-next) {
+    width: 32px;
+    height: 32px;
+  }
+  
+  :deep(.swiper-button-prev) {
+    left: 8px;
+  }
+  
+  :deep(.swiper-button-next) {
+    right: 8px;
   }
 }
 </style>

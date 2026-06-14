@@ -10,7 +10,9 @@
       "mcp__codegraph__*",
       "Bash(ls -la /mnt/c/Users/myuser/Projects/filter-manage/src-tauri/src/ && echo \"---\" && ls -la /mnt/c/Users/myuser/Projects/filter-manage/src/components/)",
       "Bash(find /mnt/c/Users/myuser/Projects/filter-manage/src-tauri/src -type f -name \"*.rs\" | head -30)",
-      "Bash(find /mnt/c/Users/myuser/Projects/filter-manage/src-tauri -type f -name \"*.rs\" | head -50 && echo \"---\" && cat /mnt/c/Users/myuser/Projects/filter-manage/src-tauri/Cargo.toml)"
+      "Bash(find /mnt/c/Users/myuser/Projects/filter-manage/src-tauri -type f -name \"*.rs\" | head -50 && echo \"---\" && cat /mnt/c/Users/myuser/Projects/filter-manage/src-tauri/Cargo.toml)",
+      "WebFetch(*)",
+      "Bash(cd /mnt/c/Users/myuser/Projects/filter-manage && git log --oneline -10)"
     ]
   }
 }

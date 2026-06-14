@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          STORAGES=("quark" "aliyundrive" "115" "baidu" "lanzou" "uc" "wukong" "xiaofeiji")
+          STORAGES=("quark" "aliyundrive" "115" "baidu" "lanzou" "uc" "yandex" "doubao")
           REMOTE_DIR="filter-manage"
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
@@ -92,26 +92,47 @@ jobs:
           fi
           echo "Found installer: $INSTALLER ($(du -h "$INSTALLER" | cut -f1))"
 
-          UPLOAD_FAILED=0
-          for STORAGE in "${STORAGES[@]}"; do
-            ENCODED_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('/${STORAGE}/${REMOTE_DIR}/Filter-Manage_${VERSION}_x64-setup.exe'))")
-            echo "Uploading to /${STORAGE}/${REMOTE_DIR}/ ..."
-            RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT "${ALIST_URL}/api/fs/put" \
+          upload_file() {
+            local storage="$1"
+            local local_path="$2"
+            local remote_filename="$3"
+            local encoded_path
+            encoded_path=$(python3 -c "import urllib.parse; print(urllib.parse.quote('/${storage}/${REMOTE_DIR}/${remote_filename}'))")
+            echo "Uploading to /${storage}/${REMOTE_DIR}/${remote_filename} ..."
+            local response
+            response=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT "${ALIST_URL}/api/fs/put" \
               -H "Authorization: ${TOKEN_VALUE}" \
-              -H "File-Path: ${ENCODED_PATH}" \
+              -H "File-Path: ${encoded_path}" \
               -H "Content-Type: application/octet-stream" \
-              --data-binary "@${INSTALLER}")
-
-            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
-
-            if [ "$HTTP_CODE" = "200" ] && echo "$BODY" | grep -q '"code":200'; then
-              echo "Uploaded to ${STORAGE} OK"
+              --data-binary "@${local_path}")
+            local http_code body
+            http_code=$(echo "$response" | tail -1)
+            body=$(echo "$response" | sed '$d')
+            if [ "$http_code" = "200" ] && echo "$body" | grep -q '"code":200'; then
+              echo "Uploaded to ${storage} OK"
+              return 0
             else
-              echo "::warning::Upload to ${STORAGE} failed: HTTP ${HTTP_CODE} - ${BODY}"
+              echo "::warning::Upload to ${storage} failed: HTTP ${http_code} - ${body}"
+              return 1
+            fi
+          }
+
+          UPLOAD_FAILED=0
+          EXE_FILENAME="Filter-Manage_${VERSION}_x64-setup.exe"
+          for STORAGE in "${STORAGES[@]}"; do
+            if ! upload_file "$STORAGE" "$INSTALLER" "$EXE_FILENAME"; then
               UPLOAD_FAILED=1
             fi
           done
+
+          # WuKong blocks .exe uploads (error 80003), zip it first
+          ZIP_FILE="src-tauri/target/release/bundle/nsis/Filter-Manage_${VERSION}_x64-setup.zip"
+          echo "Creating zip for WuKong..."
+          (cd "$(dirname "$INSTALLER")" && zip -j "$(basename "$ZIP_FILE")" "$(basename "$INSTALLER")")
+          ZIP_FILENAME="Filter-Manage_${VERSION}_x64-setup.zip"
+          if ! upload_file "wukong" "$ZIP_FILE" "$ZIP_FILENAME"; then
+            UPLOAD_FAILED=1
+          fi
 
           if [ "$UPLOAD_FAILED" -eq 1 ]; then
             echo "::warning::Some cloud drive uploads failed, check logs above"
