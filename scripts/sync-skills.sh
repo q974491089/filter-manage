@@ -1,6 +1,7 @@
 #!/bin/bash
 # Multi-Agent Framework - Skills Sync Script
 # 用途：根据角色动态链接 skills
+# QoderCLI 需要 目录/SKILL.md 格式（含 YAML frontmatter），其他 CLI 用 symlink
 
 set -e
 
@@ -16,8 +17,9 @@ if [ -z "$CLI_NAME" ] || [ -z "$ROLE" ]; then
     echo "  ./scripts/sync-skills.sh claude backend    # Claude Code 切换到后端"
     echo "  ./scripts/sync-skills.sh claude universal  # Claude Code 切换到全栈"
     echo "  ./scripts/sync-skills.sh kiro backend      # Kiro CLI 切换到后端"
+    echo "  ./scripts/sync-skills.sh qoder backend     # QoderCLI 切换到后端"
     echo ""
-    echo "可用 CLI: claude, kiro"
+    echo "可用 CLI: claude, kiro, opencode, qoder"
     echo "可用角色: frontend, backend, universal, devops"
     exit 1
 fi
@@ -62,13 +64,90 @@ if [ ! -d ".skills/shared" ]; then
     exit 1
 fi
 
+# ── 链接函数 ──
+# link_skill <source_category> <skill_name_without_ext>
+#   source_category: shared, frontend, backend, devops
+#   QoderCLI: 创建 目录/SKILL.md 格式（从源 .md 提取 frontmatter）
+#   其他 CLI: symlink
+
+link_skill() {
+    local category="$1"
+    local skill_name="$2"
+    local src_dir=".skills/${category}"
+    local src_md="${src_dir}/${skill_name}.md"
+    local src_skill_dir="${src_dir}/${skill_name}"
+
+    # 优先处理已有 SKILL.md 的目录格式 skill
+    if [ -d "$src_skill_dir" ] && [ -f "${src_skill_dir}/SKILL.md" ]; then
+        if [ "$CLI_NAME" = "qoder" ]; then
+            # QoderCLI: symlink 整个目录（已有 SKILL.md，格式兼容）
+            ln -s "../../${src_skill_dir}" "${TARGET_DIR}/${skill_name}"
+        else
+            ln -s "../../${src_skill_dir}" "${TARGET_DIR}/${skill_name}"
+        fi
+        return
+    fi
+
+    # 处理纯 .md 文件
+    if [ -f "$src_md" ]; then
+        if [ "$CLI_NAME" = "qoder" ]; then
+            # QoderCLI 需要目录/SKILL.md 格式
+            local skill_dest="${TARGET_DIR}/${skill_name}"
+            mkdir -p "$skill_dest"
+            # 从源 .md 提取描述：取第一个 # 标题行作为 description
+            local desc=$(grep -m1 '^# ' "$src_md" | sed 's/^# //')
+            {
+                echo "---"
+                echo "name: ${skill_name}"
+                echo "description: ${desc}"
+                echo "---"
+                echo ""
+                cat "$src_md"
+            } > "${skill_dest}/SKILL.md"
+        else
+            # 其他 CLI: 直接 symlink .md 文件
+            ln -s "../../${src_md}" "${TARGET_DIR}/${skill_name}.md"
+        fi
+        return
+    fi
+}
+
+# ── 批量链接函数 ──
+# link_category <category>
+link_category() {
+    local category="$1"
+    local src_dir=".skills/${category}"
+
+    if [ ! -d "$src_dir" ]; then
+        return
+    fi
+
+    echo "🔗 链接 ${category} skills..."
+
+    # 链接纯 .md 文件
+    for skill_md in ${src_dir}/*.md; do
+        if [ -f "$skill_md" ]; then
+            local name=$(basename "$skill_md" .md)
+            link_skill "$category" "$name"
+        fi
+    done
+
+    # 链接已有 SKILL.md 的目录
+    for skill_dir in ${src_dir}/*/; do
+        if [ -d "$skill_dir" ] && [ -f "${skill_dir}SKILL.md" ]; then
+            local name=$(basename "$skill_dir")
+            link_skill "$category" "$name"
+        fi
+    done
+}
+
 echo "🔄 开始同步 skills..."
 echo "   CLI: $CLI_NAME"
 echo "   角色: $ROLE"
 echo "   目标: $TARGET_DIR"
 echo ""
 
-# 清理旧链接
+# 清理旧链接/目录
 if [ -d "$TARGET_DIR" ]; then
     echo "🗑️  清理旧 skills..."
     rm -rf "$TARGET_DIR"
@@ -78,87 +157,22 @@ fi
 mkdir -p "$TARGET_DIR"
 
 # 链接 shared skills（所有角色通用）
-echo "🔗 链接 shared skills..."
-for skill in .skills/shared/*.md; do
-    if [ -f "$skill" ]; then
-        ln -s "../../$skill" "$TARGET_DIR/$(basename $skill)"
-    fi
-done
-# 链接 shared 目录中的 skill 目录
-for skill_dir in .skills/shared/*/; do
-    if [ -d "$skill_dir" ] && [ -f "${skill_dir}SKILL.md" ]; then
-        ln -s "../../$skill_dir" "$TARGET_DIR/$(basename $skill_dir)"
-    fi
-done
+link_category "shared"
 
 # 根据角色链接特定 skills
 case $ROLE in
     frontend)
-        if [ -d ".skills/frontend" ]; then
-            echo "🔗 链接 frontend skills..."
-            for skill in .skills/frontend/*.md; do
-                if [ -f "$skill" ]; then
-                    ln -s "../../$skill" "$TARGET_DIR/$(basename $skill)"
-                fi
-            done
-            # 链接 frontend 目录中的 skill 目录
-            for skill_dir in .skills/frontend/*/; do
-                if [ -d "$skill_dir" ] && [ -f "${skill_dir}SKILL.md" ]; then
-                    ln -s "../../$skill_dir" "$TARGET_DIR/$(basename $skill_dir)"
-                fi
-            done
-        fi
+        link_category "frontend"
         ;;
     backend)
-        if [ -d ".skills/backend" ]; then
-            echo "🔗 链接 backend skills..."
-            for skill in .skills/backend/*.md; do
-                if [ -f "$skill" ]; then
-                    ln -s "../../$skill" "$TARGET_DIR/$(basename $skill)"
-                fi
-            done
-        fi
+        link_category "backend"
         ;;
     universal)
-        # Universal 角色链接所有 skills
-        if [ -d ".skills/frontend" ]; then
-            echo "🔗 链接 frontend skills..."
-            for skill in .skills/frontend/*.md; do
-                if [ -f "$skill" ]; then
-                    ln -s "../../$skill" "$TARGET_DIR/$(basename $skill)"
-                fi
-            done
-            # 链接 frontend 目录中的 skill 目录
-            for skill_dir in .skills/frontend/*/; do
-                if [ -d "$skill_dir" ] && [ -f "${skill_dir}SKILL.md" ]; then
-                    ln -s "../../$skill_dir" "$TARGET_DIR/$(basename $skill_dir)"
-                fi
-            done
-        fi
-        if [ -d ".skills/backend" ]; then
-            echo "🔗 链接 backend skills..."
-            for skill in .skills/backend/*.md; do
-                if [ -f "$skill" ]; then
-                    ln -s "../../$skill" "$TARGET_DIR/$(basename $skill)"
-                fi
-            done
-            # 链接 backend 目录中的 skill 目录
-            for skill_dir in .skills/backend/*/; do
-                if [ -d "$skill_dir" ] && [ -f "${skill_dir}SKILL.md" ]; then
-                    ln -s "../../$skill_dir" "$TARGET_DIR/$(basename $skill_dir)"
-                fi
-            done
-        fi
+        link_category "frontend"
+        link_category "backend"
         ;;
     devops)
-        if [ -d ".skills/devops" ]; then
-            echo "🔗 链接 devops skills..."
-            for skill in .skills/devops/*.md; do
-                if [ -f "$skill" ]; then
-                    ln -s "../../$skill" "$TARGET_DIR/$(basename $skill)"
-                fi
-            done
-        fi
+        link_category "devops"
         ;;
 esac
 
@@ -166,7 +180,15 @@ echo ""
 echo "✅ Skills 同步完成！"
 echo ""
 echo "📂 $CLI_NAME 当前 skills:"
-ls -la "$TARGET_DIR" | grep -v "^total" | grep -v "^\." | awk '{print "   - " $NF}'
+if [ "$CLI_NAME" = "qoder" ]; then
+    for item in "$TARGET_DIR"/*/; do
+        if [ -d "$item" ]; then
+            echo "   - $(basename "$item")"
+        fi
+    done
+else
+    ls -la "$TARGET_DIR" | grep -v "^total" | grep -v "^\." | awk '{print "   - " $NF}'
+fi
 echo ""
 echo "🎯 $CLI_NAME 现在是 $ROLE agent"
 echo ""

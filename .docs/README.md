@@ -12,6 +12,30 @@
 
 ## 迭代记录
 
+### v0.3.2 — 2026-06-15 · 字体本地打包 + 弹窗修复
+
+字体从 Google Fonts CDN 改为本地打包，修复国内网络环境下图标显示为英文的问题；修复监听规则弹窗保存按钮不可见。
+
+| 类型 | 端 | 说明 | 涉及文件 | 文档 |
+|------|----|------|---------|------|
+| 修复 | 前端 | Material Symbols Outlined 和 Inter 字体从 Google Fonts CDN 改为 `@fontsource-variable` 本地打包；**根因**：国内网络无法访问 Google Fonts CDN，字体加载失败导致图标显示为英文占位文字 | `src/fonts.css`、`index.html`、`src/main.tsx`、`package.json` | — |
+| 修复 | 前端 | 监听规则弹窗保存按钮不可见；**根因**：进程选择器弹窗内容溢出导致底部操作按钮被裁剪，改为 flex-col 布局确保按钮始终可见 | `src/components/SettingsModal.tsx` | — |
+| 改进 | CI | Release workflow 新增云盘手动补传 workflow + AList token 健康检查脚本 | `.github/workflows/upload-drives.yml`、`scripts/update-alist-tokens.sh` | — |
+| 改进 | 文档 | 更新 115 网盘分享链接和访问码 | `docs/guide/install.md` | — |
+
+---
+
+### v0.3.1 — 2026-06-14 · 修复全局设置添加规则按钮不显示
+
+修复进程选择器弹窗内容溢出导致设置页 footer 被裁剪，按钮不可见。
+
+| 类型 | 端 | 说明 | 涉及文件 | 文档 |
+|------|----|------|---------|------|
+| 修复 | 前端 | 全局设置「添加规则」按钮不显示；**根因**：进程选择器弹窗内容溢出导致 footer 被裁剪 | `src/components/SettingsModal.tsx` | — |
+| 改进 | 配置 | 版本号同步至 0.3.1 | `src-tauri/tauri.conf.json`、`package.json`、`src-tauri/Cargo.toml` | — |
+
+---
+
 ### v0.3.0 — 2026-06-13 · 设计系统优化 + UI 体验改进
 
 设计系统全面优化，移除玻璃拟态效果，统一暗色调风格；字体系统规范化；滑块、Toggle、进程规则列表等组件体验改进。
