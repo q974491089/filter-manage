@@ -55,3 +55,4 @@ docs/.vitepress/dist/
 
 # Local scripts (may contain credentials)
 scripts/upload-cloud.sh
+scripts/upload-server.py
