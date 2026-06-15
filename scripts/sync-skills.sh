@@ -91,9 +91,9 @@ link_skill() {
     # 处理纯 .md 文件
     if [ -f "$src_md" ]; then
         if [ "$CLI_NAME" = "qoder" ]; then
-            # QoderCLI 需要目录/SKILL.md 格式
-            local skill_dest="${TARGET_DIR}/${skill_name}"
-            mkdir -p "$skill_dest"
+            # QoderCLI: 生成 SKILL.md 到中间目录 .skills/_build/，再 symlink
+            local build_dir=".skills/_build/${category}/${skill_name}"
+            mkdir -p "$build_dir"
             # 从源 .md 提取描述：取第一个 # 标题行作为 description
             local desc=$(grep -m1 '^# ' "$src_md" | sed 's/^# //')
             {
@@ -103,7 +103,9 @@ link_skill() {
                 echo "---"
                 echo ""
                 cat "$src_md"
-            } > "${skill_dest}/SKILL.md"
+            } > "${build_dir}/SKILL.md"
+            # symlink: .qoder/skills/<name> → ../../.skills/_build/<category>/<name>
+            ln -s "../../${build_dir}" "${TARGET_DIR}/${skill_name}"
         else
             # 其他 CLI: 直接 symlink .md 文件
             ln -s "../../${src_md}" "${TARGET_DIR}/${skill_name}.md"
@@ -151,6 +153,12 @@ echo ""
 if [ -d "$TARGET_DIR" ]; then
     echo "🗑️  清理旧 skills..."
     rm -rf "$TARGET_DIR"
+fi
+
+# QoderCLI: 清理旧的 _build 中间目录
+if [ "$CLI_NAME" = "qoder" ] && [ -d ".skills/_build" ]; then
+    echo "🗑️  清理旧 _build..."
+    rm -rf ".skills/_build"
 fi
 
 # 创建目录

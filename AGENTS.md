@@ -60,6 +60,25 @@
 
 ---
 
+## 项目目录约定
+
+| 目录 | 用途 | 受众 | 是否提交 Git |
+|------|------|------|-------------|
+| `docs/` | **公开文档站**（VitePress）— changelog、安装指南、产品介绍等面向用户的内容 | 用户/访客 | 是 |
+| `.docs/` | **Agent 内部文档** — API 文档、迭代记录、交接文档、架构说明等面向 Agent 的技术内容 | AI Agent | 是 |
+| `.skills/` | Skill 源文件池（shared/frontend/backend 分类） | AI Agent | 是 |
+| `.skills/_build/` | QoderCLI SKILL.md 中间生成目录，sync-skills.sh 自动生成 | 临时 | **否**（gitignore） |
+| `.writing/` | CLI 写作缓冲临时文件 | 临时 | **否**（gitignore） |
+| `.codegraph/` | CodeGraph 运行时数据 | 临时 | **否**（gitignore） |
+
+**关键区分**：
+- **`docs/`** = 给人看的（公开文档站，自动部署，`CHANGELOG.md` 通过 `@include` 自动引用）
+- **`.docs/`** = 给 Agent 看的（技术迭代记录、API 文档、交接文档，比 CHANGELOG 更详尽）
+- 修改 API / 迭代记录时 → 改 `.docs/`
+- 修改用户文档 / 安装指南时 → 改 `docs/`
+
+---
+
 ## 共享规则
 
 **所有 Agent 必须遵循**：
@@ -184,6 +203,101 @@
 - `docs.md` - 文档同步
 - `handoff.md` - Agent 交接
 - `git.md` - Git 规范
+
+---
+
+## CI/CD Workflows
+
+### Release Workflow (`release.yml`)
+
+**触发**：`v*` tag push 自动触发
+
+**流程**：
+1. 构建 Tauri 应用（Windows）
+2. 生成 `.exe` / `.msi` 安装包
+3. 创建 GitHub Release，自动从 `CHANGELOG.md` 提取对应版本内容
+4. 上传安装包到 9 个云盘（通过 AList）
+
+**云盘列表**：夸克、阿里云盘、115、百度网盘、蓝奏云、UC、Yandex、豆包、悟空（zip 格式）
+
+### 云盘手动补传 (`upload-drives.yml`)
+
+**触发**：手动触发（`workflow_dispatch`）
+
+**场景**：Release 时云盘上传失败，或需要重新上传某版本
+
+```bash
+gh workflow run upload-drives.yml -f version=0.3.2
+```
+
+**参数**：`version` — 版本号（不带 `v` 前缀）
+
+**流程**：
+1. 从 GitHub Release 下载对应版本的 `.exe`
+2. 登录 AList 获取 token
+3. 上传到 9 个云盘
+
+**注意**：GitHub Actions 上传经常失败（HTTP 524 超时），原因：
+- Actions 在美国，通过 Cloudflare Tunnel 连接 AList 服务器，延迟高
+- 服务器带宽有限（3Mbps），大文件上传容易超时
+
+### SSH 服务器上传（推荐）
+
+当 GitHub Actions 云盘上传失败时，通过 SSH 到服务器本地上传（AList 走 localhost，速度快且稳定）。
+
+```bash
+# SSH 登录服务器
+ssh -i ~/.ssh/Qq2282782.pem ubuntu@118.25.20.249
+
+# 一键上传（替换版本号）
+VERSION=0.3.2
+cd /tmp && \
+curl -sL "https://github.com/q974491089/filter-manage/releases/download/v${VERSION}/Filter-Manage_${VERSION}_x64-setup.exe" -o setup.exe && \
+TOKEN=$(curl -s -X POST http://127.0.0.1:5244/api/auth/login -H "Content-Type: application/json" -d '{"username":"admin","password":"alist123456"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4) && \
+for S in quark aliyundrive 115 baidu lanzou uc yandex doubao; do \
+  EP=$(python3 -c "import urllib.parse; print(urllib.parse.quote('/${S}/filter-manage/Filter-Manage_${VERSION}_x64-setup.exe'))") && \
+  echo -n "上传 $S ..." && \
+  R=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT http://127.0.0.1:5244/api/fs/put -H "Authorization: $TOKEN" -H "File-Path: $EP" -H "Content-Type: application/octet-stream" --data-binary @/tmp/setup.exe) && \
+  HC=$(echo "$R" | tail -1) && echo " HTTP $HC" ; \
+done && \
+zip -j /tmp/setup.zip /tmp/setup.exe && \
+EP=$(python3 -c "import urllib.parse; print(urllib.parse.quote('/wukong/filter-manage/Filter-Manage_${VERSION}_x64-setup.zip'))") && \
+echo -n "上传 wukong (zip)..." && \
+R=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT http://127.0.0.1:5244/api/fs/put -H "Authorization: $TOKEN" -H "File-Path: $EP" -H "Content-Type: application/octet-stream" --data-binary @/tmp/setup.zip) && \
+HC=$(echo "$R" | tail -1) && echo " HTTP $HC" && \
+rm -f /tmp/setup.exe /tmp/setup.zip && echo "完成！"
+```
+
+**优势**：
+- AList 走 localhost，不受服务器带宽限制
+- 无 Cloudflare Tunnel 超时问题
+- 通常 2-3 分钟完成全部 9 个云盘上传
+
+### 检查上传状态
+
+```bash
+# 查看最近 workflow 运行
+gh run list --limit 5
+
+# 查看某次运行详情
+gh run view <run-id>
+
+# 查看运行日志（过滤关键信息）
+gh run view <run-id> --log | grep -E "OK|failed|warning|Upload"
+```
+
+### AList Token 健康检查
+
+发布前建议运行：
+```bash
+./scripts/update-alist-tokens.sh
+```
+
+检测所有 Cookie 类网盘（夸克、UC）的 token 是否过期，豆包 token ~7 天过期。
+
+### 文档站部署
+
+`docs/` 目录变更 push 后自动触发 VitePress 文档站部署。`CHANGELOG.md` 通过 `docs/changelog.md` 的 `@include` 自动引用。
 
 ---
 

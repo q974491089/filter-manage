@@ -47,3 +47,11 @@ docs/.vitepress/dist/
 *.key
 *.key.pub
 .antigravitycli/
+
+# AI CLI temp files
+.writing/
+.codegraph/
+.skills/_build/
+
+# Local scripts (may contain credentials)
+scripts/upload-cloud.sh
