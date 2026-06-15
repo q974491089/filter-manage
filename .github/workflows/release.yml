@@ -128,7 +128,8 @@ jobs:
           # WuKong blocks .exe uploads (error 80003), zip it first
           ZIP_FILE="src-tauri/target/release/bundle/nsis/Filter-Manage_${VERSION}_x64-setup.zip"
           echo "Creating zip for WuKong..."
-          (cd "$(dirname "$INSTALLER")" && zip -j "$(basename "$ZIP_FILE")" "$(basename "$INSTALLER")")
+          7z a -tzip "$(cygpath -w "$ZIP_FILE")" "$(cygpath -w "$INSTALLER")" > /dev/null 2>&1 || \
+          powershell.exe -NoProfile -Command "Compress-Archive -Path '$(cygpath -w "$INSTALLER")' -DestinationPath '$(cygpath -w "$ZIP_FILE")' -Force"
           ZIP_FILENAME="Filter-Manage_${VERSION}_x64-setup.zip"
           if ! upload_file "wukong" "$ZIP_FILE" "$ZIP_FILENAME"; then
             UPLOAD_FAILED=1
