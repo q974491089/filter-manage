@@ -60,12 +60,13 @@ jobs:
       - name: Trigger server upload
         shell: bash
         env:
+          UPLOAD_WEBHOOK_URL: ${{ secrets.UPLOAD_WEBHOOK_URL }}
           UPLOAD_SECRET: ${{ secrets.UPLOAD_SECRET }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "==> Triggering server upload for v${VERSION}..."
           RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
-            -X POST "https://filter-manage-api.xyls.us.kg/upload" \
+            -X POST "${UPLOAD_WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
             -H "X-Upload-Secret: ${UPLOAD_SECRET}" \
             -d "{\"version\":\"${VERSION}\"}")
