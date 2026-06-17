@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Icon } from "./Icon";
 
 interface ClosePromptModalProps {
   open: boolean;
@@ -38,7 +39,7 @@ function ClosePromptModal({ open, initialCloseToTray, onSelect }: ClosePromptMod
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4">
           <h2 className="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>power_settings_new</span>
+            <Icon name="power_settings_new" className="text-primary" filled />
             关闭行为
           </h2>
         </div>
@@ -63,7 +64,7 @@ function ClosePromptModal({ open, initialCloseToTray, onSelect }: ClosePromptMod
               />
               <div className="flex items-center p-4 rounded-lg border border-outline-variant/40 bg-surface-container hover:bg-surface-variant/50 transition-all duration-200 peer-checked:bg-surface-container-high peer-checked:border-primary peer-checked:shadow-[0_0_0_1px_theme('colors.primary'),0_4px_20px_-5px_rgba(173,198,255,0.15)]">
                 <div className="flex items-center justify-center w-10 h-10 rounded-full bg-surface-container-high text-primary mr-4 shadow-sm group-hover:scale-105 transition-transform">
-                  <span className="material-symbols-outlined">keyboard_arrow_down</span>
+                  <Icon name="keyboard_arrow_down" />
                 </div>
                 <div className="flex-1">
                   <span className="font-title-sm text-title-sm text-on-surface block">最小化到托盘 (推荐)</span>
@@ -93,7 +94,7 @@ function ClosePromptModal({ open, initialCloseToTray, onSelect }: ClosePromptMod
               />
               <div className="flex items-center p-4 rounded-lg border border-outline-variant/40 bg-surface-container hover:bg-surface-variant/50 transition-all duration-200 peer-checked:bg-surface-container-high peer-checked:border-primary peer-checked:shadow-[0_0_0_1px_theme('colors.primary'),0_4px_20px_-5px_rgba(173,198,255,0.15)]">
                 <div className="flex items-center justify-center w-10 h-10 rounded-full bg-surface-container-high text-error mr-4 shadow-sm group-hover:scale-105 transition-transform">
-                  <span className="material-symbols-outlined">logout</span>
+                  <Icon name="logout" />
                 </div>
                 <div className="flex-1">
                   <span className="font-title-sm text-title-sm text-on-surface block">直接退出应用</span>
@@ -123,7 +124,7 @@ function ClosePromptModal({ open, initialCloseToTray, onSelect }: ClosePromptMod
                 onChange={() => setRemember(!remember)}
                 className="peer appearance-none w-5 h-5 border-2 border-outline-variant rounded bg-transparent checked:bg-primary checked:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-1 focus:ring-offset-surface-container-low transition-colors cursor-pointer"
               />
-              <span className="material-symbols-outlined text-[16px] text-on-primary absolute pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity" style={{ fontVariationSettings: "'FILL' 1" }}>check</span>
+              <Icon name="check" className="text-[16px] text-on-primary absolute pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity" filled />
             </div>
             <span className="font-body-md text-body-md text-on-surface-variant group-hover:text-on-surface transition-colors select-none">记住我的选择</span>
           </label>

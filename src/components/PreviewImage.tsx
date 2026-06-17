@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { Icon } from "./Icon";
 
 interface PreviewImageProps {
   showToast: (type: "success" | "error", text: string) => void;
@@ -127,7 +128,7 @@ function PreviewImage({ showToast }: PreviewImageProps) {
               }}
             >
               <div className="bg-primary/90 px-md py-sm rounded-md flex items-center gap-xs shadow-lg">
-                <span className="material-symbols-outlined text-white text-[18px]">edit</span>
+                <Icon name="edit" className="text-white text-[18px]" />
                 <span className="text-white text-label-md font-label-md">更换图片</span>
               </div>
             </div>
@@ -141,7 +142,7 @@ function PreviewImage({ showToast }: PreviewImageProps) {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
               ) : (
-                <span className="material-symbols-outlined text-primary text-[32px]">add_photo_alternate</span>
+                <Icon name="add_photo_alternate" className="text-primary text-[32px]" />
               )}
             </div>
             <p className="font-label-md text-label-md text-on-surface">

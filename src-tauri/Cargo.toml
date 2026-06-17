@@ -1,6 +1,6 @@
 [package]
 name = "filter-manage"
-version = "0.3.2"
+version = "0.3.3"
 description = "ICC Filter & NVIDIA Color Settings Manager"
 authors = ["you"]
 edition = "2021"

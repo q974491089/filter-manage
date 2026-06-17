@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Icon } from "./Icon";
 
 interface ShortcutInputProps {
   value: string;
@@ -120,7 +121,7 @@ function ShortcutInput({ value, onChange, onClear, placeholder = "点击录制�
           className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors"
           title="清除快捷键"
         >
-          <span className="material-symbols-outlined text-[18px]">close</span>
+          <Icon name="close" className="text-[18px]" />
         </button>
       )}
     </div>

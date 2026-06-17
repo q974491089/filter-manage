@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { Icon } from "./Icon";
 
 interface IccProfile {
   name: string;
@@ -179,7 +180,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
           onClick={loadData}
           className="flex items-center gap-xs px-sm py-xs rounded text-on-surface-variant hover:bg-surface-variant/50 transition-colors font-label-md text-label-md"
         >
-          <span className="material-symbols-outlined text-[16px]">refresh</span>
+          <Icon name="refresh" className="text-[16px]" />
           刷新
         </button>
       </div>
@@ -196,7 +197,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
             onClick={handleRestoreDefault}
             className="flex-1 py-xs px-sm rounded-md bg-primary/10 text-primary border border-primary/25 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-primary/18 hover:border-primary/40 transition-all whitespace-nowrap"
           >
-            <span className="material-symbols-outlined text-[18px]">refresh</span>
+            <Icon name="refresh" className="text-[18px]" />
             恢复默认
           </button>
           <button
@@ -205,7 +206,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
             disabled={importing}
             className="flex-1 py-xs px-sm rounded-md bg-surface-variant/50 text-on-surface-variant border border-outline-variant/30 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-surface-variant/80 hover:border-outline-variant/50 transition-all disabled:opacity-40 whitespace-nowrap"
           >
-            <span className="material-symbols-outlined text-[18px]">upload</span>
+            <Icon name="upload" className="text-[18px]" />
             {importing ? "导入中..." : "导入 ICC"}
           </button>
           <button
@@ -213,7 +214,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
             onClick={() => invoke("open_icc_directory")}
             className="flex-1 py-xs px-sm rounded-md bg-surface-variant/50 text-on-surface-variant border border-outline-variant/30 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-surface-variant/80 hover:border-outline-variant/50 transition-all whitespace-nowrap"
           >
-            <span className="material-symbols-outlined text-[18px]">folder_open</span>
+            <Icon name="folder_open" className="text-[18px]" />
             打开目录
           </button>
         </div>
@@ -222,7 +223,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
         {dragOver && (
           <div data-name="drag-overlay" className="absolute inset-0 bg-primary/10 backdrop-blur-sm z-10 flex items-center justify-center rounded-md border-2 border-dashed border-primary m-sm">
             <div className="text-center">
-              <span className="material-symbols-outlined text-primary text-[48px]">upload_file</span>
+              <Icon name="upload_file" className="text-primary text-[48px]" />
               <p className="text-primary font-label-md text-label-md mt-sm">释放以导入 ICC 文件</p>
             </div>
           </div>
@@ -249,9 +250,9 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
                 <div className="flex justify-between items-start mb-xs">
                   <span className="font-label-md text-label-md text-on-surface">{profile.name}</span>
                   {activeProfile === profile.name ? (
-                    <span className="material-symbols-outlined text-primary text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                    <Icon name="check_circle" className="text-primary text-[18px]" filled />
                   ) : (
-                    <span className="material-symbols-outlined text-on-surface-variant text-[18px] opacity-0 group-hover:opacity-100">radio_button_unchecked</span>
+                    <Icon name="radio_button_unchecked" className="text-on-surface-variant text-[18px] opacity-0 group-hover:opacity-100" />
                   )}
                 </div>
                 <code className="text-[10px] text-on-surface-variant block opacity-60 group-hover:opacity-100 truncate">

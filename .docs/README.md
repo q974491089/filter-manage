@@ -12,6 +12,20 @@
 
 ## 迭代记录
 
+### v0.3.3 — 2026-06-17 · 图标系统迁移
+
+图标系统从字体图标（Material Symbols）迁移到 React 组件图标（react-icons），解决字体加载依赖问题，提升开发体验和打包体积。
+
+| 类型 | 端 | 说明 | 涉及文件 | 文档 |
+|------|----|------|---------|------|
+| 改进 | 前端 | 图标系统从 Material Symbols 字体迁移到 react-icons 组件；**原因**：解决字体加载依赖问题，提升 TypeScript 支持和 IDE 自动补全，按需加载减少打包体积 | `src/components/Icon.tsx`、`src/lib/icon-map.ts`、16 个组件文件 | — |
+| 改进 | 前端 | 新增 Icon 组件封装：支持 outlined/filled 变体，统一图标调用 API | `src/components/Icon.tsx` | — |
+| 改进 | 前端 | 新增图标映射表：45+ Material Design 图标从 Material Symbols 名称映射到 react-icons/md 组件 | `src/lib/icon-map.ts` | — |
+| 改进 | 前端 | 移除 Material Symbols 字体依赖和 CSS 定义（-25 行） | `src/fonts.css`、`package.json` | — |
+| 改进 | 配置 | 依赖变更：移除 `@fontsource-variable/material-symbols-outlined`，新增 `react-icons` | `package.json`、`pnpm-lock.yaml` | — |
+
+---
+
 ### v0.3.2 — 2026-06-15 · 字体本地打包 + 弹窗修复
 
 字体从 Google Fonts CDN 改为本地打包，修复国内网络环境下图标显示为英文的问题；修复监听规则弹窗保存按钮不可见。

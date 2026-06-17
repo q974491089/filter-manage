@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "./Icon";
 
 interface SelectOption {
   label: string;
@@ -39,7 +40,7 @@ function Select({ value, onChange, options, placeholder = "请选择...", classN
         <span className={`font-label-md text-label-md truncate flex-1 text-left ${selected ? "text-on-surface" : "text-on-surface-variant"}`}>
           {selected ? selected.label : placeholder}
         </span>
-        <span className={`material-symbols-outlined text-[18px] transition-transform duration-200 ${open ? "rotate-180" : ""}`}>expand_more</span>
+        <Icon name="expand_more" className={`text-[18px] transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
@@ -63,7 +64,7 @@ function Select({ value, onChange, options, placeholder = "请选择...", classN
                 >
                   <span className="truncate">{option.label}</span>
                   {option.value === value && (
-                    <span className="material-symbols-outlined text-primary text-[16px]">check</span>
+                    <Icon name="check" className="text-primary text-[16px]" />
                   )}
                 </button>
               ))

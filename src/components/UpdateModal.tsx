@@ -2,6 +2,7 @@ import { useState } from "react";
 import Markdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUpdater } from "../hooks/useUpdater";
+import { Icon } from "./Icon";
 
 const CHANGELOG_URL = "https://filter-manage.6ya.site/changelog.html";
 
@@ -16,7 +17,7 @@ export default function UpdateModal() {
       <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm">
         <div className="bg-surface-container/80 backdrop-blur-md border border-outline-variant/20 rounded-xl p-xl shadow-2xl shadow-black/40 w-[360px]">
           <div className="flex items-center gap-md mb-lg">
-            <span className="material-symbols-outlined text-[24px] text-primary">download</span>
+            <Icon name="download" className="text-[24px] text-primary" />
             <h2 className="font-headline-sm text-headline-sm text-on-surface">正在更新</h2>
           </div>
           <p className="font-body-md text-on-surface-variant mb-md">
@@ -46,7 +47,7 @@ export default function UpdateModal() {
       <div className="bg-surface-container/80 backdrop-blur-md border border-outline-variant/20 rounded-xl p-xl shadow-2xl shadow-black/40 w-[400px] max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-md mb-lg">
-          <span className="material-symbols-outlined text-[24px] text-primary">system_update</span>
+          <Icon name="system_update" className="text-[24px] text-primary" />
           <h2 className="font-headline-sm text-headline-sm text-on-surface">发现新版本</h2>
           <div className="flex-1" />
           <button
@@ -54,7 +55,7 @@ export default function UpdateModal() {
             className="flex items-center gap-xs px-sm py-xs rounded text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors"
             title="查看完整更新日志"
           >
-            <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+            <Icon name="open_in_new" className="text-[16px]" />
             <span className="font-label-sm text-label-sm">完整日志</span>
           </button>
         </div>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { Icon } from "./Icon";
 
 interface AboutModalProps {
   open: boolean;
@@ -73,7 +74,7 @@ function AboutModal({ open, onClose, onCheckUpdate }: AboutModalProps) {
             onClick={handleOpenWebsite}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary/10 text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors"
           >
-            <span className="material-symbols-outlined text-[18px]">language</span>
+            <Icon name="language" className="text-[18px]" />
             访问官网
           </button>
           <button
@@ -88,7 +89,7 @@ function AboutModal({ open, onClose, onCheckUpdate }: AboutModalProps) {
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
             ) : (
-              <span className="material-symbols-outlined text-[18px]">system_update</span>
+              <Icon name="system_update" className="text-[18px]" />
             )}
             {checking ? "检查中..." : "检查更新"}
           </button>

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import ShortcutInput from "./ShortcutInput";
 import Toggle from "./Toggle";
 import TextSwitch from "./TextSwitch";
+import { Icon } from "./Icon";
 
 interface ColorConfig {
   name: string;
@@ -93,9 +94,18 @@ function getIconBg(icon: string | undefined, name: string): string {
   return PRESET_ICONS[fallback] || "bg-primary-container";
 }
 
+/** 根据背景色返回对应的前景文字颜色 */
+function getIconTextClass(bgClass: string): string {
+  if (bgClass.includes("secondary-container")) return "text-on-secondary-container";
+  if (bgClass.includes("tertiary-container")) return "text-on-tertiary-container";
+  if (bgClass.includes("error-container")) return "text-on-error-container";
+  return "text-on-primary-container";
+}
+
 function renderConfigIcon(config: { name: string; icon?: string }) {
   const icon = config.icon || getDefaultIcon(config.name);
   const bgClass = getIconBg(config.icon, config.name);
+  const textClass = getIconTextClass(bgClass);
 
   if (config.icon && config.icon.startsWith("http")) {
     return (
@@ -107,7 +117,7 @@ function renderConfigIcon(config: { name: string; icon?: string }) {
 
   return (
     <div className={`w-8 h-8 rounded-md ${bgClass} flex items-center justify-center shadow-sm`}>
-      <span className="material-symbols-outlined text-on-primary text-[16px] leading-none relative top-[px]">{icon}</span>
+      <Icon name={icon} className={`${textClass} text-[16px] leading-none relative top-[px]`} />
     </div>
   );
 }
@@ -370,12 +380,10 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                   : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface"
               }`}
             >
-              <span
-                className="material-symbols-outlined"
-                style={activeTab === item.id ? { fontVariationSettings: "'FILL' 1" } : undefined}
-              >
-                {item.icon}
-              </span>
+              <Icon
+                name={item.icon}
+                filled={activeTab === item.id}
+              />
               <span>{item.label}</span>
             </button>
           ))}
@@ -385,7 +393,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
             onClick={onShowAbout}
             className="flex items-center gap-3 p-3 rounded-lg transition-all duration-200 font-title-sm text-title-sm active:scale-95 mt-auto text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface"
           >
-            <span className="material-symbols-outlined">info</span>
+            <Icon name="info" />
             <span>关于应用</span>
           </button>
         </div>
@@ -412,7 +420,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
               onClick={onClose}
               className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors duration-200 hover:bg-surface-variant/40 active:scale-90"
             >
-              <span className="material-symbols-outlined text-[20px]">close</span>
+                <Icon name="close" className="text-[20px]" />
             </button>
           </div>
 
@@ -426,7 +434,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 {/* 界面外观 - Theme Switcher */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-primary text-[18px]">palette</span>
+                    <Icon name="palette" className="text-primary text-[18px]" />
                     <h4 className="font-title-sm text-title-sm">界面外观</h4>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
@@ -438,9 +446,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                           : "border-outline-variant/30 bg-surface-container-high hover:bg-surface-bright"
                       }`}
                     >
-                      <span className={`material-symbols-outlined text-[24px] ${themeMode === "light" ? "text-primary" : "text-on-surface-variant"}`}>
-                        light_mode
-                      </span>
+                      <Icon name="light_mode" className={`text-[24px] ${themeMode === "light" ? "text-primary" : "text-on-surface-variant"}`} />
                       <span className={`font-label-sm text-label-sm ${themeMode === "light" ? "text-primary font-bold" : "text-on-surface-variant"}`}>
                         浅色模式
                       </span>
@@ -453,9 +459,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                           : "border-outline-variant/30 bg-surface-container-high hover:bg-surface-bright"
                       }`}
                     >
-                      <span className={`material-symbols-outlined text-[24px] ${themeMode === "dark" ? "text-primary" : "text-on-surface-variant"}`}>
-                        dark_mode
-                      </span>
+                      <Icon name="dark_mode" className={`text-[24px] ${themeMode === "dark" ? "text-primary" : "text-on-surface-variant"}`} />
                       <span className={`font-label-sm text-label-sm ${themeMode === "dark" ? "text-primary font-bold" : "text-on-surface-variant"}`}>
                         深色模式
                       </span>
@@ -468,9 +472,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                           : "border-outline-variant/30 bg-surface-container-high hover:bg-surface-bright"
                       }`}
                     >
-                      <span className={`material-symbols-outlined text-[24px] ${themeMode === "system" ? "text-primary" : "text-on-surface-variant"}`}>
-                        settings_brightness
-                      </span>
+                      <Icon name="settings_brightness" className={`text-[24px] ${themeMode === "system" ? "text-primary" : "text-on-surface-variant"}`} />
                       <span className={`font-label-sm text-label-sm ${themeMode === "system" ? "text-primary font-bold" : "text-on-surface-variant"}`}>
                         跟随系统
                       </span>
@@ -505,9 +507,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                       <option value="true">系统托盘</option>
                       <option value="false">直接关闭</option>
                     </select>
-                    <span className="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">
-                      expand_more
-                    </span>
+                    <Icon name="expand_more" className="absolute right-1.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none" />
                   </div>
                 </div>
 
@@ -537,7 +537,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                       onClick={() => saveSettings({ ...settings, shortcut_notification: !settings.shortcut_notification })}
                       className="w-full flex items-center gap-3 hover:bg-white/5 p-2 rounded-lg transition-colors duration-200 cursor-pointer"
                     >
-                      <span className="material-symbols-outlined text-primary">notifications</span>
+                      <Icon name="notifications" className="text-primary" />
                       <span className="font-body-md text-body-md">切换方案时显示通知</span>
                       <div className="ml-auto">
                         <Toggle checked={settings.shortcut_notification} onChange={(v) => saveSettings({ ...settings, shortcut_notification: v })} />
@@ -555,7 +555,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 {/* 恢复默认快捷键 */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-primary text-[18px]">restart_alt</span>
+                    <Icon name="restart_alt" className="text-primary text-[18px]" />
                     <h4 className="font-title-sm text-title-sm">系统快捷键</h4>
                   </div>
                   <div className="flex items-center justify-between p-5 bg-surface-container-high/60 rounded-xl border border-outline-variant/20 hover:bg-surface-container-high/80 transition-all duration-300">
@@ -579,12 +579,12 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 {/* 方案快捷键 */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-primary text-[18px]">palette</span>
+                    <Icon name="palette" className="text-primary text-[18px]" />
                     <h4 className="font-title-sm text-title-sm">方案快捷键</h4>
                   </div>
                   {configs.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16 text-on-surface-variant/40">
-                      <span className="material-symbols-outlined text-[48px] mb-4">keyboard</span>
+                      <Icon name="keyboard" className="text-[48px] mb-4" />
                       <p className="font-body-md">暂无方案</p>
                       <p className="font-body-sm mt-1">请先在主界面保存颜色方案</p>
                     </div>
@@ -626,7 +626,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
 
                 {configs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-on-surface-variant/40">
-                    <span className="material-symbols-outlined text-[48px] mb-4">monitor</span>
+                    <Icon name="monitor" className="text-[48px] mb-4" />
                     <p className="font-body-md">暂无方案</p>
                     <p className="font-body-sm mt-1">请先在主界面保存颜色方案</p>
                   </div>
@@ -652,9 +652,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                               }`}
                             >
                               {isSelected && (
-                                <span className="material-symbols-outlined text-[14px] text-on-primary">
-                                  check
-                                </span>
+                                <Icon name="check" className="text-[14px] text-on-primary" />
                               )}
                             </div>
                             {renderConfigIcon(config)}
@@ -677,7 +675,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 {/* 总开关 */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="material-symbols-outlined text-primary text-[18px]">monitoring</span>
+                    <Icon name="monitoring" className="text-primary text-[18px]" />
                     <div className="space-y-0.5">
                       <h4 className="font-title-sm text-title-sm">进程监听</h4>
                       <p className="font-label-sm text-label-sm text-on-surface-variant">
@@ -691,7 +689,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 {/* 通知开关 */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="material-symbols-outlined text-primary text-[18px]">notifications</span>
+                    <Icon name="notifications" className="text-primary text-[18px]" />
                     <div className="space-y-0.5">
                       <h4 className="font-title-sm text-title-sm">切换通知</h4>
                       <p className="font-label-sm text-label-sm text-on-surface-variant">
@@ -709,10 +707,10 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 <div className={`space-y-3 transition-opacity duration-300 ${settings.process_watcher_enabled ? "opacity-100" : "opacity-40 pointer-events-none"}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-primary text-[18px]">rule</span>
+                      <Icon name="rule" className="text-primary text-[18px]" />
                       <h4 className="font-title-sm text-title-sm">监听规则</h4>
                       <div className="group relative flex items-center">
-                        <span className="material-symbols-outlined text-[16px] text-on-surface-variant/40 cursor-help hover:text-on-surface-variant/70 transition-colors leading-none relative -top-px">help</span>
+                        <Icon name="help" className="text-[16px] text-on-surface-variant/40 cursor-help hover:text-on-surface-variant/70 transition-colors leading-none relative -top-px" />
                         <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-[240px] px-3 py-2.5 rounded-lg bg-surface-container-highest text-on-surface text-[12px] leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none shadow-lg border border-outline-variant/20 z-50">
                           规则按列表顺序匹配，第一个命中的生效。当指定进程运行时，自动切换到绑定的配色方案。进程退出后可选择是否恢复上一方案。
                           <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 bg-surface-container-highest rotate-45 -mt-1 border-r border-b border-outline-variant/20" />
@@ -727,14 +725,14 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/15 text-primary rounded-lg hover:bg-primary/25 transition-colors duration-200 active:scale-95"
                     >
-                      <span className="material-symbols-outlined text-[16px]">add</span>
+                      <Icon name="add" className="text-[16px]" />
                       <span className="font-label-md text-label-md">添加规则</span>
                     </button>
                   </div>
 
                   {settings.process_rules.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-on-surface-variant/40">
-                      <span className="material-symbols-outlined text-[48px] mb-4">terminal</span>
+                      <Icon name="terminal" className="text-[48px] mb-4" />
                       <p className="font-body-md">暂无监听规则</p>
                       <p className="font-body-sm mt-1">添加规则后，当指定进程运行时自动切换配色方案</p>
                     </div>
@@ -781,7 +779,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                               onClick={() => handleDeleteProcessRule(rule.id)}
                               className="w-7 h-7 flex items-center justify-center rounded-lg text-on-surface-variant/40 hover:text-error hover:bg-error/10 transition-all duration-200 active:scale-90 shrink-0"
                             >
-                              <span className="material-symbols-outlined text-[18px]">delete</span>
+                              <Icon name="delete" className="text-[18px]" />
                             </button>
                           </div>
 
@@ -801,9 +799,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                                     </option>
                                   ))}
                                 </select>
-                                <span className="material-symbols-outlined absolute right-1 top-1/2 -translate-y-1/2 text-on-surface-variant/50 text-[16px] pointer-events-none">
-                                  expand_more
-                                </span>
+                                <Icon name="expand_more" className="absolute right-1 top-1/2 -translate-y-1/2 text-on-surface-variant/50 text-[16px] pointer-events-none" />
                               </div>
                               <span className="text-[12px] text-on-surface-variant/60">可切换</span>
                             </div>
@@ -847,7 +843,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 onClick={() => setShowProcessPicker(false)}
                 className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors duration-200 hover:bg-surface-variant/40 active:scale-90"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+              <Icon name="close" className="text-[20px]" />
               </button>
             </div>
 
@@ -883,9 +879,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                       </option>
                     ))}
                   </select>
-                  <span className="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">
-                    expand_more
-                  </span>
+                  <Icon name="expand_more" className="absolute right-1.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none" />
                 </div>
               </div>
 
@@ -897,13 +891,13 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                     onClick={loadRunningProcesses}
                     className="flex items-center gap-1 px-2 py-1 text-primary hover:bg-primary/10 rounded transition-colors duration-200"
                   >
-                    <span className="material-symbols-outlined text-[16px]">refresh</span>
+                    <Icon name="refresh" className="text-[16px]" />
                     <span className="font-label-sm text-label-sm">刷新</span>
                   </button>
                 </div>
                 {/* 搜索框 */}
                 <div className="relative">
-                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/50 text-[18px] pointer-events-none">search</span>
+                  <Icon name="search" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/50 text-[18px] pointer-events-none" />
                   <input
                     type="text"
                     value={processSearchQuery}
@@ -944,9 +938,9 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                               {p.icon ? (
                                 <img src={p.icon} alt="" className="w-5 h-5 object-contain" />
                               ) : (
-                                <span className={`material-symbols-outlined text-[18px] ${
+                                <Icon name="terminal" className={`text-[18px] ${
                                   newRuleProcessName === p.name ? "text-primary" : "text-on-surface-variant/40"
-                                }`}>terminal</span>
+                                }`} />
                               )}
                             </div>
 
@@ -964,7 +958,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
 
                             {/* 选中标记 */}
                             {newRuleProcessName === p.name && (
-                              <span className="material-symbols-outlined text-[18px] text-primary shrink-0">check_circle</span>
+                              <Icon name="check_circle" className="text-[18px] text-primary shrink-0" />
                             )}
                           </button>
                         ))

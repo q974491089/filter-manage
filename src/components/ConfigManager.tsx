@@ -3,6 +3,7 @@ import { useState } from "react";
 import ShortcutInput from "./ShortcutInput";
 import Toggle from "./Toggle";
 import TextSwitch from "./TextSwitch";
+import { Icon } from "./Icon";
 
 interface ColorConfig {
   name: string;
@@ -280,9 +281,18 @@ function ConfigManager({
     return "bg-primary-container";
   };
 
+  /** 根据背景色返回对应的前景文字颜色 */
+  const getIconTextClass = (bgClass: string) => {
+    if (bgClass.includes("secondary-container")) return "text-on-secondary-container";
+    if (bgClass.includes("tertiary-container")) return "text-on-tertiary-container";
+    if (bgClass.includes("error-container")) return "text-on-error-container";
+    return "text-on-primary-container";
+  };
+
   const renderIcon = (config: { name: string; icon?: string }) => {
     const icon = config.icon || getDefaultIcon(config.name);
     const bgClass = getIconBg(config.icon, config.name);
+    const textClass = getIconTextClass(bgClass);
 
     if (config.icon && config.icon.startsWith("http")) {
       return (
@@ -294,7 +304,7 @@ function ConfigManager({
 
     return (
       <div className={`w-9 h-9 rounded-md ${bgClass} flex items-center justify-center shadow-sm`}>
-        <span className="material-symbols-outlined text-on-primary text-[18px] leading-none relative top-[1px]">{icon}</span>
+        <Icon name={icon} className={`${textClass} text-[18px] leading-none relative top-[1px]`} />
       </div>
     );
   };
@@ -330,7 +340,7 @@ function ConfigManager({
                     <span className="font-label-md text-label-md text-on-surface font-medium">{name}</span>
                     {isActive && (
                       <span className="flex items-center gap-1 px-2 py-0.5 bg-primary/20 text-primary rounded-full text-[10px] font-medium">
-                        <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                        <Icon name="check_circle" className="text-[12px]" />
                         正在应用
                       </span>
                     )}
@@ -341,14 +351,14 @@ function ConfigManager({
                       className="p-xs rounded hover:bg-primary-container/30 transition-all flex items-center"
                       title="编辑"
                     >
-                      <span className="material-symbols-outlined text-[18px] text-primary">edit</span>
+                      <Icon name="edit" className="text-[18px] text-primary" />
                     </button>
                     <button
                       onClick={(e) => handleDelete(e, name)}
                       className="p-xs rounded hover:bg-error-container/30 transition-all flex items-center"
                       title="删除"
                     >
-                      <span className="material-symbols-outlined text-[18px] text-error">delete</span>
+                      <Icon name="delete" className="text-[18px] text-error" />
                     </button>
                   </div>
                 </div>
@@ -373,7 +383,7 @@ function ConfigManager({
                 onClick={() => setShowEditModal(false)}
                 className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors duration-200 hover:bg-surface-variant/40 active:scale-90"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+                <Icon name="close" className="text-[20px]" />
               </button>
             </div>
 
@@ -396,7 +406,7 @@ function ConfigManager({
               {/* 图标选择 */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-primary text-[18px]">palette</span>
+                  <Icon name="palette" className="text-primary text-[18px]" />
                   <h4 className="font-title-sm text-title-sm">图标</h4>
                 </div>
                 <div className="flex flex-wrap gap-sm">
@@ -411,7 +421,7 @@ function ConfigManager({
                       }`}
                       title={item.label}
                     >
-                      <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+                      <Icon name={item.icon} className="text-[20px]" />
                     </button>
                   ))}
                 </div>
@@ -439,8 +449,8 @@ function ConfigManager({
               {/* 快捷键设置 */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-primary text-[18px]">keyboard</span>
-                  <h4 className="font-title-sm text-title-sm">快捷键</h4>
+                  <Icon name="keyboard" className="text-primary text-[18px]" />
+                    <h4 className="font-title-sm text-title-sm">快捷键</h4>
                 </div>
                 <div className="flex items-center justify-between p-4 bg-surface-container-high/60 rounded-xl border border-outline-variant/20">
                   <div className="space-y-1">
@@ -466,7 +476,7 @@ function ConfigManager({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-primary text-[18px]">terminal</span>
+                    <Icon name="terminal" className="text-primary text-[18px]" />
                     <h4 className="font-title-sm text-title-sm">监听进程</h4>
                   </div>
                   <button
@@ -477,7 +487,7 @@ function ConfigManager({
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/15 text-primary rounded-lg hover:bg-primary/25 transition-colors duration-200 active:scale-95"
                   >
-                    <span className="material-symbols-outlined text-[16px]">add</span>
+                    <Icon name="add" className="text-[16px]" />
                     <span className="font-label-md text-label-md">添加进程</span>
                   </button>
                 </div>
@@ -489,7 +499,7 @@ function ConfigManager({
                 {/* 进程规则列表 */}
                 {getConfigRules().length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-8 text-on-surface-variant/40">
-                    <span className="material-symbols-outlined text-[36px] mb-3">terminal</span>
+                    <Icon name="terminal" className="text-[36px] mb-3" />
                     <p className="font-body-sm">暂无监听进程</p>
                     <p className="font-label-sm mt-1">添加进程后，当其运行时自动切换到此方案</p>
                   </div>
@@ -528,7 +538,7 @@ function ConfigManager({
                           onClick={() => handleDeleteProcessRule(rule.id)}
                           className="w-7 h-7 flex items-center justify-center rounded-lg text-on-surface-variant/40 hover:text-error hover:bg-error/10 transition-all duration-200 active:scale-90 shrink-0"
                         >
-                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                          <Icon name="delete" className="text-[18px]" />
                         </button>
                       </div>
                     ))}
@@ -575,7 +585,7 @@ function ConfigManager({
                 onClick={() => setShowProcessPicker(false)}
                 className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors duration-200 hover:bg-surface-variant/40 active:scale-90"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+                <Icon name="close" className="text-[20px]" />
               </button>
             </div>
 
@@ -603,13 +613,13 @@ function ConfigManager({
                     onClick={loadRunningProcesses}
                     className="flex items-center gap-1 px-2 py-1 text-primary hover:bg-primary/10 rounded transition-colors duration-200"
                   >
-                    <span className="material-symbols-outlined text-[16px]">refresh</span>
+                    <Icon name="refresh" className="text-[16px]" />
                     <span className="font-label-sm text-label-sm">刷新</span>
                   </button>
                 </div>
                 {/* 搜索框 */}
                 <div className="relative">
-                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/50 text-[18px] pointer-events-none">search</span>
+                  <Icon name="search" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/50 text-[18px] pointer-events-none" />
                   <input
                     type="text"
                     value={processSearchQuery}
@@ -650,9 +660,9 @@ function ConfigManager({
                               {p.icon ? (
                                 <img src={p.icon} alt="" className="w-5 h-5 object-contain" />
                               ) : (
-                                <span className={`material-symbols-outlined text-[18px] ${
+                                <Icon name="terminal" className={`text-[18px] ${
                                   newProcessName === p.name ? "text-primary" : "text-on-surface-variant/40"
-                                }`}>terminal</span>
+                                }`} />
                               )}
                             </div>
 
@@ -670,7 +680,7 @@ function ConfigManager({
 
                             {/* 选中标记 */}
                             {newProcessName === p.name && (
-                              <span className="material-symbols-outlined text-[18px] text-primary shrink-0">check_circle</span>
+                              <Icon name="check_circle" className="text-[18px] text-primary shrink-0" />
                             )}
                           </button>
                         ))

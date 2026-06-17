@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { Icon } from "./Icon";
 
 interface DisplayMonitor {
   name: string;
@@ -78,7 +79,7 @@ function ColorAdjuster({
 
       <div data-name="info-banner" className="mb-sm">
         <div className="py-sm px-md bg-primary/8 rounded-md flex gap-sm items-start border border-primary/15">
-          <span className="material-symbols-outlined text-primary text-[18px] mt-px">info</span>
+          <Icon name="info" className="text-primary text-[18px] mt-px" />
           <p className="text-[12px] leading-relaxed text-on-surface-variant">
             正在调整 {currentMonitorName || "显示器"} 的设置，调整会实时改变您的显示输出。
           </p>
@@ -167,11 +168,11 @@ function SliderControl({
     <div data-components="SliderControl" data-name={label}>
       <div className="flex justify-between items-center">
         <label className="font-label-md text-label-md text-on-surface flex items-center gap-xs">
-          <span className="material-symbols-outlined text-primary text-[18px]">{icon}</span>
+          <Icon name={icon} className="text-primary text-[18px]" />
           {label}
           {description && (
             <span className="relative group inline-flex items-center ml-xs">
-              <span className="material-symbols-outlined text-on-surface-variant/40 text-[14px] cursor-help hover:text-on-surface-variant/70 transition-colors">info</span>
+              <Icon name="info" className="text-on-surface-variant/40 text-[14px] cursor-help hover:text-on-surface-variant/70 transition-colors" />
               <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-md bg-surface-container-highest text-on-surface text-[11px] leading-snug whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg border border-outline-variant/20 z-10">
                 {description}
               </span>

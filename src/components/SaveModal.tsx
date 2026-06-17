@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "./Icon";
 
 const PRESET_ICONS = [
   { icon: "tune", label: "默认" },
@@ -79,7 +80,7 @@ function SaveModal({ open, onClose, onSave, loading }: SaveModalProps) {
                 }`}
                 title={item.label}
               >
-                <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+                <Icon name={item.icon} className="text-[20px]" />
               </button>
             ))}
           </div>

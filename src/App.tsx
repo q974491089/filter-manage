@@ -12,6 +12,7 @@ import UpdateModal from "./components/UpdateModal";
 import AboutModal from "./components/AboutModal";
 import SettingsModal from "./components/SettingsModal";
 import ClosePromptModal from "./components/ClosePromptModal";
+import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
 
 interface ColorConfig {
@@ -486,7 +487,7 @@ function App() {
             disabled={loading}
             className="flex items-center gap-xs px-md py-sm rounded text-on-surface-variant hover:bg-surface-variant/50 transition-all active:scale-95 duration-150 disabled:opacity-40"
           >
-            <span className="material-symbols-outlined text-[18px]">settings_backup_restore</span>
+            <Icon name="settings_backup_restore" className="text-[18px]" />
             <span className="font-label-md text-label-md">重置默认</span>
           </button>
 
@@ -496,7 +497,7 @@ function App() {
             disabled={loading || (!selectedConfig && !hasChanges)}
             className="flex items-center gap-xs px-lg py-sm rounded bg-primary text-on-primary font-bold shadow-lg shadow-primary/20 active:scale-95 duration-150 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <span className="material-symbols-outlined text-[18px]">save</span>
+            <Icon name="save" className="text-[18px]" />
             <span className="font-label-md text-label-md">保存方案</span>
           </button>
 
@@ -508,7 +509,7 @@ function App() {
             className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-primary/10 transition-colors"
             title="设置"
           >
-            <span className="material-symbols-outlined text-[20px]">settings</span>
+            <Icon name="settings" className="text-[20px]" />
           </button>
 
         </div>
