@@ -1,1 +1,0 @@
-../../.skills/shared/test-driven-development.md

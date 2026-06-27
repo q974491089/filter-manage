@@ -198,12 +198,11 @@ function slideNext() {
 
 /* 文案动画 - 与 Swiper 淡入淡出同步 */
 .content-fade-enter-active {
-  transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
-  transition-delay: 0.2s;
+  transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .content-fade-leave-active {
-  transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+  transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .content-fade-enter-from {

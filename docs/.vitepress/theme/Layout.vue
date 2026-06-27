@@ -3,6 +3,9 @@
     <template #home-hero-before>
       <SiteNotice />
     </template>
+    <template #home-hero-actions-after>
+      <HeroActions />
+    </template>
     <template #nav-bar-title-after>
       <SiteBadge />
     </template>

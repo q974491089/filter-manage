@@ -4,6 +4,7 @@ import ThemeCarousel from './components/ThemeCarousel.vue'
 import SiteNotice from './components/SiteNotice.vue'
 import SiteBadge from './components/SiteBadge.vue'
 import FeatureShowcase from './components/FeatureShowcase.vue'
+import HeroActions from './components/HeroActions.vue'
 import Layout from './Layout.vue'
 
 export default {
@@ -13,5 +14,6 @@ export default {
     app.component('SiteNotice', SiteNotice)
     app.component('SiteBadge', SiteBadge)
     app.component('FeatureShowcase', FeatureShowcase)
+    app.component('HeroActions', HeroActions)
   }
 }

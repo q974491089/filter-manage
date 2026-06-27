@@ -1,1 +1,0 @@
-../../.skills/shared/systematic-debugging.md

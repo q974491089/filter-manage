@@ -1,1 +1,0 @@
-../../.skills/shared/verification-before-completion.md

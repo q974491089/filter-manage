@@ -1,1 +1,0 @@
-../../.skills/shared/writing-plans.md

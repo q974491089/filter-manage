@@ -1,5 +1,9 @@
 # 简介
 
+<script setup>
+import ThemeCarousel from '../.vitepress/theme/components/ThemeCarousel.vue'
+</script>
+
 Filter Manage 是一个 Windows 桌面应用程序，用于管理 ICC 颜色配置文件和 NVIDIA 显卡颜色设置。
 
 ## 功能特性
@@ -25,6 +29,8 @@ Filter Manage 采用精致的设计语言，提供优质的视觉体验：
 - 柔和的对比度设计
 
 **切换方式**：点击界面右上角的太阳/月亮图标即可一键切换主题。
+
+<ThemeCarousel />
 
 ## 技术栈
 

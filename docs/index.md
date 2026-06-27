@@ -7,16 +7,6 @@ hero:
   image:
     src: favicon.png
     alt: Filter Manage - Windows ICC颜色配置文件管理与NVIDIA显卡颜色设置工具
-  actions:
-    - theme: brand
-      text: 立即下载
-      link: /guide/install
-    - theme: alt
-      text: 使用指南
-      link: /guide/
-    - theme: alt
-      text: GitHub
-      link: https://github.com/q974491089/filter-manage
 features:
   - title: 多站点加速
     details: "提供多个镜像站点，确保全球快速访问"
@@ -32,9 +22,14 @@ features:
     details: 最小化到托盘，右键快速切换方案，支持全局快捷键
   - title: 自动更新
     details: 启动时自动检查新版本，支持手动检查更新
-  - title: 日夜模式
+  - title: 夜间模式
     details: 支持亮色/暗色主题切换，保护您的眼睛
 ---
+
+<script setup>
+import ThemeCarousel from './.vitepress/theme/components/ThemeCarousel.vue'
+import FeatureShowcase from './.vitepress/theme/components/FeatureShowcase.vue'
+</script>
 
 ## 界面预览
 
