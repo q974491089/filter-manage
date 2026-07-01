@@ -27,26 +27,44 @@ import { ref, onMounted } from 'vue'
 const version = ref('')
 const downloadUrl = ref('#download')
 
-onMounted(() => {
-  fetch('https://filter-manage-api.xyls.us.kg/api/check-update?current=0.0.0')
-    .then(r => r.json())
-    .then(({ version: v, mirrors }) => {
-      if (v) {
-        version.value = v
-        const ghPath = `https://github.com/q974491089/filter-manage/releases/download/v${v}/Filter-Manage_${v}_x64-setup.exe`
-        const allMirrors = [
-          ...(mirrors?.map(m => m.url) || []),
-          `https://gh-proxy.com/${ghPath}`,
-          `https://ghproxy.net/${ghPath}`,
-          `https://ghfast.top/${ghPath}`,
-          `https://gh.ddlc.top/${ghPath}`,
-          `https://slink.ltd/${ghPath}`,
-          ghPath,
-        ]
-        downloadUrl.value = allMirrors[0]
+onMounted(async () => {
+  const hosts = [
+    'https://filter-manage-api.xyls.us.kg',
+    'https://filter-manage-api.6ya.kdns.fr',
+  ]
+  const controllers = hosts.map(() => new AbortController())
+
+  const raceResult = await Promise.any(
+    hosts.map(async (host, i) => {
+      const res = await fetch(
+        `${host}/api/check-update?current=0.0.0`,
+        { signal: controllers[i].signal },
+      )
+      const data = await res.json()
+      if (!data?.version) throw new Error('invalid response')
+      for (let j = 0; j < controllers.length; j++) {
+        if (j !== i) controllers[j].abort()
       }
-    })
-    .catch(() => {})
+      return data
+    }),
+  ).catch(() => null)
+
+  if (raceResult) {
+    const v = raceResult.version
+    const mirrors = raceResult.mirrors
+    version.value = v
+    const ghPath = `https://github.com/q974491089/filter-manage/releases/download/v${v}/Filter-Manage_${v}_x64-setup.exe`
+    const allMirrors = [
+      ...(mirrors?.map(m => m.url) || []),
+      `https://gh-proxy.com/${ghPath}`,
+      `https://ghproxy.net/${ghPath}`,
+      `https://ghfast.top/${ghPath}`,
+      `https://gh.ddlc.top/${ghPath}`,
+      `https://slink.ltd/${ghPath}`,
+      ghPath,
+    ]
+    downloadUrl.value = allMirrors[0]
+  }
 })
 
 function handleDownload() {
