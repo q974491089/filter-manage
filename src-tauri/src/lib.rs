@@ -4,6 +4,7 @@ mod nvidia;
 mod process_watcher;
 mod shortcut;
 mod tray;
+mod updater;
 
 use tauri::Manager;
 
@@ -20,6 +21,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .manage(updater::UpdaterState::default())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -107,6 +109,11 @@ pub fn run() {
             process_watcher::get_running_processes,
             process_watcher::set_process_watcher_enabled,
             process_watcher::get_watcher_status,
+            // Updater
+            updater::check_update,
+            updater::download_update,
+            updater::cancel_update_download,
+            updater::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

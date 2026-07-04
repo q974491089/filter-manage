@@ -8,11 +8,11 @@ GitHub Actions 构建完 Release 后，需要把 `.exe` 安装包上传到 9 个
 
 ## 服务器信息
 
-- **服务器**：腾讯云 Ubuntu 22.04，IP `118.25.20.249`
+- **服务器**：腾讯云 Ubuntu 22.04，具体地址见 `.env.local` 的 `FILTER_MANAGE_SSH_TARGET`
 - **AList**：Docker 容器 `1Panel-alist-0q8u`，监听 `127.0.0.1:5244`
-- **AList 账号**：`admin` / `alist123456`
-- **SSH**：`ssh -i ~/.ssh/Qq2282782.pem ubuntu@118.25.20.249`
-- **Cloudflare Tunnel**：`https://filter-manage-api.xyls.us.kg` 已指向 AList
+- **AList 账号**：见 `.env.local` 的 `ALIST_USERNAME` / `ALIST_PASSWORD`
+- **SSH**：`ssh -i "${FILTER_MANAGE_SSH_KEY}" "${FILTER_MANAGE_SSH_TARGET}"`
+- **Cloudflare Tunnel**：见 `.env.local` 或 GitHub Secrets 中配置的公网域名
 
 ## 需要完成的任务
 

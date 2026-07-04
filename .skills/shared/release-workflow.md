@@ -183,8 +183,63 @@ gh release view vX.X.X
 - [ ] Release body 显示了 CHANGELOG 内容
 - [ ] 文档站已更新（如有 docs 变更）
 - [ ] 云盘上传成功（查看 CI 日志中 "Upload to cloud drives via AList" 步骤）
+- [ ] 版本清单已推送到更新服务（查看 CI 日志中 "推送版本清单到更新服务" 步骤）
 
-### 9. 云盘同步（CI 自动执行）
+### 9. 推送版本清单到更新服务（CI 自动执行）
+
+CI 构建完成后会自动把版本清单推送到自建更新服务（见 `.github/workflows/release.yml` 的「推送版本清单到更新服务」步骤），让客户端 `check_update` 能拿到镜像列表。
+
+**为什么需要**：服务端是纯推送模式（`ReleaseStore` 启动读一次 `data/latest.json`，之后只有 `POST /api/internal/release` 能更新它）。没有这一步，服务端版本永远停在最后一次推送的版本，客户端查不到新版本。v0.3.3 是当初手动 POST 推过一次，之后没再发新版才没暴露问题。
+
+**CI 推送的内容**（`POST /api/internal/release`，带 `X-Release-Secret` 鉴权）：
+
+```json
+{
+  "version": "0.3.4",
+  "notes": "### 修复\n- ...",
+  "signature": "dW50cnVzdGVk...",
+  "assetName": "Filter-Manage_0.3.4_x64-setup.exe"
+}
+```
+
+**signature 来源**：从构建产物 `*.exe.sig` 文件读（tauri-action 用 `TAURI_SIGNING_PRIVATE_KEY` 生成），`base64` 编码后放入 manifest。客户端 `verify_minisign` 会 base64 解码后用 minisign-verify 校验安装包完整性。⚠️ v0.3.3 推送时 signature 为空，导致客户端无法校验签名——这次必须带上。
+
+**镜像 URL 不在推送范围内**：服务端 `UpdateController.check` 拿到 `version` + `assetName` 后，用配置的 `mirrors` 前缀 + `githubBase` 拼接出下载 URL。增删镜像只改服务端配置，无需发新客户端。
+
+**位置**：加在 `Build Tauri app`（tauri-action）step 之后 —— 依赖构建产物 `*.exe.sig`；与 `Trigger server upload` step 并列，二者独立。
+
+**`release.yml` 推送 step**（runs-on 是 windows-latest，必须 `shell: bash`）：
+
+```yaml
+  - name: 推送版本清单到更新服务
+    shell: bash
+    env:
+      UPDATE_API_URL: ${{ secrets.UPDATE_API_URL }}
+      UPDATE_RELEASE_SECRET: ${{ secrets.UPDATE_RELEASE_SECRET }}
+      NOTES: ${{ steps.changelog.outputs.body }}   # 复用第 6 步从 CHANGELOG 提取的内容
+    run: |
+      VERSION="${GITHUB_REF_NAME#v}"
+      # signature: 从构建产物 .sig 文件读（base64 文本）—— v0.3.3 漏带，这次必须补
+      SIG_FILE=$(find src-tauri/target -name "*.exe.sig" | head -1)
+      if [ -z "$SIG_FILE" ]; then echo "::error::.sig not found, cannot push manifest"; exit 1; fi
+      SIG=$(jq -Rs @base64 < "$SIG_FILE" | tr -d '\n')
+      # assetName: setup.exe 文件名
+      ASSET=$(basename "$(find src-tauri/target -name "*-setup.exe" | head -1)")
+      jq -n --arg v "$VERSION" --arg n "$NOTES" --arg s "$SIG" --arg a "$ASSET" \
+        '{version:$v,notes:$n,signature:$s,assetName:$a}' \
+      | curl -sf -X POST "$UPDATE_API_URL" \
+          -H "Content-Type: application/json" \
+          -H "X-Release-Secret: $UPDATE_RELEASE_SECRET" \
+          --data @-
+```
+
+**依赖的 GitHub Secrets**：
+- `UPDATE_API_URL` — 服务端 `/api/internal/release` 公网地址（`https://filter-manage-api.xyls.us.kg/api/internal/release`）
+- `UPDATE_RELEASE_SECRET` — 与服务端 systemd 环境变量一致，用于鉴权
+
+**注意**：推送失败应让 CI 报错（`curl -sf` 失败会非零退出），因为服务端拿不到新清单会导致客户端永远查不到更新——这比云盘上传失败更严重。
+
+### 10. 云盘同步（CI 自动执行）
 
 CI 在构建完成后会自动执行以下步骤（见 `.github/workflows/release.yml` 的 `Upload to cloud drives via AList` 步骤）：
 
@@ -224,7 +279,7 @@ CI 在构建完成后会自动执行以下步骤（见 `.github/workflows/releas
 
 **注意**：云盘上传失败不会阻断 CI（只产生 warning），需检查 CI 日志确认。
 
-### 10. 更新文档站下载页（手动触发）
+### 11. 更新文档站下载页（手动触发）
 
 当用户提供了云盘分享链接后，更新 `docs/guide/install.md` 中的下载渠道表格，添加各云盘的分享链接。
 

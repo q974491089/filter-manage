@@ -77,3 +77,24 @@ jobs:
           else
             echo "::warning::Server webhook failed: HTTP ${HTTP_CODE} - ${BODY}"
           fi
+
+      - name: 推送版本清单到更新服务
+        shell: bash
+        env:
+          UPDATE_API_URL: ${{ secrets.UPDATE_API_URL }}
+          UPDATE_RELEASE_SECRET: ${{ secrets.UPDATE_RELEASE_SECRET }}
+          NOTES: ${{ steps.changelog.outputs.body }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # signature: 从构建产物 .sig 文件读（base64 文本）—— v0.3.3 漏带，这次必须补
+          SIG_FILE=$(find src-tauri/target -name "*.exe.sig" | head -1)
+          if [ -z "$SIG_FILE" ]; then echo "::error::.sig not found, cannot push manifest"; exit 1; fi
+          SIG=$(jq -Rs @base64 < "$SIG_FILE" | tr -d '\n')
+          # assetName: setup.exe 文件名
+          ASSET=$(basename "$(find src-tauri/target -name "*-setup.exe" | head -1)")
+          jq -n --arg v "$VERSION" --arg n "$NOTES" --arg s "$SIG" --arg a "$ASSET" \
+            '{version:$v,notes:$n,signature:$s,assetName:$a}' \
+          | curl -sf -X POST "$UPDATE_API_URL" \
+              -H "Content-Type: application/json" \
+              -H "X-Release-Secret: $UPDATE_RELEASE_SECRET" \
+              --data @-

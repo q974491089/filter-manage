@@ -222,6 +222,7 @@ const handleAction = async () => {
 4. **测试场景具体** - 说明如何验证功能
 5. **及时删除** - 功能完成后，归档或删除交接文档（避免累积）
 6. **双向确认** - 实现方完成后，在文档底部加 `[已完成] YYYY-MM-DD`
+7. **不写真实敏感信息** - 服务器地址、SSH key 路径、账号、密码、token、cookie、secret 一律写成占位符；真实值放 `.env.local`（本地）或 GitHub Secrets（CI）
 
 ---
 

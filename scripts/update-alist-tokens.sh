@@ -3,9 +3,16 @@
 # Usage: ./scripts/update-alist-tokens.sh
 set -euo pipefail
 
-ALIST_URL="https://filter-manage-api.xyls.us.kg"
-ALIST_USER="admin"
-ALIST_PASS="alist123456"
+if [ -f .env.local ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env.local
+  set +a
+fi
+
+: "${ALIST_URL:?missing ALIST_URL. Set it in .env.local or the shell environment.}"
+: "${ALIST_USERNAME:?missing ALIST_USERNAME. Set it in .env.local or the shell environment.}"
+: "${ALIST_PASSWORD:?missing ALIST_PASSWORD. Set it in .env.local or the shell environment.}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -16,7 +23,7 @@ login() {
   local resp
   resp=$(curl -s -X POST "${ALIST_URL}/api/auth/login" \
     -H "Content-Type: application/json" \
-    -d "{\"username\":\"${ALIST_USER}\",\"password\":\"${ALIST_PASS}\"}")
+    -d "{\"username\":\"${ALIST_USERNAME}\",\"password\":\"${ALIST_PASSWORD}\"}")
 
   TOKEN=$(echo "$resp" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
   if [ -z "$TOKEN" ]; then

@@ -65,7 +65,7 @@ function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showClosePrompt, setShowClosePrompt] = useState(false);
   const [closePromptInitialTray, setClosePromptInitialTray] = useState<boolean | null>(null);
-  const { checkForUpdate } = useUpdater();
+  const updater = useUpdater();
   const [baseline, setBaseline] = useState({ brightness: 0, contrast: 0, gamma: 1.0, digitalVibrance: 50, iccProfile: "Default" });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -431,7 +431,7 @@ function App() {
 
   return (
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
-      <UpdateModal />
+      <UpdateModal updater={updater} />
       {/* Header - Filter Manage style */}
       <header data-name="header" className="bg-surface-container-low border-b border-outline-variant/20 flex items-center px-lg h-16 w-full z-50 fixed top-0">
         {/* Logo & Title */}
@@ -578,7 +578,11 @@ function App() {
       <AboutModal
         open={showAboutModal}
         onClose={() => setShowAboutModal(false)}
-        onCheckUpdate={checkForUpdate}
+        onCheckUpdate={async () => {
+          const result = await updater.checkForUpdate();
+          if (result === "available") setShowAboutModal(false);
+          return result;
+        }}
       />
 
       <SettingsModal

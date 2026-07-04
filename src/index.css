@@ -177,6 +177,13 @@ body {
     background: rgb(var(--color-surface-container));
   }
 
+  .glass-panel {
+    background-color: rgba(30, 32, 36, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(66, 71, 84, 0.3);
+  }
+
   .btn-primary {
     @apply px-6 py-2 rounded-md font-medium transition-all;
     background: rgb(var(--color-primary));

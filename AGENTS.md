@@ -9,11 +9,12 @@
 | CLI | 模型 | 当前角色 | 职责文档 | Skills |
 |-----|------|---------|---------|--------|
 | **Claude Code** (`claude`) | Claude Opus 4.8 | **Universal** (全栈) | `.agent/universal.md` | `shared/` + `frontend/` + `backend/` |
+| **Codex** (`codex`) | GPT-5 | **Universal** (全栈) | `.agent/universal.md` | `shared/` + `frontend/` + `backend/` |
 | **OpenCode** | Xiaomi | **Frontend** | `.agent/frontend.md` | `shared/` + `frontend/` |
-| **QoderCLI** (`qoder`) | Qwen | **Backend** | `.agent/backend.md` | `shared/` + `backend/` |
+| **QoderCLI** (`qoder`) | Qwen | **Universal**（临时切换） | `.agent/universal.md` | `shared/` + `frontend/` + `backend/` |
 | **Kiro CLI** (`kiro`) | - | （暂未使用） | - | - |
 
-**注**：Codex（未来可能负责服务端）
+**注**：Codex 与 Claude Code 共享 **Universal** 角色，拥有前端、后端和协作规则允许范围内的完整项目权限。
 
 ---
 
@@ -68,6 +69,8 @@
 | `.docs/` | **Agent 内部文档** — API 文档、迭代记录、交接文档、架构说明等面向 Agent 的技术内容 | AI Agent | 是 |
 | `.skills/` | Skill 源文件池（shared/frontend/backend 分类） | AI Agent | 是 |
 | `.skills/_build/` | QoderCLI SKILL.md 中间生成目录，sync-skills.sh 自动生成 | 临时 | **否**（gitignore） |
+| `.env.local` | 本地敏感配置（服务器、账号、密码、token 等） | 本地开发/Agent | **否**（gitignore） |
+| `.env.example` | 本地敏感配置模板（只写占位符） | 全体 | 是 |
 | `.writing/` | CLI 写作缓冲临时文件 | 临时 | **否**（gitignore） |
 | `.codegraph/` | CodeGraph 运行时数据 | 临时 | **否**（gitignore） |
 
@@ -89,6 +92,30 @@
 | **文档同步** | `.rules/docs.md` | API 文档、迭代记录、同步信号 |
 | **交接格式** | `.rules/handoff.md` | Agent 间交接文档模板 |
 | **Git 规范** | `.rules/git.md` | Commit message 格式、分支策略 |
+
+---
+
+## 敏感信息与配置
+
+**所有 Agent 必须遵守**：
+
+1. **禁止提交真实敏感信息**
+   - 不要在 `AGENTS.md`、`.docs/`、`.rules/`、`docs/`、脚本或 workflow 中写真实密码、token、cookie、私钥路径、服务器登录命令。
+   - 交接文档需要说明部署方式时，只写占位符，例如 `<SERVER_HOST>`、`<SSH_KEY_PATH>`、`<ALIST_USERNAME>`、`<ALIST_PASSWORD>`。
+
+2. **本地敏感配置统一放 `.env.local`**
+   - `.env.local` 已被 `.gitignore` 忽略，不提交 GitHub。
+   - 仓库只提交 `.env.example`，用于列出需要哪些变量。
+   - Agent 需要读取本地发布/上传配置时，优先读取环境变量；本地调试可 `source .env.local`。
+
+3. **GitHub Actions 只使用 GitHub Secrets**
+   - CI/CD 中需要的密钥统一放到 GitHub 仓库或环境的 Secrets。
+   - workflow 中只允许使用 `${{ secrets.SECRET_NAME }}`，不要写明文值。
+   - 当前发布/上传相关变量包括：`ALIST_URL`、`ALIST_USERNAME`、`ALIST_PASSWORD`、`UPLOAD_WEBHOOK_URL`、`UPLOAD_SECRET`、`UPDATE_API_URL`、`UPDATE_RELEASE_SECRET`、`TAURI_SIGNING_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
+
+4. **发现历史明文立即收敛**
+   - 如果文档或脚本里出现真实凭据，先改为环境变量或占位符。
+   - 如凭据已经提交过 GitHub，需要提醒用户轮换对应密码/token/key。
 
 ---
 
@@ -245,25 +272,53 @@ gh workflow run upload-drives.yml -f version=0.3.2
 
 当 GitHub Actions 云盘上传失败时，通过 SSH 到服务器本地上传（AList 走 localhost，速度快且稳定）。
 
-```bash
-# SSH 登录服务器
-ssh -i ~/.ssh/Qq2282782.pem ubuntu@118.25.20.249
+> 真实服务器、SSH key、AList 账号密码必须放在本地 `.env.local` 或服务器本机的环境变量中，不要写进本文档或交接文档。
 
-# 一键上传（替换版本号）
+本地 `.env.local` 参考 `.env.example`，至少包含：
+
+```bash
+FILTER_MANAGE_SSH_KEY=<SSH_KEY_PATH>
+FILTER_MANAGE_SSH_TARGET=<SSH_USER>@<SERVER_HOST>
+ALIST_LOCAL_URL=http://127.0.0.1:5244
+ALIST_USERNAME=<ALIST_USERNAME>
+ALIST_PASSWORD=<ALIST_PASSWORD>
+```
+
+登录服务器：
+
+```bash
+set -a
+source .env.local
+set +a
+
+ssh -i "${FILTER_MANAGE_SSH_KEY}" "${FILTER_MANAGE_SSH_TARGET}"
+```
+
+服务器本地上传示例（在服务器上执行，变量从服务器本机环境或 `.env.local` 读取）：
+
+```bash
 VERSION=0.3.2
+set -a
+[ -f .env.local ] && source .env.local
+set +a
+
+: "${ALIST_LOCAL_URL:?missing ALIST_LOCAL_URL}"
+: "${ALIST_USERNAME:?missing ALIST_USERNAME}"
+: "${ALIST_PASSWORD:?missing ALIST_PASSWORD}"
+
 cd /tmp && \
 curl -sL "https://github.com/q974491089/filter-manage/releases/download/v${VERSION}/Filter-Manage_${VERSION}_x64-setup.exe" -o setup.exe && \
-TOKEN=$(curl -s -X POST http://127.0.0.1:5244/api/auth/login -H "Content-Type: application/json" -d '{"username":"admin","password":"alist123456"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4) && \
+TOKEN=$(curl -s -X POST "${ALIST_LOCAL_URL}/api/auth/login" -H "Content-Type: application/json" -d "{\"username\":\"${ALIST_USERNAME}\",\"password\":\"${ALIST_PASSWORD}\"}" | grep -o '"token":"[^"]*"' | cut -d'"' -f4) && \
 for S in quark aliyundrive 115 baidu lanzou uc yandex doubao; do \
   EP=$(python3 -c "import urllib.parse; print(urllib.parse.quote('/${S}/filter-manage/Filter-Manage_${VERSION}_x64-setup.exe'))") && \
   echo -n "上传 $S ..." && \
-  R=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT http://127.0.0.1:5244/api/fs/put -H "Authorization: $TOKEN" -H "File-Path: $EP" -H "Content-Type: application/octet-stream" --data-binary @/tmp/setup.exe) && \
+  R=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT "${ALIST_LOCAL_URL}/api/fs/put" -H "Authorization: $TOKEN" -H "File-Path: $EP" -H "Content-Type: application/octet-stream" --data-binary @/tmp/setup.exe) && \
   HC=$(echo "$R" | tail -1) && echo " HTTP $HC" ; \
 done && \
 zip -j /tmp/setup.zip /tmp/setup.exe && \
 EP=$(python3 -c "import urllib.parse; print(urllib.parse.quote('/wukong/filter-manage/Filter-Manage_${VERSION}_x64-setup.zip'))") && \
 echo -n "上传 wukong (zip)..." && \
-R=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT http://127.0.0.1:5244/api/fs/put -H "Authorization: $TOKEN" -H "File-Path: $EP" -H "Content-Type: application/octet-stream" --data-binary @/tmp/setup.zip) && \
+R=$(curl -s -w "\n%{http_code}" --max-time 300 -X PUT "${ALIST_LOCAL_URL}/api/fs/put" -H "Authorization: $TOKEN" -H "File-Path: $EP" -H "Content-Type: application/octet-stream" --data-binary @/tmp/setup.zip) && \
 HC=$(echo "$R" | tail -1) && echo " HTTP $HC" && \
 rm -f /tmp/setup.exe /tmp/setup.zip && echo "完成！"
 ```

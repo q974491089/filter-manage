@@ -53,6 +53,15 @@ docs/.vitepress/dist/
 .codegraph/
 .skills/_build/
 
+# AI CLI skills (auto-generated symlinks, per-machine)
+.claude/skills/
+.kiro/skills/
+.opencode/skills/
+.claude/settings.local.json
+.qoder/settings.local.json
+.kiro/settings.local.json
+.opencode/settings.local.json
+
 # Local scripts (may contain credentials)
 scripts/upload-cloud.sh
 scripts/upload-server.py

@@ -12,6 +12,22 @@
 
 ## 迭代记录
 
+### v0.3.4 — 2026-07-04 · 自定义更新流程 + 双域名竞速
+
+自建更新流程（多镜像 + 测速换源 + 可取消 + minisign 校验），替代 Tauri 内置 updater 直连 GitHub；发版时 CI 自动推送版本清单到自建服务端，客户端 check_update 双域名竞速规避单点 DNS 故障。
+
+| 类型 | 端 | 说明 | 涉及文件 | 文档 |
+|------|----|------|---------|------|
+| 新功能 | 后端 | 自定义更新流程：check_update / download_update / cancel_update_download / install_update 4 命令 + UpdaterState 共享状态 + minisign 签名校验 + NSIS Passive 模式安装；绕过 tauri-plugin-updater 的 downloadAndInstall，支持运行时切换镜像 | `src-tauri/src/updater.rs`、`src-tauri/src/lib.rs`、`src-tauri/Cargo.toml`（+reqwest/minisign-verify/futures-util） | [updater.md](./api/updater.md) |
+| 新功能 | 前端 | useUpdater 重写：invoke + listen 替换 plugin-updater，新增测速（>120s 或 <100KB/s 触发换源）/换源/取消逻辑；UpdateModal 重写：速度展示 + 取消按钮 + 镜像列表换源 UI | `src/hooks/useUpdater.ts`、`src/components/UpdateModal.tsx`、`src/App.tsx` | [custom-updater-frontend.md](./handoff/custom-updater-frontend.md) |
+| 新功能 | CI | release.yml 新增「推送版本清单到更新服务」step：从 .sig 文件取签名（jq @base64），构造 ReleaseManifest POST 到服务端 /api/internal/release，让服务端能下发镜像列表 | `.github/workflows/release.yml`、`.skills/shared/release-workflow.md` | [custom-update-flow.md](./plans/custom-update-flow.md) |
+| 修复 | 后端 | check_update 双域名竞速；**根因**：单域名 DNS 故障导致检查更新失败，改为 UPDATE_API_HOSTS 双 host tokio::select! 先到先得，落败方 abort | `src-tauri/src/updater.rs` | [updater.md](./api/updater.md) |
+| 修复 | CI | 推送 manifest 补 signature；**根因**：v0.3.3 推送时 signature 为空，客户端 verify_minisign 无法校验安装包完整性；改用 jq @base64 从 .sig 文件取签名，跨平台零风险 | `.github/workflows/release.yml` | [custom-update-flow.md](./plans/custom-update-flow.md) |
+| 改进 | 前端 | 首页下载按钮样式与功能预览动画优化 | `src/App.tsx`、`src/index.css` | — |
+| 改进 | 文档 | 新增 updater API 文档 + 服务端/前端交接文档 + 实现计划；AGENTS.md 角色切换 + .rules/handoff.md 交接格式 + .env.example | `.docs/api/updater.md`、`.docs/handoff/custom-update-*.md`、`.docs/plans/custom-update-flow.md`、`AGENTS.md`、`.rules/handoff.md`、`.env.example` | — |
+
+---
+
 ### v0.3.3 — 2026-06-17 · 图标系统迁移
 
 图标系统从字体图标（Material Symbols）迁移到 React 组件图标（react-icons），解决字体加载依赖问题，提升开发体验和打包体积。

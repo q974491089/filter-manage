@@ -1,11 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(TOKEN=$\\(curl -s -X POST \"https://filter-manage-api.xyls.us.kg/api/auth/login\" -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"alist123456\"}'\\) && TOKEN_VALUE=$\\(echo \"$TOKEN\" | grep -o '\"token\":\"[^\"]*\"' | cut -d'\"' -f4\\) && echo \"Token: ${TOKEN_VALUE:0:20}...\" && curl -s -X POST \"https://filter-manage-api.xyls.us.kg/api/fs/list\" -H \"Authorization: $TOKEN_VALUE\" -H \"Content-Type: application/json\" -d '{\"path\":\"/\",\"refresh\":true}' | python3 -m json.tool 2>/dev/null | head -60)",
-      "Bash(TOKEN=$\\(curl -s -X POST \"https://filter-manage-api.xyls.us.kg/api/auth/login\" -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"alist123456\"}'\\) && TOKEN_VALUE=$\\(echo \"$TOKEN\" | grep -o '\"token\":\"[^\"]*\"' | cut -d'\"' -f4\\) && curl -s -X POST \"https://filter-manage-api.xyls.us.kg/api/fs/mkdir\" -H \"Authorization: $TOKEN_VALUE\" -H \"Content-Type: application/json\" -d '{\"path\":\"/lanzou/filter-manage\"}' | python3 -m json.tool)",
       "mcp__tavily__tavily_search",
       "mcp__tavily__*",
-      "Bash(TOKEN=$\\(curl -s -X POST \"https://filter-manage-api.xyls.us.kg/api/auth/login\" -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"alist123456\"}'\\) && TOKEN_VALUE=$\\(echo \"$TOKEN\" | grep -o '\"token\":\"[^\"]*\"' | cut -d'\"' -f4\\) && echo \"=== 所有存储 ===\" && curl -s -X POST \"https://filter-manage-api.xyls.us.kg/api/fs/list\" -H \"Authorization: $TOKEN_VALUE\" -H \"Content-Type: application/json\" -d '{\"path\":\"/\",\"refresh\":true}' | python3 -c \"import sys,json; data=json.load\\(sys.stdin\\)['data']['content'] or []; [print\\(f'  /{d[\\\\\"name\\\\\"]}'\\) for d in data]\")",
       "mcp__codegraph__codegraph_context",
       "mcp__codegraph__*",
       "Bash(ls -la /mnt/c/Users/myuser/Projects/filter-manage/src-tauri/src/ && echo \"---\" && ls -la /mnt/c/Users/myuser/Projects/filter-manage/src/components/)",
