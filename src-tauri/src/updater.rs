@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, State};
 
 const PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENEMUQ0NDVBMTMwMDhFQ0EKUldUS2pnQVRXa1Fkeld0YVdwb1N0clJybkp0OFR2cDhUdUhUSXNvZUZjOEpTdzBrSDFYQXBLcjYK";
 
-const UPDATE_API_HOSTS: &[&str] = &[
+pub(crate) const UPDATE_API_HOSTS: &[&str] = &[
     "https://filter-manage-api.xyls.us.kg",
     "https://filter-manage-api.6ya.kdns.fr",
 ];

@@ -12,8 +12,11 @@ import UpdateModal from "./components/UpdateModal";
 import AboutModal from "./components/AboutModal";
 import SettingsModal from "./components/SettingsModal";
 import ClosePromptModal from "./components/ClosePromptModal";
+import AnnouncementBell from "./components/AnnouncementBell";
+import AnnouncementModal from "./components/AnnouncementModal";
 import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
+import { useAnnouncements } from "./hooks/useAnnouncements";
 
 interface ColorConfig {
   name: string;
@@ -66,6 +69,7 @@ function App() {
   const [showClosePrompt, setShowClosePrompt] = useState(false);
   const [closePromptInitialTray, setClosePromptInitialTray] = useState<boolean | null>(null);
   const updater = useUpdater();
+  const ann = useAnnouncements();
   const [baseline, setBaseline] = useState({ brightness: 0, contrast: 0, gamma: 1.0, digitalVibrance: 50, iccProfile: "Default" });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -432,6 +436,7 @@ function App() {
   return (
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
       <UpdateModal updater={updater} />
+      <AnnouncementModal items={ann.modalItems} onDismiss={ann.dismissModal} />
       {/* Header - Filter Manage style */}
       <header data-name="header" className="bg-surface-container-low border-b border-outline-variant/20 flex items-center px-lg h-16 w-full z-50 fixed top-0">
         {/* Logo & Title */}
@@ -502,6 +507,16 @@ function App() {
           </button>
 
           <div className="w-[1px] h-6 bg-outline-variant/30 mx-sm"></div>
+
+          <AnnouncementBell
+            items={ann.items}
+            unreadCount={ann.unreadCount}
+            isRead={ann.isRead}
+            open={ann.panelOpen}
+            setOpen={ann.setPanelOpen}
+            markRead={ann.markRead}
+            markAllRead={ann.markAllRead}
+          />
 
           <button
             data-name="settings-button"

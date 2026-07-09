@@ -5,12 +5,19 @@ mod process_watcher;
 mod shortcut;
 mod tray;
 mod updater;
+mod announcements;
 
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -114,6 +121,8 @@ pub fn run() {
             updater::download_update,
             updater::cancel_update_download,
             updater::install_update,
+            // Announcements
+            announcements::get_announcements,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
