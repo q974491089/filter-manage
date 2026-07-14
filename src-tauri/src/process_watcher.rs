@@ -326,6 +326,47 @@ fn list_running_processes() -> Vec<RunningProcess> {
     Vec::new()
 }
 
+// ─── 轻量进程名枚举（对账用，不提取图标）──────────────────────────────────────
+
+#[cfg(windows)]
+fn running_process_names() -> Vec<String> {
+    let mut names = Vec::new();
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    let Ok(snapshot) = snapshot else {
+        return names;
+    };
+
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+
+    unsafe {
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                let len = entry
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(entry.szExeFile.len());
+                names.push(String::from_utf16_lossy(&entry.szExeFile[..len]));
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+    }
+
+    names
+}
+
+#[cfg(not(windows))]
+fn running_process_names() -> Vec<String> {
+    Vec::new()
+}
+
 // ─── Toast 通知 ──────────────────────────────────────────────────────────────
 
 #[cfg(windows)]
@@ -689,6 +730,53 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
     }
 }
 
+// ─── 订阅后对账 ──────────────────────────────────────────────────────────────
+
+/// WMI 的 `__InstanceOperationEvent` 只上报订阅之后发生的启动/退出事件，
+/// 订阅前就已在运行的进程不会补发「启动」事件。这会导致：用户先开游戏、
+/// 后开本应用（或游戏在应用启动前已运行）时，`active_rule` 一直是 None，
+/// 游戏退出时的 Deletion 事件被 `handle_event` 的 `if let Some(active)` 挡掉，
+/// 从而不会恢复方案。
+///
+/// 因此在（重新）订阅成功后，主动扫描一次当前进程，对第一个正在运行的受监听
+/// 进程合成一次 `Started` 事件，复用 `handle_event` 完成登记 + 应用配色。
+fn reconcile_running_processes(app: &AppHandle) {
+    // active_rule 已存在则无需对账（避免覆盖 / 重复应用）
+    // 显式作用域：确保锁守卫在调用 handle_event（内部会再次锁 state）前释放，
+    // 否则同线程重入 std Mutex 会死锁。
+    {
+        if state().lock().unwrap().active_rule.is_some() {
+            return;
+        }
+    }
+
+    let settings = match config::get_app_settings() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    if !settings.process_watcher_enabled {
+        return;
+    }
+
+    let running = running_process_names();
+
+    // 只对第一个命中的进程补发（handle_event 里 active_rule 一旦设上，
+    // 后续 Started 会提前 return，这里也保持单次语义）
+    if let Some(name) = settings
+        .process_rules
+        .iter()
+        .filter(|r| r.enabled)
+        .find_map(|r| {
+            running
+                .iter()
+                .find(|p| p.eq_ignore_ascii_case(&r.process_name))
+                .cloned()
+        })
+    {
+        handle_event(ProcessEvent::Started(name), app);
+    }
+}
+
 // ─── 主 watcher 线程 ─────────────────────────────────────────────────────────
 
 pub fn init_watcher(app: &AppHandle) {
@@ -721,6 +809,9 @@ pub fn init_watcher(app: &AppHandle) {
                     monitor_handle = spawn_wmi_monitor(etx, wql, srx);
                     event_rx = Some(erx);
                     stop_tx = Some(stx);
+
+                    // 对账：补处理订阅前已在运行的进程（WMI 不补发历史启动事件）
+                    reconcile_running_processes(&app_handle);
                 }
             }
 
@@ -745,6 +836,9 @@ pub fn init_watcher(app: &AppHandle) {
                                 monitor_handle = spawn_wmi_monitor(etx, wql, srx);
                                 event_rx = Some(erx);
                                 stop_tx = Some(stx);
+
+                                // 对账：补处理订阅前已在运行的进程
+                                reconcile_running_processes(&app_handle);
                             }
                         } else {
                             state().lock().unwrap().subscribed_processes.clear();

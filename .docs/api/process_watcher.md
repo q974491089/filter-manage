@@ -141,6 +141,7 @@ const status = await invoke<WatcherStatus>('get_watcher_status')
 6. 进程退出 + `restore_on_exit: true` → 恢复上一方案或默认方案
 7. 规则变化时自动取消旧订阅 + 创建新订阅（动态重订阅）
 8. 无启用规则时不创建 WMI 订阅，零开销
+9. **订阅后对账（reconcile）**：WMI 的 `__InstanceOperationEvent` 只上报订阅之后的启动/退出事件，不补发订阅前已在运行进程的「启动」事件。因此在每次（初始 / 重新）订阅成功后，会扫描一次当前进程名，对第一个正在运行的受监听进程合成一次 `Started` 事件（复用 `handle_event`），从而登记 `active_rule` 并应用配色。这修复了「先开游戏后开应用（或手动应用方案）时，游戏退出不触发恢复」的问题。仅在 `active_rule` 为空时执行，避免覆盖或重复应用。
 
 **WQL 查询示例**（按规则定向订阅）：
 ```sql
@@ -152,3 +153,4 @@ AND (TargetInstance.Name = 'delta_force.exe' OR TargetInstance.Name = 'cs2.exe')
 **新增于**：2026-06-09
 **更新于**：2026-06-10 — 重构为 WMI 事件驱动 + 管理员权限 + 按规则定向订阅
 **更新于**：2026-06-10 — `list_running_processes` 改用 Unicode API（`Process32FirstW` / `PROCESSENTRY32W`）修复中文进程名乱码
+**更新于**：2026-07-11 — 新增订阅后对账（reconcile）：修复「先开游戏后开应用 / 手动应用方案时，游戏退出不恢复」问题
