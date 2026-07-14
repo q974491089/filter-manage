@@ -12,6 +12,22 @@
 
 ## 迭代记录
 
+### v0.3.5 — 2026-07-14 · 应用内公告 + 进程监听对账 + 单实例
+
+顶栏公告（铃铛/重要弹窗/详情），随 check_update 双域名拉取；进程监听订阅后对账，退出恢复默认方案；单实例聚焦已有窗口。
+
+| 类型 | 端 | 说明 | 涉及文件 | 文档 |
+|------|----|------|---------|------|
+| 新功能 | 后端 | `get_announcements`：复用 `UPDATE_API_HOSTS` 双域名竞速；`GET /api/announcements?type=client`；失败返空列表静默；`id` 兼容 number/string；字段 `pinned`/`sortOrder` 等 | `src-tauri/src/announcements.rs`、`src-tauri/src/lib.rs` | [announcements.md](./api/announcements.md) |
+| 新功能 | 前端 | 铃铛未读红点 + 列表预览 + 详情弹窗 + 重要公告启动弹窗；置顶/排序/有效期/已读（localStorage）客户端处理 | `src/components/AnnouncementBell.tsx`、`AnnouncementDetailModal.tsx`、`AnnouncementModal.tsx`、`src/hooks/useAnnouncements.ts`、`src/lib/announcements.ts`、`src/App.tsx` | [announcements.md](./api/announcements.md)、[plans/2026-07-10-announcements.md](./plans/2026-07-10-announcements.md) |
+| 新功能 | 后端 | 启用 `tauri-plugin-single-instance`：重复启动聚焦已有窗口 | `src-tauri/Cargo.toml`、`src-tauri/src/lib.rs` | — |
+| 修复 | 后端 | 订阅后对账（reconcile）：**根因** WMI 不补发订阅前已运行进程的 Started，`active_rule` 为空导致退出不恢复；订阅成功后扫描进程合成 Started | `src-tauri/src/process_watcher.rs` | [process_watcher.md](./api/process_watcher.md) |
+| 修复 | 后端+前端 | `restore_on_exit` 语义明确为恢复默认方案：**根因** `previous_config_name` 从未写入，死分支误导；改为只走 `apply_default_config`，同步 UI/文档 | `process_watcher.rs`、`SettingsModal.tsx`、API/handoff 文档 | [process_watcher.md](./api/process_watcher.md) |
+| 改进 | 前端 | 更新弹窗加宽，便于展示较长更新说明 | `src/components/UpdateModal.tsx` | — |
+| 改进 | 文档 | 公告 PRD/计划/API；process_watcher reconcile 与默认恢复说明 | `.docs/prd/`、`.docs/plans/`、`.docs/api/` | — |
+
+---
+
 ### v0.3.4 — 2026-07-04 · 自定义更新流程 + 双域名竞速
 
 自建更新流程（多镜像 + 测速换源 + 可取消 + minisign 校验），替代 Tauri 内置 updater 直连 GitHub；发版时 CI 自动推送版本清单到自建服务端，客户端 check_update 双域名竞速规避单点 DNS 故障。
