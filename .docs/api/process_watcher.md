@@ -4,7 +4,7 @@
 
 ## 概述
 
-进程监听模块通过 WMI（Windows Management Instrumentation）事件订阅，实时监听规则中指定进程的启动和退出，自动切换配色方案。进程退出后可选恢复上一方案。应用以管理员权限运行。
+进程监听模块通过 WMI（Windows Management Instrumentation）事件订阅，实时监听规则中指定进程的启动和退出，自动切换配色方案。进程退出后可选恢复**默认方案**（用户保存的默认配置；无则系统 sRGB + DVC 50%）。应用以管理员权限运行。
 
 ## 数据类型
 
@@ -14,7 +14,7 @@ interface ProcessRule {
   process_name: string          // 进程名（不区分大小写），如 "delta_force.exe"
   config_name: string           // 绑定的预设名
   enabled: boolean              // 是否启用
-  restore_on_exit: boolean      // 进程退出时是否恢复上一方案（默认 true）
+  restore_on_exit: boolean      // 进程退出时是否恢复默认方案（默认 true）
 }
 
 interface RunningProcess {
@@ -138,10 +138,10 @@ const status = await invoke<WatcherStatus>('get_watcher_status')
 3. 读取启用规则，生成 WQL 查询，通过 `windows` crate 原生 WMI API（`IWbemLocator` → `IWbemServices` → `ExecNotificationQueryAsync` + `IWbemObjectSink` 回调）创建事件订阅
 4. WMI 监听线程接收 `__InstanceOperationEvent`，区分 creation/deletion 事件，转发到主 watcher 线程
 5. 匹配规则（first-match-wins）→ `tray::apply_color_config` + emit `config-applied` + Toast
-6. 进程退出 + `restore_on_exit: true` → 恢复上一方案或默认方案
+6. 进程退出 + `restore_on_exit: true` → `tray::apply_default_config()` 恢复默认方案
 7. 规则变化时自动取消旧订阅 + 创建新订阅（动态重订阅）
 8. 无启用规则时不创建 WMI 订阅，零开销
-9. **订阅后对账（reconcile）**：WMI 的 `__InstanceOperationEvent` 只上报订阅之后的启动/退出事件，不补发订阅前已在运行进程的「启动」事件。因此在每次（初始 / 重新）订阅成功后，会扫描一次当前进程名，对第一个正在运行的受监听进程合成一次 `Started` 事件（复用 `handle_event`），从而登记 `active_rule` 并应用配色。这修复了「先开游戏后开应用（或手动应用方案）时，游戏退出不触发恢复」的问题。仅在 `active_rule` 为空时执行，避免覆盖或重复应用。
+9. **订阅后对账（reconcile）**：WMI 的 `__InstanceOperationEvent` 只上报订阅之后的启动/退出事件，不补发订阅前已在运行进程的「启动」事件。因此在每次（初始 / 重新）订阅成功后，会扫描一次当前进程名，对第一个正在运行的受监听进程合成一次 `Started` 事件（复用 `handle_event`），从而登记 `active_rule` 并应用配色。这修复了「先开游戏后开应用时，游戏退出不触发恢复默认方案」的问题。仅在 `active_rule` 为空时执行，避免覆盖或重复应用。
 
 **WQL 查询示例**（按规则定向订阅）：
 ```sql
@@ -153,4 +153,5 @@ AND (TargetInstance.Name = 'delta_force.exe' OR TargetInstance.Name = 'cs2.exe')
 **新增于**：2026-06-09
 **更新于**：2026-06-10 — 重构为 WMI 事件驱动 + 管理员权限 + 按规则定向订阅
 **更新于**：2026-06-10 — `list_running_processes` 改用 Unicode API（`Process32FirstW` / `PROCESSENTRY32W`）修复中文进程名乱码
-**更新于**：2026-07-11 — 新增订阅后对账（reconcile）：修复「先开游戏后开应用 / 手动应用方案时，游戏退出不恢复」问题
+**更新于**：2026-07-11 — 新增订阅后对账（reconcile）：修复「先开游戏后开应用时，游戏退出不恢复默认方案」问题
+**更新于**：2026-07-14 — 明确 `restore_on_exit` 语义为恢复默认方案；移除未使用的 previous_config 分支

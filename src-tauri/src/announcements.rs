@@ -1,23 +1,53 @@
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 use crate::updater::UPDATE_API_HOSTS;
+
+fn deserialize_id_as_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = Value::deserialize(deserializer)?;
+    match v {
+        Value::String(s) => Ok(s),
+        Value::Number(n) => Ok(n.to_string()),
+        _ => Ok(v.to_string()),
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Announcement {
+    #[serde(deserialize_with = "deserialize_id_as_string")]
     pub id: String,
+    /// 库内 UUID，前端一般忽略
+    #[serde(default)]
+    pub row_id: Option<String>,
+    /// 渠道："client" | "static" | "web" | 自定义。旧数据缺省时服务端按 client 处理。
+    #[serde(default)]
+    pub r#type: Option<String>,
     pub title: String,
     pub body: String,
     /// "normal" | "important"
     pub level: String,
+    /// 排序权重，越小越靠前（同 type 内）；置顶用小值。缺省视为很大。
+    #[serde(default)]
+    pub sort_order: Option<i64>,
+    /// 是否置顶。置顶项排在最前，并在标题旁渲染「置顶」tag。缺省视为 false。
+    #[serde(default)]
+    pub pinned: Option<bool>,
     /// ISO8601 UTC，前端排序用
     pub published_at: String,
     #[serde(default)]
     pub start_at: Option<String>,
     #[serde(default)]
     pub end_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 /// 双域名竞速拉取公告。
@@ -42,7 +72,8 @@ pub async fn get_announcements() -> Result<Vec<Announcement>, String> {
 
     let fetch = |host: &str| {
         let client = client.clone();
-        let url = format!("{host}/api/announcements");
+        // 服务端按 type 过滤：桌面端只消费 client 渠道；不带 type 会返回空数组。
+        let url = format!("{host}/api/announcements?type=client");
         async move {
             let resp = client.get(&url).send().await.ok()?;
             if !resp.status().is_success() {

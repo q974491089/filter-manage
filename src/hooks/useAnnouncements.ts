@@ -12,6 +12,7 @@ export function useAnnouncements() {
   const [readIds, setReadIds] = useState<Set<string>>(() => loadReadIds());
   const [panelOpen, setPanelOpen] = useState(false);
   const [modalItems, setModalItems] = useState<Announcement[]>([]);
+  const [detailItem, setDetailItem] = useState<Announcement | null>(null);
 
   // 启动拉取（随 check_update 一并完成；失败静默）
   useEffect(() => {
@@ -63,6 +64,17 @@ export function useAnnouncements() {
     });
   }, [items]);
 
+  // 放大预览某条公告：打开详情并标记已读
+  const openDetail = useCallback(
+    (a: Announcement) => {
+      setDetailItem(a);
+      markRead(a.id);
+    },
+    [markRead]
+  );
+
+  const closeDetail = useCallback(() => setDetailItem(null), []);
+
   // 关闭重要公告弹窗：把弹窗内的公告标记已读
   const dismissModal = useCallback(() => {
     setModalItems((cur) => {
@@ -86,5 +98,8 @@ export function useAnnouncements() {
     markAllRead,
     modalItems,
     dismissModal,
+    detailItem,
+    openDetail,
+    closeDetail,
   };
 }

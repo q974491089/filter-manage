@@ -10,11 +10,15 @@
 
 ## 设计概览
 
-复用更新服务端基础设施（双域名 `UPDATE_API_HOSTS`）。客户端 `get_announcements` 双域名竞速请求 `GET /api/announcements`，随启动的 `check_update` 一并拉取。服务端只透传 `announcements.json`（维护者 scp 上传，**无鉴权**——公告本就公开，且唯一写路径 scp 已由 SSH 密钥鉴权）。过滤/排序/已读全在前端。
+复用更新服务端基础设施（双域名 `UPDATE_API_HOSTS`）。客户端 `get_announcements` 双域名竞速请求 `GET /api/announcements?type=client`，随启动的 `check_update` 一并拉取。服务端按 `type` 过滤对应渠道的公告（桌面端固定用 `client`）。过滤有效期/排序/已读仍在前端。
 
 ## HTTP 接口
 
-`GET {host}/api/announcements` → `200` + JSON 数组（`Announcement[]`）。无鉴权。
+`GET {host}/api/announcements?type=client` → `200` + JSON 数组（`Announcement[]`）。无鉴权。
+
+- **`type`（必带）**：渠道过滤。桌面客户端固定传 `type=client`。
+  - ⚠️ **不带 `type` 会返回空数组 `[]`**（v0.3.4 早期客户端未带此参数，导致铃铛始终为空）。
+  - `type=all` 需鉴权（返回 `{"error":"unauthorized"}`），前端不使用。
 
 ## 数据结构
 
@@ -25,6 +29,8 @@
     "title": "服务器维护通知",
     "body": "## 维护时间\n本周六 02:00–04:00…",  // Markdown
     "level": "normal",                      // "normal" | "important"
+    "pinned": true,                         // 可选，置顶：排最前 + 标题旁渲染「置顶」tag。缺省=false
+    "sortOrder": 0,                         // 可选，排序权重，越小越靠前；缺省视为很大
     "publishedAt": "2026-07-10T08:00:00Z",  // ISO8601 UTC
     "startAt": "2026-07-10T00:00:00Z",      // 可选，缺省=立即生效
     "endAt": "2026-07-13T00:00:00Z"         // 可选，缺省=永不过期
@@ -32,7 +38,7 @@
 ]
 ```
 
-Rust 结构（`#[serde(rename_all = "camelCase")]`，`startAt/endAt` 用 `#[serde(default)] Option<String>`）与前端 TS 类型一一对应。
+Rust 结构（`#[serde(rename_all = "camelCase")]`，`startAt/endAt/pinned/sortOrder` 用 `#[serde(default)]`）与前端 TS 类型一一对应。
 
 ## 竞速与降级
 
@@ -45,7 +51,7 @@ Rust 结构（`#[serde(rename_all = "camelCase")]`，`startAt/endAt` 用 `#[serd
 ## 客户端职责
 
 - 过滤有效期窗口外公告（`now < startAt` 或 `now >= endAt`）。
-- 按 `publishedAt` 倒序。
+- 排序：**置顶（`pinned`）优先** → `sortOrder` 升序 → `publishedAt` 倒序。置顶项标题旁渲染「置顶」tag。
 - 已读：localStorage `announcements_read_ids`，仅本地。
 - `level === "important"` 且未读 → 启动弹窗；其余仅铃铛面板。
 

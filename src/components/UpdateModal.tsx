@@ -134,7 +134,7 @@ export default function UpdateModal({ updater }: { updater: ReturnType<typeof us
     <div data-component="UpdateModal" data-name="available-overlay"
          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div data-component="UpdateModal" data-name="available-card"
-           className="bg-surface-container/80 backdrop-blur-md border border-outline-variant/20 rounded-xl p-xl shadow-2xl shadow-black/40 w-[400px] max-h-[80vh] flex flex-col">
+           className="bg-surface-container/80 backdrop-blur-md border border-outline-variant/20 rounded-xl p-xl shadow-2xl shadow-black/40 w-[600px] max-h-[85vh] flex flex-col">
         <div className="flex items-center gap-md mb-lg">
           <Icon name="system_update" className="text-[24px] text-primary" />
           <h2 className="font-headline-sm text-headline-sm text-on-surface">发现新版本</h2>
@@ -155,7 +155,7 @@ export default function UpdateModal({ updater }: { updater: ReturnType<typeof us
         {body && (
           <div className="mb-lg flex-1 min-h-0">
             <h3 className="font-label-md text-label-md text-on-surface-variant mb-sm">更新内容</h3>
-            <div className="bg-surface-variant/30 rounded-lg p-md h-full max-h-[300px] overflow-y-auto">
+            <div className="bg-surface-variant/30 rounded-lg p-md h-full max-h-[240px] overflow-y-auto">
               <div className="prose prose-invert prose-sm max-w-none text-on-surface-variant">
                 <Markdown>{body}</Markdown>
               </div>

@@ -25,7 +25,7 @@ interface ProcessRule {
   process_name: string;          // 进程名，如 "delta_force.exe"（不区分大小写）
   config_name: string;           // 绑定的预设名
   enabled: boolean;              // 是否启用
-  restore_on_exit: boolean;      // 进程退出时是否恢复上一方案（默认 true）
+  restore_on_exit: boolean;      // 进程退出时是否恢复默认方案（默认 true）
 }
 
 interface RunningProcess {
@@ -712,7 +712,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                       <div className="group relative flex items-center">
                         <Icon name="help" className="text-[16px] text-on-surface-variant/40 cursor-help hover:text-on-surface-variant/70 transition-colors leading-none relative -top-px" />
                         <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-[240px] px-3 py-2.5 rounded-lg bg-surface-container-highest text-on-surface text-[12px] leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none shadow-lg border border-outline-variant/20 z-50">
-                          规则按列表顺序匹配，第一个命中的生效。当指定进程运行时，自动切换到绑定的配色方案。进程退出后可选择是否恢复上一方案。
+                          规则按列表顺序匹配，第一个命中的生效。当指定进程运行时，自动切换到绑定的配色方案。进程退出后可选择是否恢复默认方案。
                           <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 bg-surface-container-highest rotate-45 -mt-1 border-r border-b border-outline-variant/20" />
                         </div>
                       </div>

@@ -1,12 +1,6 @@
 import Markdown from "react-markdown";
-import type { Announcement } from "../lib/announcements";
+import { type Announcement, fmtDate } from "../lib/announcements";
 import { Icon } from "./Icon";
-
-function fmtDate(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  return new Date(t).toLocaleDateString();
-}
 
 export default function AnnouncementModal({
   items,

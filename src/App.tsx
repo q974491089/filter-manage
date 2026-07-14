@@ -514,8 +514,10 @@ function App() {
             isRead={ann.isRead}
             open={ann.panelOpen}
             setOpen={ann.setPanelOpen}
-            markRead={ann.markRead}
             markAllRead={ann.markAllRead}
+            detailItem={ann.detailItem}
+            openDetail={ann.openDetail}
+            closeDetail={ann.closeDetail}
           />
 
           <button

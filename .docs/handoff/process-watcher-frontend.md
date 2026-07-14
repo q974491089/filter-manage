@@ -15,7 +15,7 @@ interface ProcessRule {
   process_name: string          // 进程名，如 "delta_force.exe"（不区分大小写）
   config_name: string           // 绑定的预设名
   enabled: boolean              // 是否启用
-  restore_on_exit: boolean      // 进程退出时是否恢复上一方案（默认 true）
+  restore_on_exit: boolean      // 进程退出时是否恢复默认方案（默认 true）
 }
 
 interface RunningProcess {
@@ -184,7 +184,7 @@ useEffect(() => {
 ## 行为说明
 
 - 规则按列表顺序匹配，第一个命中的生效（first-match-wins）
-- 进程退出后默认恢复"上一方案"（无记录时恢复默认方案），`restore_on_exit: false` 可关闭
+- 进程退出后默认恢复默认方案（用户保存的默认配置），`restore_on_exit: false` 可关闭
 - 使用 WMI 事件订阅，进程启动到方案生效最多延迟 1 秒
 - 规则变化时自动重订阅（无需前端额外操作）
 - 无启用规则时不创建 WMI 订阅，零开销

@@ -36,7 +36,6 @@ pub struct WatcherStatus {
 
 struct WatcherState {
     active_rule: Option<ProcessRule>,
-    previous_config_name: Option<String>,
     subscribed_processes: Vec<String>,
 }
 
@@ -49,7 +48,6 @@ fn state() -> &'static Arc<Mutex<WatcherState>> {
     STATE.get_or_init(|| {
         Arc::new(Mutex::new(WatcherState {
             active_rule: None,
-            previous_config_name: None,
             subscribed_processes: Vec::new(),
         }))
     })
@@ -676,10 +674,6 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
                     return;
                 }
 
-                if st.active_rule.is_none() {
-                    st.previous_config_name = None;
-                }
-
                 let config_name = rule.config_name.clone();
                 let notify = settings.process_notification;
                 let rule = rule.clone();
@@ -704,26 +698,17 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
                     let restore = active.restore_on_exit;
                     let notify = settings.process_notification;
 
+                    // restore_on_exit：恢复用户保存的默认方案（无默认方案则系统 sRGB + DVC 50%）。
+                    // 历史上有 previous_config_name 分支，但从未写入有效值；产品语义即为恢复默认。
                     if restore {
-                        if let Some(ref prev_name) = st.previous_config_name {
-                            if let Ok(cfg) = config::load_config(prev_name.clone()) {
-                                let _ = tray::apply_color_config(&cfg);
-                                let _ = app.emit("config-applied", prev_name);
-                                if notify {
-                                    show_toast(&format!("进程退出：已恢复到「{}」", prev_name));
-                                }
-                            }
-                        } else {
-                            let _ = tray::apply_default_config();
-                            let _ = app.emit("config-applied", "__default__");
-                            if notify {
-                                show_toast("进程退出：已恢复默认方案");
-                            }
+                        let _ = tray::apply_default_config();
+                        let _ = app.emit("config-applied", "__default__");
+                        if notify {
+                            show_toast("进程退出：已恢复默认方案");
                         }
                     }
 
                     st.active_rule = None;
-                    st.previous_config_name = None;
                 }
             }
         }
