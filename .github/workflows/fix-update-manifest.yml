@@ -14,6 +14,8 @@ jobs:
   fix:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Push correct signature to update API
         env:
           UPDATE_API_URL: ${{ secrets.UPDATE_API_URL }}
@@ -28,9 +30,10 @@ jobs:
           ASSET="Filter-Manage_${VERSION}_x64-setup.exe"
           SIG_ASSET="${ASSET}.sig"
           TAG="v${VERSION}"
+          REPO="${{ github.repository }}"
 
           echo "Downloading ${SIG_ASSET} from release ${TAG}..."
-          gh release download "$TAG" --pattern "$SIG_ASSET" --dir /tmp
+          gh release download "$TAG" -R "$REPO" --pattern "$SIG_ASSET" --dir /tmp
           if [ ! -f "/tmp/${SIG_ASSET}" ]; then
             echo "::error::${SIG_ASSET} not found in release ${TAG}"
             exit 1
@@ -53,7 +56,7 @@ jobs:
             NOTES=$(printf '%s' "$NOTES_JSON" | jq -r '.notes // empty')
           fi
           if [ -z "$NOTES" ]; then
-            NOTES=$(gh release view "$TAG" --json body -q .body // empty || true)
+            NOTES=$(gh release view "$TAG" -R "$REPO" --json body -q .body || true)
           fi
 
           echo "Pushing manifest version=${VERSION} assetName=${ASSET} sig_len=${#SIG}"
