@@ -1,0 +1,87 @@
+name: Fix Update Manifest Signature
+
+# 不重发版：用 GitHub Release 上的 .sig 原文重推服务端清单
+# 用法: gh workflow run fix-update-manifest.yml -f version=0.3.5
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without v prefix (e.g. 0.3.5)'
+        required: true
+        type: string
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Push correct signature to update API
+        env:
+          UPDATE_API_URL: ${{ secrets.UPDATE_API_URL }}
+          UPDATE_RELEASE_SECRET: ${{ secrets.UPDATE_RELEASE_SECRET }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          : "${UPDATE_API_URL:?UPDATE_API_URL secret missing}"
+          : "${UPDATE_RELEASE_SECRET:?UPDATE_RELEASE_SECRET secret missing}"
+
+          ASSET="Filter-Manage_${VERSION}_x64-setup.exe"
+          SIG_ASSET="${ASSET}.sig"
+          TAG="v${VERSION}"
+
+          echo "Downloading ${SIG_ASSET} from release ${TAG}..."
+          gh release download "$TAG" --pattern "$SIG_ASSET" --dir /tmp
+          if [ ! -f "/tmp/${SIG_ASSET}" ]; then
+            echo "::error::${SIG_ASSET} not found in release ${TAG}"
+            exit 1
+          fi
+
+          # .sig 原文 = latest.json 的 signature，禁止再 base64
+          SIG=$(tr -d '\r\n' < "/tmp/${SIG_ASSET}")
+          if [ -z "$SIG" ]; then
+            echo "::error::.sig file empty"
+            exit 1
+          fi
+          if [[ "$SIG" != dW50cnVzdGVk* ]]; then
+            echo "::warning::signature does not start with expected base64 prefix (dW50cnVzdGVk...)"
+          fi
+
+          # notes：优先用当前服务端已有内容，避免冲掉更新说明
+          NOTES=""
+          CHECK_URL="${UPDATE_API_URL%/api/internal/release}/api/check-update?current=0.0.0"
+          if NOTES_JSON=$(curl -sS --max-time 20 "$CHECK_URL" 2>/dev/null); then
+            NOTES=$(printf '%s' "$NOTES_JSON" | jq -r '.notes // empty')
+          fi
+          if [ -z "$NOTES" ]; then
+            NOTES=$(gh release view "$TAG" --json body -q .body // empty || true)
+          fi
+
+          echo "Pushing manifest version=${VERSION} assetName=${ASSET} sig_len=${#SIG}"
+          jq -n \
+            --arg v "$VERSION" \
+            --arg n "$NOTES" \
+            --arg s "$SIG" \
+            --arg a "$ASSET" \
+            '{version:$v, notes:$n, signature:$s, assetName:$a}' \
+          | curl -sf -X POST "$UPDATE_API_URL" \
+              -H "Content-Type: application/json" \
+              -H "X-Release-Secret: $UPDATE_RELEASE_SECRET" \
+              --data @-
+
+          echo "Push OK. Verifying public check-update API..."
+          VERIFY=$(curl -sS --max-time 20 "$CHECK_URL")
+          API_SIG=$(printf '%s' "$VERIFY" | jq -r '.signature // empty')
+          API_VER=$(printf '%s' "$VERIFY" | jq -r '.version // empty')
+          echo "API version=${API_VER}"
+          echo "API sig head=$(printf '%s' "$API_SIG" | head -c 40)"
+
+          if [ "$API_VER" != "$VERSION" ]; then
+            echo "::error::API version mismatch: got ${API_VER}, expected ${VERSION}"
+            exit 1
+          fi
+          if [ "$API_SIG" != "$SIG" ]; then
+            echo "::error::API signature still does not match .sig file"
+            echo "API starts with: $(printf '%s' "$API_SIG" | head -c 20 | od -An -tx1)"
+            exit 1
+          fi
+          echo "Verified: signature matches GitHub .sig exactly"
