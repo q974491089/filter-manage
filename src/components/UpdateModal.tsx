@@ -24,11 +24,58 @@ export default function UpdateModal({ updater }: { updater: ReturnType<typeof us
   const {
     status, version, body, progress, speed, mirrors, currentMirror,
     showMirrorPrompt, startDownload, switchMirror, cancel, dismiss, snooze,
-    remainingSeconds,
+    remainingSeconds, error,
   } = updater;
   const [snoozeChecked, setSnoozeChecked] = useState(false);
 
-  if (status === "idle" || status === "checking" || status === "error") return null;
+  if (status === "idle" || status === "checking") return null;
+
+  // 下载/校验/安装失败：必须可见，否则用户会感觉「下载完就没了」
+  if (status === "error") {
+    return (
+      <div data-component="UpdateModal" data-name="error-overlay"
+           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div data-component="UpdateModal" data-name="error-card"
+             className="glass-panel rounded-xl shadow-2xl w-[440px] flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-6 pt-6 pb-4">
+            <h2 className="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+              <Icon name="info" filled className="text-[20px] text-error" />
+              更新失败
+            </h2>
+            <button data-component="UpdateModal" data-name="close-error"
+                    onClick={dismiss}
+                    className="text-on-surface-variant hover:text-on-surface transition-colors p-1 rounded hover:bg-surface-variant/50">
+              <Icon name="close" className="text-[18px]" />
+            </button>
+          </div>
+          <div className="px-6 pb-6 flex flex-col gap-4">
+            <p className="font-body-md text-on-surface-variant">
+              {version ? `更新到 v${version} 时出错。` : "更新过程中出错。"}
+            </p>
+            <div className="bg-error/10 border border-error/20 rounded-lg p-3 max-h-[160px] overflow-y-auto">
+              <p className="font-label-sm text-label-sm text-error break-all whitespace-pre-wrap">
+                {error || "未知错误"}
+              </p>
+            </div>
+          </div>
+          <div className="bg-surface-container-low/50 border-t border-outline-variant/30 px-6 py-4 flex items-center justify-end gap-3">
+            <button data-component="UpdateModal" data-name="dismiss-error"
+                    onClick={dismiss}
+                    className="px-5 py-2 rounded font-title-sm text-title-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 transition-all active:scale-95">
+              关闭
+            </button>
+            {mirrors.length > 0 && (
+              <button data-component="UpdateModal" data-name="retry-download"
+                      onClick={() => startDownload()}
+                      className="px-6 py-2 rounded font-title-sm text-title-sm bg-primary text-on-primary hover:opacity-90 transition-all active:scale-95">
+                重试下载
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // 下载 / 校验 / 安装态
   if (status === "downloading" || status === "verifying" || status === "ready" || status === "done") {

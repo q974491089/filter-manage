@@ -388,46 +388,34 @@ pub fn install_update(state: tauri::State<'_, UpdaterState>) -> Result<(), Strin
 
 ## 签名校验（minisign）
 
+签名字段与 GitHub `latest.json` 一致：**单层** base64，解码后是 minisign 明文（以 `untrusted comment:` 开头）。
+
+`.sig` 文件内容本身就是这段 base64，**不要再 `jq @base64` 二次编码**。
+
+客户端 `normalize_signature_text` 会兼容历史脏数据（二次 base64、首尾引号、`\r`），再交给 `Signature::decode`。
+
 ```rust
-use base64::Engine;
-use minisign_verify::{PublicKey, Signature};
+fn normalize_signature_text(signature_b64: &str) -> Result<String, String> {
+    // trim + 去引号 → 若已是 minisign 明文则直接用
+    // 否则 STANDARD base64 解码 → 再 trim
+    // 若仍不是 minisign 明文，再解一层（兼容 CI 误双重编码）
+}
 
 fn verify_minisign(file_path: &std::path::Path, signature_b64: &str) -> Result<(), String> {
-    // 读取下载的安装包
     let data = std::fs::read(file_path).map_err(|e| e.to_string())?;
-
-    // 解码公钥：base64 → minisign 文本格式
-    let pubkey_bytes = base64::engine::general_purpose::STANDARD
-        .decode(PUBKEY)
-        .map_err(|e| e.to_string())?;
-    let pubkey_text = std::str::from_utf8(&pubkey_bytes)
-        .map_err(|e| e.to_string())?;
-    let public_key = PublicKey::decode(pubkey_text)
-        .map_err(|e| e.to_string())?;
-
-    // 解码签名：base64 → minisign .sig 文本格式
-    let sig_bytes = base64::engine::general_purpose::STANDARD
-        .decode(signature_b64)
-        .map_err(|e| e.to_string())?;
-    let sig_text = std::str::from_utf8(&sig_bytes)
-        .map_err(|e| e.to_string())?;
-    let signature = Signature::decode(sig_text)
-        .map_err(|e| e.to_string())?;
-
-    // 校验（最后一个参数 true = 允许 trusted comment）
-    public_key.verify(&data, &signature, true)
-        .map_err(|e| e.to_string())?;
-
+    // pubkey: base64 → PublicKey::decode
+    // signature: normalize_signature_text → Signature::decode
+    // public_key.verify(&data, &signature, true)
     Ok(())
 }
 ```
 
-> 解码链路与 `tauri-plugin-updater` v2.10.1 `updater.rs:1453-1471` 完全一致：
-> 1. `base64::STANDARD.decode(pubkey_b64)` → UTF-8 minisign 公钥文本
-> 2. `PublicKey::decode(pubkey_text)` → minisign 公钥对象
-> 3. `base64::STANDARD.decode(signature_b64)` → UTF-8 minisign .sig 文本
-> 4. `Signature::decode(sig_text)` → minisign 签名对象
-> 5. `public_key.verify(data, &signature, true)` → 校验
+> 正常路径与 `tauri-plugin-updater` v2.10.1 一致：
+> 1. `base64::STANDARD.decode(pubkey_b64)` → UTF-8 minisign 公钥文本  
+> 2. `PublicKey::decode(pubkey_text)`  
+> 3. `normalize_signature_text(signature)` → minisign 明文  
+> 4. `Signature::decode(sig_text)`  
+> 5. `public_key.verify(data, &signature, true)`
 
 ---
 

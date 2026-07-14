@@ -1,3 +1,8 @@
+---
+name: release-workflow
+description: 发布新版本：更新版本号、完善迭代记录、生成 CHANGELOG、打 tag 触发 CI、云盘上传与归档。用户说"发布 vX.X.X"/"发版"/"release"时触发。
+---
+
 # Skill: 发布新版本
 
 ## 触发条件
@@ -202,7 +207,8 @@ CI 构建完成后会自动把版本清单推送到自建更新服务（见 `.gi
 }
 ```
 
-**signature 来源**：从构建产物 `*.exe.sig` 文件读（tauri-action 用 `TAURI_SIGNING_PRIVATE_KEY` 生成），`base64` 编码后放入 manifest。客户端 `verify_minisign` 会 base64 解码后用 minisign-verify 校验安装包完整性。⚠️ v0.3.3 推送时 signature 为空，导致客户端无法校验签名——这次必须带上。
+**signature 来源**：构建产物 `*.exe.sig` 的**原文**（tauri-action 生成；内容本身已是 base64 minisign 文本，与 `latest.json` 的 `platforms.*.signature` 一致）。**禁止**再 `jq @base64` / `base64` 二次编码，也禁止把 jq 输出的 JSON 引号写进字段。客户端 `verify_minisign` 会 base64 解码后用 minisign-verify 校验。  
+⚠️ 历史：v0.3.3 漏带 signature；v0.3.4/0.3.5 二次编码导致下载完成后校验失败。
 
 **镜像 URL 不在推送范围内**：服务端 `UpdateController.check` 拿到 `version` + `assetName` 后，用配置的 `mirrors` 前缀 + `githubBase` 拼接出下载 URL。增删镜像只改服务端配置，无需发新客户端。
 
@@ -219,10 +225,11 @@ CI 构建完成后会自动把版本清单推送到自建更新服务（见 `.gi
       NOTES: ${{ steps.changelog.outputs.body }}   # 复用第 6 步从 CHANGELOG 提取的内容
     run: |
       VERSION="${GITHUB_REF_NAME#v}"
-      # signature: 从构建产物 .sig 文件读（base64 文本）—— v0.3.3 漏带，这次必须补
+      # signature: .sig 原文（已是 base64 minisign 文本），切勿再 @base64
       SIG_FILE=$(find src-tauri/target -name "*.exe.sig" | head -1)
       if [ -z "$SIG_FILE" ]; then echo "::error::.sig not found, cannot push manifest"; exit 1; fi
-      SIG=$(jq -Rs @base64 < "$SIG_FILE" | tr -d '\n')
+      SIG=$(tr -d '\r\n' < "$SIG_FILE")
+      if [ -z "$SIG" ]; then echo "::error::.sig file empty"; exit 1; fi
       # assetName: setup.exe 文件名
       ASSET=$(basename "$(find src-tauri/target -name "*-setup.exe" | head -1)")
       jq -n --arg v "$VERSION" --arg n "$NOTES" --arg s "$SIG" --arg a "$ASSET" \
@@ -326,6 +333,33 @@ CI 在构建完成后会自动执行以下步骤（见 `.github/workflows/releas
   git tag vX.X.X
   git push origin vX.X.X
   ```
+
+### 12. 归档本版本产物（发布收尾 · 必须！）
+
+发布成功后，把本版本**已完成**的开发产物归档到 `.docs/archive/`，让历史可追溯、当前目录保持干净。规则见 `.rules/archive.md`，可直接调用 `/archive` skill。
+
+**归档对象**（逐个判断"是否已随本版本完成"）：
+
+| 对象 | 判据 | 去向 |
+|------|------|------|
+| `.docs/plans/*.md` | 该功能计划所有 Phase/Task 完成并已随本版本发布 | `.docs/archive/plans/` |
+| `.docs/handoff/*.md` | 对端已接入、功能已上线 | `.docs/archive/handoff/` |
+| `.docs/prd/*.md` | 对应功能已发布（可选归档） | `.docs/archive/`（prd 子类可留） |
+
+**操作**（对每个确认项）：
+
+1. 文件头加 banner：`> 📦 已归档 YYYY-MM-DD · 仅供历史追溯，非当前开发依据`
+2. `git mv <原路径> .docs/archive/<子目录>/`
+3. 在 `.docs/archive/README.md` 归档索引加一行
+4. 若被活跃文档引用 → 更新引用路径
+
+**注意**：
+
+- ❌ **进行中/待办**的 plan（状态非"完成"）**不归档**，留作下版本依据。
+- ❌ 一律 `git mv`，不用 `rm`。
+- 拿不准就问用户，不自动批量移动。
+
+> 提示：也可平时（非发布）随时用 `/archive` 手动归档。
 
 ## 踩坑记录
 

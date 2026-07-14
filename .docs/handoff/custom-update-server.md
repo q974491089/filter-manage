@@ -270,9 +270,10 @@ sudo systemctl start filter-manage-update
 VERSION="${GITHUB_REF_NAME#v}"
 # notes: 复用 release.yml 里 Extract changelog step 从 CHANGELOG.md 提取的内容
 #   （通过 env: NOTES: ${{ steps.changelog.outputs.body }} 传入）
-# signature: 从构建产物 .sig 文件读（base64 文本）—— tauri-action 用 TAURI_SIGNING_PRIVATE_KEY 生成
+# signature: .sig 文件内容本身就是 base64 minisign 文本（与 latest.json 一致）
+# 切勿 jq @base64 二次编码，也切勿把 jq 输出的 JSON 引号写进字段
 SIG_FILE=$(find src-tauri/target -name "*.exe.sig" | head -1)
-SIG=$(jq -Rs @base64 < "$SIG_FILE" | tr -d '\n')
+SIG=$(tr -d '\r\n' < "$SIG_FILE")
 # assetName: setup.exe 文件名
 ASSET=$(basename "$(find src-tauri/target -name "*-setup.exe" | head -1)")
 
@@ -284,7 +285,8 @@ jq -n --arg v "$VERSION" --arg n "$NOTES" --arg s "$SIG" --arg a "$ASSET" \
     --data @-
 ```
 
-> ⚠️ signature 必须带上（base64 编码的 .sig 文件内容），客户端 `verify_minisign` 用它校验安装包完整性。v0.3.3 推送时漏带，导致客户端无法校验。
+> ⚠️ signature 必须带上，且与 GitHub `latest.json` 的 `platforms.*.signature` **完全一致**（`.sig` 文件原文，不要再 base64）。  
+> 历史事故：v0.3.3 漏带；v0.3.4/0.3.5 CI 误用 `jq -Rs @base64` 二次编码并带入 JSON 引号，导致客户端下载完成后校验失败、界面无后续。
 
 GitHub Secrets：`UPDATE_API_URL`（`https://filter-manage-api.xyls.us.kg/api/internal/release`）、`UPDATE_RELEASE_SECRET`（与 systemd 一致）。
 

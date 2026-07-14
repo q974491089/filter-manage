@@ -303,6 +303,49 @@ async fn fallback_check(
     }
 }
 
+/// 规范化服务端下发的 signature，得到 minisign 明文。
+///
+/// 兼容：
+/// - 正确格式：与 GitHub `latest.json` 一致，单层 base64(minisign 文本)
+/// - 历史错误：CI 把 `.sig` 再 `@base64` 一次，且 shell 捕获了 jq 的引号 / 尾部 `\r`
+/// - 明文 minisign（以 `untrusted comment:` 开头）
+fn normalize_signature_text(signature_b64: &str) -> Result<String, String> {
+    let s = signature_b64
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .trim();
+
+    if s.starts_with("untrusted comment:") {
+        return Ok(s.to_string());
+    }
+
+    let decode_utf8 = |input: &str| -> Result<String, String> {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(input.trim())
+            .map_err(|e| format!("signature base64 decode: {e}"))?;
+        let text = std::str::from_utf8(&bytes)
+            .map_err(|e| format!("signature utf-8: {e}"))?
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .trim()
+            .to_string();
+        Ok(text)
+    };
+
+    let once = decode_utf8(s)?;
+    if once.starts_with("untrusted comment:") {
+        return Ok(once);
+    }
+
+    // 二次编码的历史脏数据：再解一层
+    let twice = decode_utf8(&once)?;
+    if twice.starts_with("untrusted comment:") {
+        return Ok(twice);
+    }
+
+    Err("signature is not a valid minisign payload after decode".into())
+}
+
 fn verify_minisign(file_path: &Path, signature_b64: &str) -> Result<(), String> {
     let data = std::fs::read(file_path).map_err(|e| e.to_string())?;
 
@@ -314,13 +357,9 @@ fn verify_minisign(file_path: &Path, signature_b64: &str) -> Result<(), String> 
     let public_key =
         PublicKey::decode(pubkey_text).map_err(|e| e.to_string())?;
 
-    let sig_bytes = base64::engine::general_purpose::STANDARD
-        .decode(signature_b64)
-        .map_err(|e| e.to_string())?;
-    let sig_text =
-        std::str::from_utf8(&sig_bytes).map_err(|e| e.to_string())?;
+    let sig_text = normalize_signature_text(signature_b64)?;
     let signature =
-        Signature::decode(sig_text).map_err(|e| e.to_string())?;
+        Signature::decode(&sig_text).map_err(|e| e.to_string())?;
 
     public_key
         .verify(&data, &signature, true)
