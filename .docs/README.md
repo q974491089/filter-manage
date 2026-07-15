@@ -12,6 +12,14 @@
 
 ## 迭代记录
 
+### 开发中 — 进程监听 WMI 可靠性
+
+| 类型 | 端 | 说明 | 涉及文件 | 文档 |
+|------|----|------|---------|------|
+| 修复 | 后端 | WMI 监听可靠性：断线自愈（指数退避 1s…30s 重订）、脏 `active_rule` 校正、Stopped 多实例防护、可观测 status（`wmi_connected` / `last_error` / `reconnect_attempt`）；无应用层周期轮询 / 无 ETW | `src-tauri/src/process_watcher.rs` | [process_watcher.md](./api/process_watcher.md)、[plans/2026-07-16-process-watcher-wmi-reliability.md](./plans/2026-07-16-process-watcher-wmi-reliability.md) |
+
+---
+
 ### v0.3.5 — 2026-07-14 · 应用内公告 + 进程监听对账 + 单实例
 
 顶栏公告（铃铛/重要弹窗/详情），随 check_update 双域名拉取；进程监听订阅后对账，退出恢复默认方案；单实例聚焦已有窗口。
