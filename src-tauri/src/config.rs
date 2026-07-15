@@ -21,7 +21,7 @@ pub struct ShortcutBinding {
     pub config_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ProcessRule {
     pub id: String,
     pub process_name: String,
@@ -362,8 +362,12 @@ pub fn get_app_settings() -> Result<AppSettings, String> {
 #[tauri::command]
 pub fn save_app_settings(settings: AppSettings) -> Result<(), String> {
     let mut store = read_store()?;
+    let old = store.settings.clone();
     store.settings = settings;
-    write_store(&store)
+    write_store(&store)?;
+    // ConfigManager 等经整包 settings 改 process_rules 时也要重订 WMI
+    crate::process_watcher::resubscribe_if_process_settings_changed(&old, &store.settings);
+    Ok(())
 }
 
 // ─── 工具函数 ────────────────────────────────────────────────────────────────

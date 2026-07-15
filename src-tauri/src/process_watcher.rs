@@ -4,12 +4,12 @@ use std::sync::{
     mpsc, Arc, Mutex, OnceLock,
 };
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::config::{self, ProcessRule};
+use crate::config::{self, AppSettings, ProcessRule};
 use crate::tray;
 
 #[cfg(windows)]
@@ -32,11 +32,20 @@ pub struct WatcherStatus {
     pub active_rule: Option<ProcessRule>,
     pub active_config_name: Option<String>,
     pub subscribed_processes: Vec<String>,
+    /// 当前是否持有存活的 WMI 事件通道
+    pub wmi_connected: bool,
+    /// 最近一次订阅/断开错误；成功订阅后清空
+    pub last_error: Option<String>,
+    /// 当前退避重连次数；Live 时为 0
+    pub reconnect_attempt: u32,
 }
 
 struct WatcherState {
     active_rule: Option<ProcessRule>,
     subscribed_processes: Vec<String>,
+    wmi_connected: bool,
+    last_error: Option<String>,
+    reconnect_attempt: u32,
 }
 
 // ─── 全局状态 ────────────────────────────────────────────────────────────────
@@ -49,6 +58,9 @@ fn state() -> &'static Arc<Mutex<WatcherState>> {
         Arc::new(Mutex::new(WatcherState {
             active_rule: None,
             subscribed_processes: Vec::new(),
+            wmi_connected: false,
+            last_error: None,
+            reconnect_attempt: 0,
         }))
     })
 }
@@ -56,6 +68,29 @@ fn state() -> &'static Arc<Mutex<WatcherState>> {
 fn cmd_tx() -> &'static Mutex<Option<mpsc::Sender<WatcherCommand>>> {
     static CMD_TX: OnceLock<Mutex<Option<mpsc::Sender<WatcherCommand>>>> = OnceLock::new();
     CMD_TX.get_or_init(|| Mutex::new(None))
+}
+
+fn pw_log(msg: impl AsRef<str>) {
+    eprintln!("[process-watcher] {}", msg.as_ref());
+}
+
+fn set_health(connected: bool, error: Option<String>, attempt: u32) {
+    let mut st = state().lock().unwrap();
+    st.wmi_connected = connected;
+    st.reconnect_attempt = attempt;
+    if let Some(e) = error {
+        st.last_error = Some(e);
+    } else if connected {
+        st.last_error = None;
+    }
+}
+
+fn next_backoff_secs(prev: u64) -> u64 {
+    if prev == 0 {
+        1
+    } else {
+        prev.saturating_mul(2).min(30)
+    }
 }
 
 enum WatcherCommand {
@@ -71,6 +106,10 @@ enum ProcessEvent {
 
 // ─── WQL 构建 ────────────────────────────────────────────────────────────────
 
+fn wql_escape(name: &str) -> String {
+    name.replace('\'', "\\'")
+}
+
 fn build_wql(rules: &[ProcessRule]) -> Option<String> {
     let enabled: Vec<&str> = rules
         .iter()
@@ -84,7 +123,7 @@ fn build_wql(rules: &[ProcessRule]) -> Option<String> {
 
     let name_filter = enabled
         .iter()
-        .map(|n| format!("TargetInstance.Name = '{}'", n))
+        .map(|n| format!("TargetInstance.Name = '{}'", wql_escape(n)))
         .collect::<Vec<_>>()
         .join(" OR ");
 
@@ -101,6 +140,16 @@ fn subscribed_names(rules: &[ProcessRule]) -> Vec<String> {
         .filter(|r| r.enabled)
         .map(|r| r.process_name.clone())
         .collect()
+}
+
+/// `save_app_settings` 整包写入时，若进程监听相关字段变化则重订 WMI。
+pub fn resubscribe_if_process_settings_changed(old: &AppSettings, new: &AppSettings) {
+    if old.process_watcher_enabled != new.process_watcher_enabled
+        || old.process_rules != new.process_rules
+    {
+        pw_log("process settings changed via save_app_settings → resubscribe");
+        send_resubscribe();
+    }
 }
 
 // ─── 进程图标提取 ─────────────────────────────────────────────────────────────
@@ -628,7 +677,7 @@ fn spawn_wmi_monitor(
             let sub = match wmi_impl::WmiSubscription::new(&wql, event_tx) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("WMI: {}", e);
+                    pw_log(format!("WMI subscribe failed: {e}"));
                     return;
                 }
             };
@@ -651,65 +700,105 @@ fn spawn_wmi_monitor(
 
 // ─── 事件处理 ────────────────────────────────────────────────────────────────
 
+/// 清除 active_rule；若 restore 为 true 则恢复默认方案。调用前不得持有 state 锁。
+fn clear_active_rule(app: &AppHandle, restore: bool, notify: bool, reason: &str) {
+    {
+        let mut st = state().lock().unwrap();
+        if st.active_rule.is_none() {
+            return;
+        }
+        st.active_rule = None;
+    }
+    pw_log(format!("clear active_rule ({reason}) restore={restore}"));
+    if restore {
+        if let Err(e) = tray::apply_default_config() {
+            pw_log(format!("apply_default_config failed: {e}"));
+        } else {
+            let _ = app.emit("config-applied", "__default__");
+            if notify {
+                show_toast("进程退出：已恢复默认方案");
+            }
+        }
+    }
+}
+
 fn handle_event(event: ProcessEvent, app: &AppHandle) {
     let settings = match config::get_app_settings() {
         Ok(s) => s,
-        Err(_) => return,
+        Err(e) => {
+            pw_log(format!("get_app_settings failed: {e}"));
+            return;
+        }
     };
 
     if !settings.process_watcher_enabled {
         return;
     }
 
-    let mut st = state().lock().unwrap();
-
     match event {
         ProcessEvent::Started(name) => {
-            if let Some(rule) = settings
-                .process_rules
-                .iter()
-                .find(|r| r.enabled && r.process_name.eq_ignore_ascii_case(&name))
-            {
-                if st.active_rule.as_ref().map(|r| &r.id) == Some(&rule.id) {
-                    return;
-                }
+            pw_log(format!("event Started name={name}"));
+            let rule = {
+                let st = state().lock().unwrap();
+                settings
+                    .process_rules
+                    .iter()
+                    .find(|r| r.enabled && r.process_name.eq_ignore_ascii_case(&name))
+                    .cloned()
+                    .filter(|rule| st.active_rule.as_ref().map(|r| &r.id) != Some(&rule.id))
+            };
+            let Some(rule) = rule else {
+                return;
+            };
 
-                let config_name = rule.config_name.clone();
-                let notify = settings.process_notification;
-                let rule = rule.clone();
+            let config_name = rule.config_name.clone();
+            let notify = settings.process_notification;
 
-                match config::load_config(config_name.clone()) {
-                    Ok(cfg) => {
-                        let _ = tray::apply_color_config(&cfg);
+            match config::load_config(config_name.clone()) {
+                Ok(cfg) => match tray::apply_color_config(&cfg) {
+                    Ok(()) => {
                         let _ = app.emit("config-applied", &config_name);
                         if notify {
                             show_toast(&format!("进程触发：已切换到「{}」", config_name));
                         }
+                        state().lock().unwrap().active_rule = Some(rule);
+                        pw_log(format!("active_rule set config={config_name}"));
                     }
-                    Err(_) => {}
+                    Err(e) => {
+                        pw_log(format!("apply_color_config failed: {e}"));
+                    }
+                },
+                Err(e) => {
+                    pw_log(format!("load_config failed for '{config_name}': {e}"));
                 }
-
-                st.active_rule = Some(rule);
             }
         }
         ProcessEvent::Stopped(name) => {
-            if let Some(active) = &st.active_rule {
-                if active.process_name.eq_ignore_ascii_case(&name) {
-                    let restore = active.restore_on_exit;
-                    let notify = settings.process_notification;
+            pw_log(format!("event Stopped name={name}"));
 
-                    // restore_on_exit：恢复用户保存的默认方案（无默认方案则系统 sRGB + DVC 50%）。
-                    // 历史上有 previous_config_name 分支，但从未写入有效值；产品语义即为恢复默认。
-                    if restore {
-                        let _ = tray::apply_default_config();
-                        let _ = app.emit("config-applied", "__default__");
-                        if notify {
-                            show_toast("进程退出：已恢复默认方案");
-                        }
+            // 同名多实例：仍有进程在跑则忽略本次退出
+            let still = running_process_names()
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(&name));
+            if still {
+                pw_log(format!(
+                    "Stopped ignored, instance still running: {name}"
+                ));
+                return;
+            }
+
+            let (should_clear, restore, notify) = {
+                let st = state().lock().unwrap();
+                match &st.active_rule {
+                    Some(active) if active.process_name.eq_ignore_ascii_case(&name) => {
+                        (true, active.restore_on_exit, settings.process_notification)
                     }
-
-                    st.active_rule = None;
+                    _ => (false, false, false),
                 }
+            };
+
+            if should_clear {
+                clear_active_rule(app, restore, notify, "process stopped");
             }
         }
     }
@@ -718,35 +807,62 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
 // ─── 订阅后对账 ──────────────────────────────────────────────────────────────
 
 /// WMI 的 `__InstanceOperationEvent` 只上报订阅之后发生的启动/退出事件，
-/// 订阅前就已在运行的进程不会补发「启动」事件。这会导致：用户先开游戏、
-/// 后开本应用（或游戏在应用启动前已运行）时，`active_rule` 一直是 None，
-/// 游戏退出时的 Deletion 事件被 `handle_event` 的 `if let Some(active)` 挡掉，
-/// 从而不会恢复方案。
+/// 订阅前就已在运行的进程不会补发「启动」事件。
 ///
-/// 因此在（重新）订阅成功后，主动扫描一次当前进程，对第一个正在运行的受监听
-/// 进程合成一次 `Started` 事件，复用 `handle_event` 完成登记 + 应用配色。
+/// 在（重新）订阅成功后调用一次（非周期轮询）：
+/// - 校正脏 active_rule（规则失效 / 进程已退出）
+/// - 对仍在运行的首个匹配规则补 Started
 fn reconcile_running_processes(app: &AppHandle) {
-    // active_rule 已存在则无需对账（避免覆盖 / 重复应用）
-    // 显式作用域：确保锁守卫在调用 handle_event（内部会再次锁 state）前释放，
-    // 否则同线程重入 std Mutex 会死锁。
-    {
-        if state().lock().unwrap().active_rule.is_some() {
-            return;
-        }
-    }
-
     let settings = match config::get_app_settings() {
         Ok(s) => s,
-        Err(_) => return,
+        Err(e) => {
+            pw_log(format!("reconcile: get_app_settings failed: {e}"));
+            return;
+        }
     };
     if !settings.process_watcher_enabled {
+        pw_log("reconcile skip: watcher disabled");
         return;
     }
 
     let running = running_process_names();
 
-    // 只对第一个命中的进程补发（handle_event 里 active_rule 一旦设上，
-    // 后续 Started 会提前 return，这里也保持单次语义）
+    // A. 校正已有 active_rule（释放锁后再调 handle_event / clear）
+    let active_snapshot = state().lock().unwrap().active_rule.clone();
+    if let Some(active) = active_snapshot {
+        let rule_still_enabled = settings
+            .process_rules
+            .iter()
+            .any(|r| r.enabled && r.id == active.id);
+        if !rule_still_enabled {
+            clear_active_rule(
+                app,
+                active.restore_on_exit,
+                settings.process_notification,
+                "rule disabled or removed",
+            );
+        } else {
+            let proc_running = running
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(&active.process_name));
+            if !proc_running {
+                pw_log(format!(
+                    "reconcile: active process gone → Stopped {}",
+                    active.process_name
+                ));
+                handle_event(ProcessEvent::Stopped(active.process_name.clone()), app);
+            } else {
+                pw_log("reconcile skip: active_rule still valid");
+                return;
+            }
+        }
+    }
+
+    // B. active 为空时补第一个正在运行的规则进程
+    if state().lock().unwrap().active_rule.is_some() {
+        return;
+    }
+
     if let Some(name) = settings
         .process_rules
         .iter()
@@ -758,7 +874,91 @@ fn reconcile_running_processes(app: &AppHandle) {
                 .cloned()
         })
     {
+        pw_log(format!("reconcile Started name={name}"));
         handle_event(ProcessEvent::Started(name), app);
+    } else {
+        pw_log("reconcile skip: no matching running process");
+    }
+}
+
+// ─── 订阅辅助 ────────────────────────────────────────────────────────────────
+
+type SubscribeParts = (
+    Option<thread::JoinHandle<()>>,
+    mpsc::Receiver<ProcessEvent>,
+    mpsc::Sender<()>,
+);
+
+fn stop_subscription(
+    monitor_handle: &mut Option<thread::JoinHandle<()>>,
+    event_rx: &mut Option<mpsc::Receiver<ProcessEvent>>,
+    stop_tx: &mut Option<mpsc::Sender<()>>,
+) {
+    if let Some(tx) = stop_tx.take() {
+        let _ = tx.send(());
+    }
+    drop(event_rx.take());
+    if let Some(handle) = monitor_handle.take() {
+        // 短暂等待线程退出，避免与新订阅重叠过久
+        let _ = handle.join();
+    }
+    set_health(false, None, state().lock().unwrap().reconnect_attempt);
+}
+
+fn try_start_subscription(settings: &AppSettings) -> Option<SubscribeParts> {
+    if !settings.process_watcher_enabled {
+        return None;
+    }
+    let wql = build_wql(&settings.process_rules)?;
+    let names = subscribed_names(&settings.process_rules);
+    state().lock().unwrap().subscribed_processes = names.clone();
+
+    let (etx, erx) = mpsc::channel();
+    let (stx, srx) = mpsc::channel();
+    let handle = spawn_wmi_monitor(etx, wql, srx);
+    if handle.is_none() {
+        pw_log("WMI subscribe failed: spawn wmi-monitor thread failed");
+        set_health(
+            false,
+            Some("failed to spawn wmi-monitor thread".into()),
+            state().lock().unwrap().reconnect_attempt,
+        );
+        return None;
+    }
+
+    pw_log(format!("WMI subscribed: names={names:?}"));
+    set_health(true, None, 0);
+    Some((handle, erx, stx))
+}
+
+/// 关监听或无规则时：停 WMI、清订阅名、按需 restore active。
+fn teardown_subscription(
+    app: &AppHandle,
+    monitor_handle: &mut Option<thread::JoinHandle<()>>,
+    event_rx: &mut Option<mpsc::Receiver<ProcessEvent>>,
+    stop_tx: &mut Option<mpsc::Sender<()>>,
+    restore_active: bool,
+) {
+    stop_subscription(monitor_handle, event_rx, stop_tx);
+    state().lock().unwrap().subscribed_processes.clear();
+    set_health(false, None, 0);
+
+    if restore_active {
+        let (restore, notify) = {
+            let st = state().lock().unwrap();
+            match &st.active_rule {
+                Some(a) => (a.restore_on_exit, true),
+                None => (false, false),
+            }
+        };
+        // notify 用 settings
+        let notify = config::get_app_settings()
+            .map(|s| s.process_notification)
+            .unwrap_or(true)
+            && notify;
+        if state().lock().unwrap().active_rule.is_some() {
+            clear_active_rule(app, restore, notify, "watcher disabled or no rules");
+        }
     }
 }
 
@@ -781,65 +981,89 @@ pub fn init_watcher(app: &AppHandle) {
             let mut monitor_handle: Option<thread::JoinHandle<()>> = None;
             let mut event_rx: Option<mpsc::Receiver<ProcessEvent>> = None;
             let mut stop_tx: Option<mpsc::Sender<()>> = None;
+            let mut backoff_secs: u64 = 0;
+            let mut next_retry_at: Option<Instant> = None;
 
             // 初始订阅
             let settings = config::get_app_settings().unwrap_or_default();
-            if settings.process_watcher_enabled {
-                if let Some(wql) = build_wql(&settings.process_rules) {
-                    let names = subscribed_names(&settings.process_rules);
-                    state().lock().unwrap().subscribed_processes = names;
-
-                    let (etx, erx) = mpsc::channel();
-                    let (stx, srx) = mpsc::channel();
-                    monitor_handle = spawn_wmi_monitor(etx, wql, srx);
-                    event_rx = Some(erx);
-                    stop_tx = Some(stx);
-
-                    // 对账：补处理订阅前已在运行的进程（WMI 不补发历史启动事件）
-                    reconcile_running_processes(&app_handle);
-                }
+            if let Some((h, erx, stx)) = try_start_subscription(&settings) {
+                monitor_handle = h;
+                event_rx = Some(erx);
+                stop_tx = Some(stx);
+                reconcile_running_processes(&app_handle);
+            } else if settings.process_watcher_enabled
+                && build_wql(&settings.process_rules).is_some()
+            {
+                backoff_secs = next_backoff_secs(0);
+                next_retry_at = Some(Instant::now() + Duration::from_secs(backoff_secs));
+                set_health(
+                    false,
+                    Some("initial subscribe failed".into()),
+                    1,
+                );
+                pw_log(format!("reconnect in {backoff_secs}s"));
+            } else {
+                pw_log("idle: watcher disabled or no enabled rules");
             }
 
             loop {
                 match cmd_receiver.try_recv() {
                     Ok(WatcherCommand::Resubscribe) => {
-                        // 停止旧 WMI 线程
-                        if let Some(tx) = stop_tx.take() {
-                            let _ = tx.send(());
-                        }
-                        drop(monitor_handle.take());
-                        drop(event_rx.take());
+                        pw_log("command Resubscribe");
+                        stop_subscription(
+                            &mut monitor_handle,
+                            &mut event_rx,
+                            &mut stop_tx,
+                        );
+                        backoff_secs = 0;
+                        next_retry_at = None;
 
                         let settings = config::get_app_settings().unwrap_or_default();
-                        if settings.process_watcher_enabled {
-                            if let Some(wql) = build_wql(&settings.process_rules) {
-                                let names = subscribed_names(&settings.process_rules);
-                                state().lock().unwrap().subscribed_processes = names;
-
-                                let (etx, erx) = mpsc::channel();
-                                let (stx, srx) = mpsc::channel();
-                                monitor_handle = spawn_wmi_monitor(etx, wql, srx);
+                        if settings.process_watcher_enabled
+                            && build_wql(&settings.process_rules).is_some()
+                        {
+                            if let Some((h, erx, stx)) = try_start_subscription(&settings) {
+                                monitor_handle = h;
                                 event_rx = Some(erx);
                                 stop_tx = Some(stx);
-
-                                // 对账：补处理订阅前已在运行的进程
                                 reconcile_running_processes(&app_handle);
+                            } else {
+                                backoff_secs = next_backoff_secs(0);
+                                next_retry_at =
+                                    Some(Instant::now() + Duration::from_secs(backoff_secs));
+                                set_health(
+                                    false,
+                                    Some("resubscribe failed".into()),
+                                    1,
+                                );
+                                pw_log(format!("reconnect in {backoff_secs}s"));
                             }
                         } else {
-                            state().lock().unwrap().subscribed_processes.clear();
+                            // 关监听或无规则：清 active
+                            teardown_subscription(
+                                &app_handle,
+                                &mut monitor_handle,
+                                &mut event_rx,
+                                &mut stop_tx,
+                                true,
+                            );
+                            pw_log("idle after resubscribe: disabled or no rules");
                         }
                     }
                     Ok(WatcherCommand::Stop) => {
-                        if let Some(tx) = stop_tx.take() {
-                            let _ = tx.send(());
-                        }
-                        drop(monitor_handle.take());
-                        drop(event_rx.take());
+                        pw_log("command Stop");
+                        stop_subscription(
+                            &mut monitor_handle,
+                            &mut event_rx,
+                            &mut stop_tx,
+                        );
                         WATCHER_RUNNING.store(false, Ordering::Relaxed);
+                        set_health(false, None, 0);
                         break;
                     }
                     Err(mpsc::TryRecvError::Empty) => {}
                     Err(mpsc::TryRecvError::Disconnected) => {
+                        pw_log("cmd channel disconnected, exiting watcher");
                         break;
                     }
                 }
@@ -849,15 +1073,74 @@ pub fn init_watcher(app: &AppHandle) {
                         Ok(event) => handle_event(event, &app_handle),
                         Err(mpsc::RecvTimeoutError::Timeout) => {}
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            if let Some(tx) = stop_tx.take() {
-                                let _ = tx.send(());
+                            pw_log("WMI event channel disconnected, will reconnect");
+                            stop_subscription(
+                                &mut monitor_handle,
+                                &mut event_rx,
+                                &mut stop_tx,
+                            );
+                            let settings = config::get_app_settings().unwrap_or_default();
+                            if settings.process_watcher_enabled
+                                && build_wql(&settings.process_rules).is_some()
+                            {
+                                backoff_secs = next_backoff_secs(backoff_secs);
+                                next_retry_at =
+                                    Some(Instant::now() + Duration::from_secs(backoff_secs));
+                                let attempt = {
+                                    let n = state().lock().unwrap().reconnect_attempt.saturating_add(1);
+                                    n.max(1)
+                                };
+                                set_health(
+                                    false,
+                                    Some("event channel disconnected".into()),
+                                    attempt,
+                                );
+                                pw_log(format!("reconnect in {backoff_secs}s"));
+                            } else {
+                                set_health(false, None, 0);
+                                backoff_secs = 0;
+                                next_retry_at = None;
                             }
-                            drop(monitor_handle.take());
-                            drop(event_rx.take());
                         }
                     }
                 } else {
-                    thread::sleep(Duration::from_millis(500));
+                    // 无活跃订阅：若应监听则按退避重订
+                    let settings = config::get_app_settings().unwrap_or_default();
+                    let should_subscribe = settings.process_watcher_enabled
+                        && build_wql(&settings.process_rules).is_some();
+
+                    if should_subscribe {
+                        let due = next_retry_at
+                            .map(|t| Instant::now() >= t)
+                            .unwrap_or(true);
+                        if due {
+                            if let Some((h, erx, stx)) = try_start_subscription(&settings) {
+                                monitor_handle = h;
+                                event_rx = Some(erx);
+                                stop_tx = Some(stx);
+                                backoff_secs = 0;
+                                next_retry_at = None;
+                                reconcile_running_processes(&app_handle);
+                            } else {
+                                backoff_secs = next_backoff_secs(backoff_secs);
+                                next_retry_at =
+                                    Some(Instant::now() + Duration::from_secs(backoff_secs));
+                                let attempt =
+                                    state().lock().unwrap().reconnect_attempt.saturating_add(1);
+                                set_health(
+                                    false,
+                                    Some("subscribe failed".into()),
+                                    attempt.max(1),
+                                );
+                                pw_log(format!("reconnect in {backoff_secs}s"));
+                                thread::sleep(Duration::from_millis(200));
+                            }
+                        } else {
+                            thread::sleep(Duration::from_millis(200));
+                        }
+                    } else {
+                        thread::sleep(Duration::from_millis(500));
+                    }
                 }
             }
         })
@@ -962,5 +1245,8 @@ pub fn get_watcher_status() -> Result<WatcherStatus, String> {
         active_rule: st.active_rule.clone(),
         active_config_name: st.active_rule.as_ref().map(|r| r.config_name.clone()),
         subscribed_processes: st.subscribed_processes.clone(),
+        wmi_connected: st.wmi_connected,
+        last_error: st.last_error.clone(),
+        reconnect_attempt: st.reconnect_attempt,
     })
 }
