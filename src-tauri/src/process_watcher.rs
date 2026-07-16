@@ -186,7 +186,7 @@ fn extract_icon_base64(exe_path: &str) -> Option<String> {
     use windows::core::HSTRING;
     use windows::Win32::Graphics::Gdi::{
         CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, BITMAP, BITMAPINFO,
-        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP,
+        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
     };
     use windows::Win32::UI::Shell::ExtractIconExW;
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -486,24 +486,22 @@ mod wmi_impl {
     }
 
     #[implement(IWbemObjectSink)]
-    pub struct EventSink {
+    struct EventSink {
         tx: mpsc::Sender<ProcessEvent>,
         stop: AtomicBool,
     }
 
     impl EventSink {
-        pub fn new(tx: mpsc::Sender<ProcessEvent>) -> Self {
+        fn new(tx: mpsc::Sender<ProcessEvent>) -> Self {
             Self {
                 tx,
                 stop: AtomicBool::new(false),
             }
         }
-
-        pub fn stop(&self) {
-            self.stop.store(true, Ordering::Relaxed);
-        }
     }
 
+    // COM 接口参数名必须与 Windows IDL 一致（PascalCase），不能改成 snake_case
+    #[allow(non_snake_case)]
     impl IWbemObjectSink_Impl for EventSink_Impl {
         fn Indicate(
             &self,

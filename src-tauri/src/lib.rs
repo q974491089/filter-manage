@@ -124,8 +124,13 @@ pub fn run() {
             // Announcements
             announcements::get_announcements,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                process_watcher::stop_watcher();
+            }
+        });
 }
 
 // === Autostart commands ===
