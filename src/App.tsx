@@ -150,58 +150,89 @@ function App() {
     return () => { unlisten.then(fn => fn()); };
   }, []);
 
-  // 监听快捷键/托盘应用方案事件
+  // 将已应用的方案同步到快速方案勾选 / 滑块（托盘、快捷键、进程监听共用）
+  const syncUiFromAppliedConfig = useCallback(async (configName: string) => {
+    if (configName === "__default__") {
+      try {
+        const def = await invoke<ColorConfig | null>("load_default_config");
+        if (def) {
+          setBrightness(def.brightness);
+          setContrast(def.contrast);
+          setGamma(def.gamma);
+          setDigitalVibrance(def.digital_vibrance);
+          setActiveProfile("Default");
+          setSelectedConfig("");
+          setBaseline({
+            brightness: def.brightness,
+            contrast: def.contrast,
+            gamma: def.gamma,
+            digitalVibrance: def.digital_vibrance,
+            iccProfile: "Default",
+          });
+        }
+      } catch (err) {
+        console.error("Failed to sync UI after config-applied:", err);
+      }
+      return;
+    }
+
+    try {
+      const cfg = await invoke<ColorConfig>("load_config", { name: configName });
+      setBrightness(cfg.brightness);
+      setContrast(cfg.contrast);
+      setGamma(cfg.gamma);
+      setDigitalVibrance(cfg.digital_vibrance);
+      setActiveProfile(cfg.icc_profile || "Default");
+      setSelectedConfig(configName);
+      setBaseline({
+        brightness: cfg.brightness,
+        contrast: cfg.contrast,
+        gamma: cfg.gamma,
+        digitalVibrance: cfg.digital_vibrance,
+        iccProfile: cfg.icc_profile || "Default",
+      });
+    } catch (err) {
+      console.error("Failed to sync UI after config-applied:", err);
+    }
+  }, []);
+
+  // 监听快捷键/托盘/进程监听应用方案事件
   useEffect(() => {
     const unlisten = listen<string>("config-applied", async (event) => {
-      const configName = event.payload;
-
-      if (configName === "__default__") {
-        // 恢复默认：重置所有 UI 状态
-        try {
-          const def = await invoke<ColorConfig | null>("load_default_config");
-          if (def) {
-            setBrightness(def.brightness);
-            setContrast(def.contrast);
-            setGamma(def.gamma);
-            setDigitalVibrance(def.digital_vibrance);
-            setActiveProfile("Default");
-            setSelectedConfig("");
-            setBaseline({
-              brightness: def.brightness,
-              contrast: def.contrast,
-              gamma: def.gamma,
-              digitalVibrance: def.digital_vibrance,
-              iccProfile: "Default",
-            });
-          }
-        } catch (err) {
-          console.error("Failed to sync UI after config-applied:", err);
-        }
-      } else {
-        // 应用了某个方案：加载该方案数据更新 UI
-        try {
-          const cfg = await invoke<ColorConfig>("load_config", { name: configName });
-          setBrightness(cfg.brightness);
-          setContrast(cfg.contrast);
-          setGamma(cfg.gamma);
-          setDigitalVibrance(cfg.digital_vibrance);
-          setActiveProfile(cfg.icc_profile || "Default");
-          setSelectedConfig(configName);
-          setBaseline({
-            brightness: cfg.brightness,
-            contrast: cfg.contrast,
-            gamma: cfg.gamma,
-            digitalVibrance: cfg.digital_vibrance,
-            iccProfile: cfg.icc_profile || "Default",
-          });
-        } catch (err) {
-          console.error("Failed to sync UI after config-applied:", err);
-        }
-      }
+      await syncUiFromAppliedConfig(event.payload);
     });
 
     return () => { unlisten.then(fn => fn()); };
-  }, []);
+  }, [syncUiFromAppliedConfig]);
+
+  // 启动时补同步：进程监听 reconcile 可能在前端 listen 就绪前就 emit，事件会丢
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncFromWatcher = async () => {
+      try {
+        const status = await invoke<{
+          active_config_name: string | null;
+        }>("get_watcher_status");
+        if (cancelled) return;
+        const name = status.active_config_name;
+        if (name) {
+          await syncUiFromAppliedConfig(name);
+        }
+      } catch (err) {
+        console.error("Failed to sync UI from watcher status:", err);
+      }
+    };
+
+    void syncFromWatcher();
+    // reconcile/apply 可能稍晚于首屏，短延迟再拉一次
+    const t = window.setTimeout(() => { void syncFromWatcher(); }, 800);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [syncUiFromAppliedConfig]);
 
   const showToast = useCallback((type: "success" | "error", text: string) => {
     setToast({ type, text });

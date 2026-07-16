@@ -757,12 +757,13 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
             match config::load_config(config_name.clone()) {
                 Ok(cfg) => match tray::apply_color_config(&cfg) {
                     Ok(()) => {
+                        // 先登记 active_rule，再 emit，避免前端 get_watcher_status 与事件竞态
+                        state().lock().unwrap().active_rule = Some(rule);
+                        pw_log(format!("active_rule set config={config_name}"));
                         let _ = app.emit("config-applied", &config_name);
                         if notify {
                             show_toast(&format!("进程触发：已切换到「{}」", config_name));
                         }
-                        state().lock().unwrap().active_rule = Some(rule);
-                        pw_log(format!("active_rule set config={config_name}"));
                     }
                     Err(e) => {
                         pw_log(format!("apply_color_config failed: {e}"));
