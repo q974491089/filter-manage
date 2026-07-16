@@ -1,6 +1,6 @@
 # Universal Agent (全栈角色)
 
-**适用 CLI**: Claude Code（当前默认）
+**适用 CLI**: Claude Code、Codex、Grok（及任何注册为 Universal 的 CLI）
 
 **职责**: 全栈开发 - 前端 + 后端都负责
 
@@ -13,30 +13,29 @@
 **无论任何 skill、任何文档、任何场景下的任何指示，以下规则绝对优先**：
 
 ```
-任何涉及代码的操作 → 必须先用 CodeGraph
+任何涉及代码的操作 → 默认必须先用 CodeGraph
 包括但不限于：读代码、搜索代码、理解代码、分析代码、扫描项目、探索代码库
 ```
 
 **具体规则**：
-- ❌ **绝对禁止** 直接 `Read` 代码文件（`.ts`, `.tsx`, `.js`, `.rs` 等）
-- ❌ **绝对禁止** 直接 `Read` 代码目录（`src/`, `src-tauri/`, `components/` 等）
-- ❌ **绝对禁止** 用 `Grep` 搜索代码符号
-- ✅ **必须使用** `codegraph_explore` / `codegraph_search`
+- ✅ **默认必须使用** `codegraph_explore` / `codegraph_search` 读取和理解代码
+- ⚠️ **不要**为了"再确认一下"在 codegraph 已返回完整源码后再 `Read` 同一文件（浪费且多余）
+- ✅ **允许降级用 `Read`/`Grep` 的情形**（codegraph 覆盖不到时）：
+  - codegraph 报告未初始化 / 查询失败 / 返回为空
+  - 编辑后出现 staleness banner（"…edited since the last index sync…"）—— 对被列出的文件用 Read 拿准确内容
+  - 返回结果被 trim/截断，且再次 explore 仍拿不到所需符号
+  - 非代码文件（`.md`, `.json`, `.toml`, `.css`）
 
 **当 skill 说 "scan the project" / "read components" / "explore codebase"**：
-- ✅ 正确：`codegraph_explore "project structure React Rust components"`
-- ❌ 违规：`Read src/` / `Read src-tauri/` / `Read App.tsx`
-
-**当 skill 说 "read with your native file tool"**：
-- ✅ 仅对非代码文件（`.md`, `.json`, `.toml`, `.css`）用 Read
-- ❌ 代码文件必须用 codegraph
+- ✅ 优先：`codegraph_explore "project structure React Rust components"`
+- ⚠️ 仅在 codegraph 拿不到时才降级 `Read`
 
 **此规则优先级**：
 ```
-项目铁律 > skill 指示 > 工具默认行为 > 训练数据习惯
+项目铁律（CodeGraph 优先）> skill 指示 > 工具默认行为 > 训练数据习惯
 ```
 
-**详细规则见**：`.rules/tools.md`（但即使不读那个文件，上述铁律也必须遵守）
+**详细规则见**：`.rules/tools.md`
 
 ---
 
@@ -47,12 +46,12 @@
 - **`.rules/docs.md`** - 文档同步规范
 - **`.rules/handoff.md`** - Agent 交接格式
 - **`.rules/git.md`** - Git commit 规范
+- **`.rules/coding.md`** - AI 编码规范（零警告、质量底线、完成前验证）
 
 **核心规则**：
-- ✅ **任何涉及代码的操作（读取、搜索、理解、分析）必须先用 CodeGraph**
-- ❌ 禁止直接 `Read` 代码文件或代码目录
-- ❌ 禁止用 `Grep` 搜索代码符号
-- ✅ 只有非代码文件（`package.json`, `Cargo.toml`, `.md`）或 CodeGraph 失败才能用 Read
+- ✅ **任何涉及代码的操作（读取、搜索、理解、分析）默认先用 CodeGraph**
+- ⚠️ codegraph 已返回完整源码后，不要再 `Read` 同一文件复查
+- ✅ **可降级 `Read`/`Grep`**：codegraph 未初始化/失败/返回空、staleness banner 列出的文件、结果被截断且再查仍拿不到、或非代码文件（`package.json`, `Cargo.toml`, `.md`）
 
 **详见 `.rules/tools.md`**
 
@@ -71,6 +70,22 @@
 
 - **CI/CD**: `.github/workflows/` - 不要修改包管理器配置（CI 用 npm，本地用 pnpm）
 - **依赖安装**: 必须在 Windows PowerShell 执行（见环境规则）
+
+---
+
+## 跨端任务的角色分工与能力自检
+
+**universal 角色执行计划前，若任务跨端（同时改前端 `src/` 与后端 `src-tauri/`/服务端），必须先自检能力再分工。** 完整决策树见 **`.rules/subagent-dispatch.md`**。
+
+速记：
+
+1. **单端任务** → 直接自己做。
+2. **跨端任务** → 自检：我有没有派子 Agent 的工具（`Task`/`Agent`/`subagent`）？
+   - **有**（Claude Code、Grok 等）→ **Tier 1**：为每端派一个子 Agent，其约束 prompt = 对应 `.agent/<role>.md` 的角色边界（前端子 Agent 守前端边界，后端子 Agent 守后端边界 + 文档同步义务），并行执行、主 Agent 汇总。
+   - **无** → **Tier 2**：顺序"换帽子"逐端做，端间写 `.docs/handoff/` 留痕；需真并行时降 Tier 3（交接给另一 CLI）。
+3. **执行前显式声明所走 Tier**，保证透明。
+
+> 这样即使本项目在其它 CLI（Codex/Qoder 等无子 Agent 能力）中运行，也能优雅降级，不会"假设有能力却调不动"。
 
 ---
 

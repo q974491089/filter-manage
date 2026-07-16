@@ -13,30 +13,25 @@
 **无论任何 skill、任何文档、任何场景下的任何指示，以下规则绝对优先**：
 
 ```
-任何涉及代码的操作 → 必须先用 CodeGraph
+任何涉及代码的操作 → 默认必须先用 CodeGraph
 包括但不限于：读代码、搜索代码、理解代码、分析代码、扫描项目、探索代码库
 ```
 
 **具体规则**：
-- ❌ **绝对禁止** 直接 `Read` 代码文件（`.ts`, `.tsx`, `.js`, `.rs` 等）
-- ❌ **绝对禁止** 直接 `Read` 代码目录（`src/`, `components/`, `hooks/` 等）
-- ❌ **绝对禁止** 用 `Grep` 搜索代码符号
-- ✅ **必须使用** `codegraph_explore` / `codegraph_search`
+- ✅ **默认必须使用** `codegraph_explore` / `codegraph_search` 读取和理解代码
+- ⚠️ codegraph 已返回完整源码后，**不要**再 `Read` 同一文件复查（多余）
+- ✅ **允许降级用 `Read`/`Grep`** 的情形（codegraph 覆盖不到时）：codegraph 未初始化/失败/返回空、编辑后 staleness banner 列出的文件、结果被截断且再查仍拿不到所需符号、UI 设计审查需看完整组件、或非代码文件（`.md`, `.json`, `.css`）
 
 **当 skill 说 "scan the project" / "read components" / "explore codebase"**：
-- ✅ 正确：`codegraph_explore "project structure components"`
-- ❌ 违规：`Read src/` / `Read App.tsx`
-
-**当 skill 说 "read with your native file tool"**：
-- ✅ 仅对非代码文件（`.md`, `.json`, `.css`）用 Read
-- ❌ 代码文件必须用 codegraph
+- ✅ 优先：`codegraph_explore "project structure components"`
+- ⚠️ 仅在 codegraph 拿不到时才降级 `Read`
 
 **此规则优先级**：
 ```
-项目铁律 > skill 指示 > 工具默认行为 > 训练数据习惯
+项目铁律（CodeGraph 优先）> skill 指示 > 工具默认行为 > 训练数据习惯
 ```
 
-**详细规则见**：`.rules/tools.md`（但即使不读那个文件，上述铁律也必须遵守）
+**详细规则见**：`.rules/tools.md`
 
 ---
 
@@ -47,12 +42,12 @@
 - **`.rules/docs.md`** - 文档同步规范
 - **`.rules/handoff.md`** - Agent 交接格式
 - **`.rules/git.md`** - Git commit 规范
+- **`.rules/coding.md`** - AI 编码规范（零警告、质量底线、完成前验证）
 
 **核心规则**：
-- ✅ **任何涉及代码的操作（读取、搜索、理解、分析）必须先用 CodeGraph**
-- ❌ 禁止直接 `Read` 代码文件或代码目录
-- ❌ 禁止用 `Grep` 搜索代码符号
-- ✅ 只有非代码文件（`package.json`, `.md`）或 CodeGraph 失败才能用 Read
+- ✅ **任何涉及代码的操作（读取、搜索、理解、分析）默认先用 CodeGraph**
+- ⚠️ codegraph 已返回完整源码后，不要再 `Read` 同一文件复查
+- ✅ **可降级 `Read`/`Grep`**：codegraph 未初始化/失败/返回空、staleness banner 列出的文件、结果被截断且再查仍拿不到、UI 审查看完整组件、或非代码文件（`package.json`, `.md`）
 
 **详见 `.rules/tools.md`**
 

@@ -10,11 +10,12 @@
 |-----|------|---------|---------|--------|
 | **Claude Code** (`claude`) | Claude Opus 4.8 | **Universal** (全栈) | `.agent/universal.md` | `shared/` + `frontend/` + `backend/` |
 | **Codex** (`codex`) | GPT-5 | **Universal** (全栈) | `.agent/universal.md` | `shared/` + `frontend/` + `backend/` |
+| **Grok** (`grok`) | Grok (xAI) | **Universal** (全栈) | `.agent/universal.md` | `shared/` + `frontend/` + `backend/` |
 | **OpenCode** | Xiaomi | **Frontend** | `.agent/frontend.md` | `shared/` + `frontend/` |
 | **QoderCLI** (`qoder`) | Qwen | **Universal**（临时切换） | `.agent/universal.md` | `shared/` + `frontend/` + `backend/` |
 | **Kiro CLI** (`kiro`) | - | （暂未使用） | - | - |
 
-**注**：Codex 与 Claude Code 共享 **Universal** 角色，拥有前端、后端和协作规则允许范围内的完整项目权限。
+**注**：Claude Code、Codex、Grok 共享 **Universal** 角色，拥有前端、后端和协作规则允许范围内的完整项目权限。
 
 ---
 
@@ -23,7 +24,7 @@
 ```
 1. 你的 CLI 启动
    ↓
-2. 读入口文件（CLAUDE.md / .kiro/README.md 等）
+2. 读入口文件（CLAUDE.md / .kiro/README.md / .grok/README.md 等）
    ↓
 3. 入口指示："读 AGENTS.md 找到你的角色"
    ↓
@@ -67,8 +68,9 @@
 |------|------|------|-------------|
 | `docs/` | **公开文档站**（VitePress）— changelog、安装指南、产品介绍等面向用户的内容 | 用户/访客 | 是 |
 | `.docs/` | **Agent 内部文档** — API 文档、迭代记录、交接文档、架构说明等面向 Agent 的技术内容 | AI Agent | 是 |
-| `.skills/` | Skill 源文件池（shared/frontend/backend 分类） | AI Agent | 是 |
-| `.skills/_build/` | QoderCLI SKILL.md 中间生成目录，sync-skills.sh 自动生成 | 临时 | **否**（gitignore） |
+| `.docs/prd/` | **PRD 产品需求文档** — 活跃功能的需求（`/prd` skill 产出，writing-plans 的输入） | AI Agent | 是 |
+| `.docs/archive/` | **归档区** — 已完成的 plans/handoff/完工报告/同步日志，可追溯历史，**平时不读**，仅追溯背景时查 | AI Agent | 是 |
+| `.skills/` | Skill 源文件池（shared/frontend/backend 分类，统一 `<name>/SKILL.md` 目录格式） | AI Agent | 是 |
 | `.env.local` | 本地敏感配置（服务器、账号、密码、token 等） | 本地开发/Agent | **否**（gitignore） |
 | `.env.example` | 本地敏感配置模板（只写占位符） | 全体 | 是 |
 | `.writing/` | CLI 写作缓冲临时文件 | 临时 | **否**（gitignore） |
@@ -92,6 +94,9 @@
 | **文档同步** | `.rules/docs.md` | API 文档、迭代记录、同步信号 |
 | **交接格式** | `.rules/handoff.md` | Agent 间交接文档模板 |
 | **Git 规范** | `.rules/git.md` | Commit message 格式、分支策略 |
+| **子Agent分工** | `.rules/subagent-dispatch.md` | 跨端任务的能力自适应分工（多 CLI 通用） |
+| **归档规则** | `.rules/archive.md` | 历史产物归档到 `.docs/archive/` |
+| **AI 编码规范** | `.rules/coding.md` | 零警告交付、Rust/前端质量底线、完成前验证 |
 
 ---
 
@@ -154,6 +159,9 @@
 # 示例：恢复全栈角色
 ./scripts/sync-skills.sh claude universal
 
+# 示例：让 Grok 切换到全栈
+./scripts/sync-skills.sh grok universal
+
 # 示例：让 Kiro CLI 接管前端
 ./scripts/sync-skills.sh kiro frontend
 ```
@@ -204,7 +212,7 @@
 
 ### Q: 我怎么知道我是什么角色？
 
-**A**: 读你的 CLI 入口文件（`CLAUDE.md` / `.kiro/README.md`），会指向 `AGENTS.md`，然后在"当前 Agent 分配"表中找到你的 CLI。
+**A**: 读你的 CLI 入口文件（`CLAUDE.md` / `.kiro/README.md` / `.grok/README.md`），会指向 `AGENTS.md`，然后在"当前 Agent 分配"表中找到你的 CLI。
 
 ### Q: 我想切换角色怎么办？
 
@@ -221,7 +229,7 @@
 
 **A**: 
 - **源文件**：`.skills/shared/`, `.skills/frontend/`, `.skills/backend/`
-- **你的 CLI 目录**：`.claude/skills/`, `.kiro/skills/` 等（symlink）
+- **你的 CLI 目录**：`.claude/skills/`, `.kiro/skills/`, `.grok/skills/` 等（symlink）
 
 ### Q: 我该读哪些规则？
 
@@ -358,4 +366,4 @@ gh run view <run-id> --log | grep -E "OK|failed|warning|Upload"
 
 ## 框架说明
 
-详见 `.agent/README.md` 和 `.agent/IMPLEMENTATION_REPORT.md`。
+详见 `.agent/README.md` 和 `.docs/archive/reports/IMPLEMENTATION_REPORT.md`（已归档）。
