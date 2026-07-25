@@ -48,19 +48,27 @@ docs/.vitepress/dist/
 *.key.pub
 .antigravitycli/
 
-# AI CLI temp files
+# ── AI / Agent 工作区（不进仓库、不进 release）────────────────────────────
+# 写作缓冲、CodeGraph 运行时、本地学习日志
 .writing/
 .codegraph/
+.learnings/ERRORS.md
 .skills/_build/
 
-# AI CLI skills (auto-generated symlinks, per-machine)
+# 各 CLI 自动生成的 skill symlink / 本机 settings（源文件在 .skills/）
 .claude/skills/
 .kiro/skills/
 .opencode/skills/
+.qoder/skills/
+.grok/skills/
 .claude/settings.local.json
 .qoder/settings.local.json
 .kiro/settings.local.json
 .opencode/settings.local.json
+.grok/settings.local.json
+
+# Codex 本机配置可能含真实 API key；只提交 config.toml.example
+.codex/config.toml
 
 # Local scripts (may contain credentials)
 scripts/upload-cloud.sh

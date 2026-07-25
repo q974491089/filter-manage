@@ -4,14 +4,14 @@
       "command": "npx",
       "args": ["-y", "tavily-mcp"],
       "env": {
-        "TAVILY_API_KEY": "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"
+        "TAVILY_API_KEY": "${TAVILY_API_KEY}"
       }
     },
     "codegraph": {
       "command": "cmd.exe",
       "args": [
         "/c",
-        "C:\\Users\\Administrator\\AppData\\Local\\pnpm\\bin\\codegraph.CMD",
+        "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\codegraph.cmd",
         "serve",
         "--mcp",
         "--path",
