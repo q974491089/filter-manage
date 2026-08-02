@@ -19,13 +19,31 @@ interface SaveModalProps {
   onClose: () => void;
   onSave: (name: string, icon?: string) => Promise<void>;
   loading: boolean;
+  /** 已有方案名，用于禁止重名 */
+  existingNames?: string[];
+  /** 弹窗标题 */
+  title?: string;
+  /** 副标题说明 */
+  description?: string;
+  /** 确认按钮文案 */
+  confirmLabel?: string;
 }
 
-function SaveModal({ open, onClose, onSave, loading }: SaveModalProps) {
+function SaveModal({
+  open,
+  onClose,
+  onSave,
+  loading,
+  existingNames = [],
+  title = "保存配置方案",
+  description = "为当前的颜色设置命名",
+  confirmLabel = "保存",
+}: SaveModalProps) {
   const [name, setName] = useState("");
   const [selectedIcon, setSelectedIcon] = useState("tune");
   const [customIconUrl, setCustomIconUrl] = useState("");
   const [useCustomIcon, setUseCustomIcon] = useState(false);
+  const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -34,15 +52,30 @@ function SaveModal({ open, onClose, onSave, loading }: SaveModalProps) {
       setSelectedIcon("tune");
       setCustomIconUrl("");
       setUseCustomIcon(false);
+      setError("");
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [open]);
 
   const handleSave = async () => {
-    if (!name.trim()) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    const duplicate = existingNames.some(
+      (n) => n.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (duplicate) {
+      setError(`方案「${trimmed}」已存在，请换一个名称`);
+      return;
+    }
+
     const icon = useCustomIcon && customIconUrl ? customIconUrl : selectedIcon;
-    await onSave(name.trim(), icon);
-    onClose();
+    try {
+      await onSave(trimmed, icon);
+      onClose();
+    } catch {
+      // 父组件已 Toast；保持弹窗打开以便改名重试
+    }
   };
 
   if (!open) return null;
@@ -53,19 +86,29 @@ function SaveModal({ open, onClose, onSave, loading }: SaveModalProps) {
 
       <div data-name="modal" className="relative bg-surface-container-high border border-outline-variant/30 rounded-xl shadow-xl w-full max-w-sm mx-4 overflow-hidden">
         <div className="p-xl">
-          <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface mb-xs">保存配置方案</h3>
-          <p className="text-body-md text-on-surface-variant mb-md">为当前的颜色设置命名</p>
+          <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface mb-xs">{title}</h3>
+          <p className="text-body-md text-on-surface-variant mb-md">{description}</p>
 
           <input
             data-name="name-input"
             ref={inputRef}
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (error) setError("");
+            }}
             onKeyDown={(e) => e.key === "Enter" && handleSave()}
             placeholder="例如：电影观赏、游戏模式..."
-            className="w-full px-md py-sm bg-surface-container border border-outline-variant/30 rounded-lg text-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors mb-md"
+            className="w-full px-md py-sm bg-surface-container border border-outline-variant/30 rounded-lg text-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
           />
+          {error ? (
+            <p className="text-body-sm text-error mt-sm mb-md" role="alert">
+              {error}
+            </p>
+          ) : (
+            <div className="mb-md" />
+          )}
 
           <p className="text-body-sm text-on-surface-variant mb-sm">选择图标</p>
           <div className="flex flex-wrap gap-sm mb-md">
@@ -117,7 +160,7 @@ function SaveModal({ open, onClose, onSave, loading }: SaveModalProps) {
             disabled={loading || !name.trim()}
             className="flex-1 px-md py-md text-body-md text-primary hover:bg-primary/10 font-medium transition-colors disabled:opacity-40"
           >
-            {loading ? "保存中..." : "保存"}
+            {loading ? "保存中..." : confirmLabel}
           </button>
         </div>
       </div>

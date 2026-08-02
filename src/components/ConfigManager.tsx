@@ -92,6 +92,10 @@ function ConfigManager({
 
   const handleDelete = async (e: React.MouseEvent, name: string) => {
     e.stopPropagation();
+    if (name === selectedConfig) {
+      showToast("error", "正在应用的方案不能删除，请先切换到其他方案");
+      return;
+    }
     try {
       await invoke("delete_config", { name });
       showToast("success", `已删除「${name}」`);
@@ -311,11 +315,11 @@ function ConfigManager({
 
   return (
     <div data-components="ConfigManager" className="flex-[1.5] flex flex-col min-h-0 overflow-hidden">
-      <div className="mb-md">
+      <div className="mb-md shrink-0">
         <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">快速方案</h3>
       </div>
 
-      <div data-name="config-list" className="flex-1 bg-surface-container rounded-xl border border-outline-variant/20 p-md overflow-y-auto">
+      <div data-name="config-list" className="flex-1 min-h-0 bg-surface-container rounded-lg border border-outline-variant/20 p-md overflow-y-auto">
         {configs.length === 0 ? (
           <div className="text-center py-8 text-body-md text-on-surface-variant">
             暂无保存的配置
@@ -355,10 +359,11 @@ function ConfigManager({
                     </button>
                     <button
                       onClick={(e) => handleDelete(e, name)}
-                      className="p-xs rounded hover:bg-error-container/30 transition-all flex items-center"
-                      title="删除"
+                      disabled={isActive}
+                      className="p-xs rounded hover:bg-error-container/30 transition-all flex items-center disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                      title={isActive ? "正在应用的方案不能删除" : "删除"}
                     >
-                      <Icon name="delete" className="text-[18px] text-error" />
+                      <Icon name="delete" className={`text-[18px] ${isActive ? "text-on-surface-variant" : "text-error"}`} />
                     </button>
                   </div>
                 </div>

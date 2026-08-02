@@ -130,11 +130,11 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
 
   if (loading) {
     return (
-      <div data-components="ProfileList" className="flex flex-col min-h-0 overflow-hidden">
-        <div className="mb-md flex justify-between items-end">
+      <div data-components="ProfileList" className="flex flex-col h-full min-h-0 overflow-hidden">
+        <div className="mb-md flex justify-between items-end shrink-0">
           <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">ICC 配置文件</h3>
         </div>
-        <div className="flex-1 bg-surface-container rounded-md border border-outline-variant/20 overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 bg-surface-container rounded-lg border border-outline-variant/20 overflow-hidden flex flex-col">
           <div className="flex items-center justify-center py-12 text-on-surface-variant">
             <svg className="animate-spin w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -149,11 +149,11 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
 
   if (error) {
     return (
-      <div data-components="ProfileList" className="flex flex-col min-h-0 overflow-hidden">
-        <div className="mb-md flex justify-between items-end">
+      <div data-components="ProfileList" className="flex flex-col h-full min-h-0 overflow-hidden">
+        <div className="mb-md flex justify-between items-end shrink-0">
           <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">ICC 配置文件</h3>
         </div>
-        <div className="flex-1 bg-surface-container rounded-md border border-outline-variant/20 overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 bg-surface-container rounded-lg border border-outline-variant/20 overflow-hidden flex flex-col">
           <div className="text-center py-8">
             <p className="text-body-md text-error mb-3">{error}</p>
             <button
@@ -169,8 +169,8 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
   }
 
   return (
-    <div data-components="ProfileList" className="flex flex-col min-h-0 overflow-hidden">
-      <div className="mb-md flex justify-between items-center">
+    <div data-components="ProfileList" className="flex flex-col h-full min-h-0 overflow-hidden">
+      <div className="mb-md flex justify-between items-center shrink-0">
         <div className="flex items-baseline gap-sm">
           <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">ICC 配置文件</h3>
           <span data-name="count" className="text-label-sm text-on-surface-variant font-medium">{profiles.length} 个文件</span>
@@ -186,7 +186,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
       </div>
 
       <div
-        className={`flex-1 bg-surface-container rounded-md border overflow-hidden flex flex-col transition-colors ${
+        className={`flex-1 min-h-0 bg-surface-container rounded-lg border overflow-hidden flex flex-col transition-colors ${
           dragOver ? "border-primary border-2" : "border-outline-variant/20"
         }`}
       >

@@ -17,6 +17,7 @@ import AnnouncementModal from "./components/AnnouncementModal";
 import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
 import { useAnnouncements } from "./hooks/useAnnouncements";
+import type { RgbScaleMode } from "./lib/rgbScale";
 
 interface ColorConfig {
   name: string;
@@ -25,6 +26,9 @@ interface ColorConfig {
   contrast: number;
   gamma: number;
   digital_vibrance: number;
+  rgb_r?: number;
+  rgb_g?: number;
+  rgb_b?: number;
   icc_profile: string | null;
 }
 
@@ -49,6 +53,14 @@ function App() {
   const [contrast, setContrast] = useState(0);
   const [gamma, setGamma] = useState(1.0);
   const [digitalVibrance, setDigitalVibrance] = useState(50);
+  const [rgbR, setRgbR] = useState(0);
+  const [rgbG, setRgbG] = useState(0);
+  const [rgbB, setRgbB] = useState(0);
+  const [rgbScaleMode, setRgbScaleMode] = useState<RgbScaleMode>(() => {
+    const saved = localStorage.getItem("rgbScaleMode");
+    if (saved === "nvidia" || saved === "zowie" || saved === "aoc") return saved;
+    return "nvidia";
+  });
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>();
 
   const [configs, setConfigs] = useState<ColorConfig[]>([]);
@@ -70,7 +82,16 @@ function App() {
   const [closePromptInitialTray, setClosePromptInitialTray] = useState<boolean | null>(null);
   const updater = useUpdater();
   const ann = useAnnouncements();
-  const [baseline, setBaseline] = useState({ brightness: 0, contrast: 0, gamma: 1.0, digitalVibrance: 50, iccProfile: "Default" });
+  const [baseline, setBaseline] = useState({
+    brightness: 0,
+    contrast: 0,
+    gamma: 1.0,
+    digitalVibrance: 50,
+    rgbR: 0,
+    rgbG: 0,
+    rgbB: 0,
+    iccProfile: "Default",
+  });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -80,7 +101,15 @@ function App() {
     contrast !== baseline.contrast ||
     gamma !== baseline.gamma ||
     digitalVibrance !== baseline.digitalVibrance ||
+    rgbR !== baseline.rgbR ||
+    rgbG !== baseline.rgbG ||
+    rgbB !== baseline.rgbB ||
     activeProfile !== baseline.iccProfile;
+
+  const handleRgbScaleModeChange = (mode: RgbScaleMode) => {
+    setRgbScaleMode(mode);
+    localStorage.setItem("rgbScaleMode", mode);
+  };
 
   // 监听系统主题变化
   useEffect(() => {
@@ -156,10 +185,16 @@ function App() {
       try {
         const def = await invoke<ColorConfig | null>("load_default_config");
         if (def) {
+          const rr = def.rgb_r ?? 0;
+          const rg = def.rgb_g ?? 0;
+          const rb = def.rgb_b ?? 0;
           setBrightness(def.brightness);
           setContrast(def.contrast);
           setGamma(def.gamma);
           setDigitalVibrance(def.digital_vibrance);
+          setRgbR(rr);
+          setRgbG(rg);
+          setRgbB(rb);
           setActiveProfile("Default");
           setSelectedConfig("");
           setBaseline({
@@ -167,6 +202,9 @@ function App() {
             contrast: def.contrast,
             gamma: def.gamma,
             digitalVibrance: def.digital_vibrance,
+            rgbR: rr,
+            rgbG: rg,
+            rgbB: rb,
             iccProfile: "Default",
           });
         }
@@ -178,10 +216,16 @@ function App() {
 
     try {
       const cfg = await invoke<ColorConfig>("load_config", { name: configName });
+      const rr = cfg.rgb_r ?? 0;
+      const rg = cfg.rgb_g ?? 0;
+      const rb = cfg.rgb_b ?? 0;
       setBrightness(cfg.brightness);
       setContrast(cfg.contrast);
       setGamma(cfg.gamma);
       setDigitalVibrance(cfg.digital_vibrance);
+      setRgbR(rr);
+      setRgbG(rg);
+      setRgbB(rb);
       setActiveProfile(cfg.icc_profile || "Default");
       setSelectedConfig(configName);
       setBaseline({
@@ -189,6 +233,9 @@ function App() {
         contrast: cfg.contrast,
         gamma: cfg.gamma,
         digitalVibrance: cfg.digital_vibrance,
+        rgbR: rr,
+        rgbG: rg,
+        rgbB: rb,
         iccProfile: cfg.icc_profile || "Default",
       });
     } catch (err) {
@@ -271,9 +318,15 @@ function App() {
       try {
         const existing = await invoke<ColorConfig | null>("load_default_config");
         if (existing) {
+          const rr = existing.rgb_r ?? 0;
+          const rg = existing.rgb_g ?? 0;
+          const rb = existing.rgb_b ?? 0;
           setBrightness(existing.brightness);
           setContrast(existing.contrast);
           setGamma(existing.gamma);
+          setRgbR(rr);
+          setRgbG(rg);
+          setRgbB(rb);
           const profile = existing.icc_profile || "Default";
           setActiveProfile(profile);
           setBaseline({
@@ -281,6 +334,9 @@ function App() {
             contrast: existing.contrast,
             gamma: existing.gamma,
             digitalVibrance: existing.digital_vibrance,
+            rgbR: rr,
+            rgbG: rg,
+            rgbB: rb,
             iccProfile: profile,
           });
         } else {
@@ -292,6 +348,9 @@ function App() {
               contrast: 0,
               gamma: 1.0,
               digital_vibrance: dvcDefault,
+              rgb_r: 0,
+              rgb_g: 0,
+              rgb_b: 0,
               icc_profile: null,
             },
           });
@@ -307,10 +366,16 @@ function App() {
   }, [refreshConfigs]);
 
   const handleApply = async (config: ColorConfig) => {
+    const rr = config.rgb_r ?? 0;
+    const rg = config.rgb_g ?? 0;
+    const rb = config.rgb_b ?? 0;
     setBrightness(config.brightness);
     setContrast(config.contrast);
     setGamma(config.gamma);
     setDigitalVibrance(config.digital_vibrance);
+    setRgbR(rr);
+    setRgbG(rg);
+    setRgbB(rb);
     const profile = config.icc_profile || "Default";
     setActiveProfile(profile);
     setBaseline({
@@ -318,6 +383,9 @@ function App() {
       contrast: config.contrast,
       gamma: config.gamma,
       digitalVibrance: config.digital_vibrance,
+      rgbR: rr,
+      rgbG: rg,
+      rgbB: rb,
       iccProfile: profile,
     });
 
@@ -344,6 +412,7 @@ function App() {
         invoke("set_nvidia_contrast", { deviceId: selectedDeviceId, value: config.contrast }),
         invoke("set_nvidia_gamma", { deviceId: selectedDeviceId, value: config.gamma }),
         invoke("set_nvidia_digital_vibrance", { deviceId: selectedDeviceId, value: config.digital_vibrance }),
+        invoke("set_nvidia_rgb_gain", { deviceId: selectedDeviceId, r: rr, g: rg, b: rb }),
       ]);
     } catch (err) {
       console.error("Failed to apply NVIDIA:", err);
@@ -377,19 +446,33 @@ function App() {
   const handleMonitorChange = async (deviceId: string) => {
     setSelectedDeviceId(deviceId || undefined);
     try {
-      const settings = await invoke<{ brightness: number; contrast: number; gamma: number; digital_vibrance: number }>(
-        "get_nvidia_settings",
-        { deviceId: deviceId || undefined }
-      );
+      const settings = await invoke<{
+        brightness: number;
+        contrast: number;
+        gamma: number;
+        digital_vibrance: number;
+        rgb_r?: number;
+        rgb_g?: number;
+        rgb_b?: number;
+      }>("get_nvidia_settings", { deviceId: deviceId || undefined });
+      const rr = settings.rgb_r ?? 0;
+      const rg = settings.rgb_g ?? 0;
+      const rb = settings.rgb_b ?? 0;
       setBrightness(settings.brightness);
       setContrast(settings.contrast);
       setGamma(settings.gamma);
       setDigitalVibrance(settings.digital_vibrance);
+      setRgbR(rr);
+      setRgbG(rg);
+      setRgbB(rb);
       setBaseline({
         brightness: settings.brightness,
         contrast: settings.contrast,
         gamma: settings.gamma,
         digitalVibrance: settings.digital_vibrance,
+        rgbR: rr,
+        rgbG: rg,
+        rgbB: rb,
         iccProfile: activeProfile,
       });
     } catch (err) {
@@ -397,24 +480,97 @@ function App() {
     }
   };
 
+  const buildColorFields = () => ({
+    brightness,
+    contrast,
+    gamma,
+    digital_vibrance: digitalVibrance,
+    rgb_r: rgbR,
+    rgb_g: rgbG,
+    rgb_b: rgbB,
+    icc_profile: activeProfile !== "Default" ? activeProfile : null,
+  });
+
+  /** 另存为 / 无当前方案时的新建；禁止重名覆盖 */
   const handleSaveCurrent = async (name: string, icon?: string) => {
+    const exists = configs.some((c) => c.name.toLowerCase() === name.toLowerCase());
+    if (exists) {
+      showToast("error", `方案「${name}」已存在，请换一个名称`);
+      throw new Error("duplicate name");
+    }
+
     setLoading(true);
     try {
       const config: ColorConfig = {
         name,
         icon,
-        brightness,
-        contrast,
-        gamma,
-        digital_vibrance: digitalVibrance,
-        icc_profile: activeProfile !== "Default" ? activeProfile : null,
+        ...buildColorFields(),
       };
       await invoke("save_config", { config });
       setSelectedConfig(name);
+      setBaseline({
+        brightness,
+        contrast,
+        gamma,
+        digitalVibrance,
+        rgbR,
+        rgbG,
+        rgbB,
+        iccProfile: activeProfile,
+      });
       showToast("success", `「${name}」已保存`);
       await refreshConfigs();
     } catch (err) {
+      if (err instanceof Error && err.message === "duplicate name") throw err;
       showToast("error", `保存失败: ${err}`);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** 将当前颜色参数写回当前方案（不改名称/图标） */
+  const handleUpdateCurrent = async () => {
+    if (!selectedConfig || !hasChanges) return;
+
+    const stillExists = configs.some((c) => c.name === selectedConfig);
+    if (!stillExists) {
+      showToast("error", `方案「${selectedConfig}」不存在，请另存为新方案`);
+      setSelectedConfig("");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const existing = await invoke<ColorConfig>("load_config", { name: selectedConfig });
+      const config: ColorConfig = {
+        ...existing,
+        name: selectedConfig,
+        ...buildColorFields(),
+        // 保留原 icon（load 的 existing.icon）
+        icon: existing.icon,
+      };
+      await invoke("save_config", { config });
+      setBaseline({
+        brightness,
+        contrast,
+        gamma,
+        digitalVibrance,
+        rgbR,
+        rgbG,
+        rgbB,
+        iccProfile: activeProfile,
+      });
+      showToast("success", `「${selectedConfig}」已更新`);
+      await refreshConfigs();
+    } catch (err) {
+      const msg = String(err);
+      if (/not found/i.test(msg)) {
+        showToast("error", `方案「${selectedConfig}」不存在，请另存为新方案`);
+        setSelectedConfig("");
+      } else {
+        showToast("error", `更新失败: ${err}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -423,11 +579,17 @@ function App() {
   const handleConfigLoad = async (config: ColorConfig) => {
     setSelectedConfig(config.name);
     await handleApply(config);
+    const rr = config.rgb_r ?? 0;
+    const rg = config.rgb_g ?? 0;
+    const rb = config.rgb_b ?? 0;
     setBaseline({
       brightness: config.brightness,
       contrast: config.contrast,
       gamma: config.gamma,
       digitalVibrance: config.digital_vibrance,
+      rgbR: rr,
+      rgbG: rg,
+      rgbB: rb,
       iccProfile: config.icc_profile || "Default",
     });
   };
@@ -527,21 +689,49 @@ function App() {
             <span className="font-label-md text-label-md">重置默认</span>
           </button>
 
-          <button
-            data-name="save-button"
-            onClick={() => setShowSaveModal(true)}
-            disabled={loading || (!selectedConfig && !hasChanges)}
-            className="flex items-center gap-xs px-lg py-sm rounded bg-primary text-on-primary font-bold shadow-lg shadow-primary/20 active:scale-95 duration-150 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Icon name="save" className="text-[18px]" />
-            <span className="font-label-md text-label-md">保存方案</span>
-          </button>
+          {selectedConfig ? (
+            <>
+              <button
+                data-name="update-button"
+                onClick={handleUpdateCurrent}
+                disabled={loading || !hasChanges}
+                className="flex items-center gap-xs px-lg py-sm rounded bg-primary text-on-primary font-bold shadow-lg shadow-primary/20 active:scale-95 duration-150 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                title={hasChanges ? `将颜色参数写回「${selectedConfig}」` : "当前参数与方案一致，无需更新"}
+              >
+                <Icon name="save" className="text-[18px]" />
+                <span className="font-label-md text-label-md">更新方案</span>
+              </button>
+              <button
+                data-name="save-as-button"
+                onClick={() => setShowSaveModal(true)}
+                disabled={loading}
+                className="flex items-center gap-xs px-md py-sm rounded border border-outline-variant/50 text-on-surface hover:bg-surface-variant/50 active:scale-95 duration-150 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                title="将当前颜色参数另存为新方案"
+              >
+                <Icon name="add" className="text-[18px]" />
+                <span className="font-label-md text-label-md">另存为</span>
+              </button>
+            </>
+          ) : (
+            <button
+              data-name="save-button"
+              onClick={() => setShowSaveModal(true)}
+              disabled={loading || !hasChanges}
+              className="flex items-center gap-xs px-lg py-sm rounded bg-primary text-on-primary font-bold shadow-lg shadow-primary/20 active:scale-95 duration-150 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Icon name="save" className="text-[18px]" />
+              <span className="font-label-md text-label-md">保存方案</span>
+            </button>
+          )}
 
           <div className="w-[1px] h-6 bg-outline-variant/30 mx-sm"></div>
 
           <AnnouncementBell
-            items={ann.items}
+            items={ann.visibleItems}
             unreadCount={ann.unreadCount}
+            unreadByCategory={ann.unreadByCategory}
+            activeTab={ann.activeTab}
+            setActiveTab={ann.setActiveTab}
             isRead={ann.isRead}
             open={ann.panelOpen}
             setOpen={ann.setPanelOpen}
@@ -576,10 +766,10 @@ function App() {
         </div>
       )}
 
-      {/* Main Content */}
+      {/* Main Content — 三列等高，底部卡片底边对齐 */}
       <main data-name="main-content" className="pt-16 h-screen overflow-hidden">
-        <div className="grid grid-cols-12 h-full gap-md p-md">
-          <div data-name="profile-panel" className="col-span-3 flex flex-col min-h-0">
+        <div className="grid grid-cols-12 h-full gap-md p-md items-stretch">
+          <div data-name="profile-panel" className="col-span-3 flex flex-col min-h-0 h-full">
             <ProfileList
               activeProfile={activeProfile}
               onProfileSelect={handleProfileChange}
@@ -587,12 +777,16 @@ function App() {
               selectedDeviceId={selectedDeviceId}
             />
           </div>
-          <div data-name="adjuster-panel" className="col-span-5 flex flex-col min-h-0 overflow-hidden">
+          <div data-name="adjuster-panel" className="col-span-5 flex flex-col min-h-0 h-full overflow-hidden">
             <ColorAdjuster
               brightness={brightness}
               contrast={contrast}
               gamma={gamma}
               digitalVibrance={digitalVibrance}
+              rgbR={rgbR}
+              rgbG={rgbG}
+              rgbB={rgbB}
+              rgbScaleMode={rgbScaleMode}
               selectedDeviceId={selectedDeviceId}
               monitors={monitors}
               currentMonitorName={monitors.find(m => m.device_id === selectedDeviceId)?.name}
@@ -600,10 +794,16 @@ function App() {
               onContrastChange={setContrast}
               onGammaChange={setGamma}
               onDigitalVibranceChange={setDigitalVibrance}
+              onRgbChange={(r, g, b) => {
+                setRgbR(r);
+                setRgbG(g);
+                setRgbB(b);
+              }}
+              onRgbScaleModeChange={handleRgbScaleModeChange}
               onDeviceChange={setSelectedDeviceId}
             />
           </div>
-          <div data-name="preview-config-panel" className="col-span-4 flex flex-col min-h-0 overflow-hidden gap-gutter">
+          <div data-name="preview-config-panel" className="col-span-4 flex flex-col min-h-0 h-full overflow-hidden gap-gutter">
             <PreviewImage showToast={showToast} />
             <ConfigManager
               configs={configs}
@@ -621,6 +821,14 @@ function App() {
         onClose={() => setShowSaveModal(false)}
         onSave={handleSaveCurrent}
         loading={loading}
+        existingNames={configs.map((c) => c.name)}
+        title={selectedConfig ? "另存为新方案" : "保存配置方案"}
+        description={
+          selectedConfig
+            ? "以当前颜色参数创建新方案（不会修改当前方案）"
+            : "为当前的颜色设置命名"
+        }
+        confirmLabel={selectedConfig ? "另存为" : "保存"}
       />
 
       <AboutModal
