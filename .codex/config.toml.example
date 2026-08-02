@@ -1,0 +1,12 @@
+sandbox_mode = "danger-full-access"
+[mcp_servers.tavily]
+args = [
+    "-y",
+    "tavily-mcp",
+]
+command = "npx"
+
+[mcp_servers.tavily.env]
+# Real value lives in the untracked .codex/config.toml (see .env.example / TAVILY_API_KEY).
+# Copy this file to .codex/config.toml and fill in the real key locally. Never commit the real key.
+TAVILY_API_KEY = "<TAVILY_API_KEY>"

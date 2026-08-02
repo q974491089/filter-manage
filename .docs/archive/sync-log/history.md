@@ -1,8 +1,10 @@
-【文档已完成同步更新】2026-08-02 — 保存流程重构（更新方案/另存为/保存方案三态 + 当前方案不可删除 + 另存为禁重名）与公告 Markdown 外链（AnnouncementMarkdown + plugin-opener）已随 v0.4.0 迭代记录补登记；.docs/README.md 已同步，领域语言见 CONTEXT.md
+> 📦 已归档 2026-07-08 · SYNC_STATUS 历史信号日志，仅供追溯
 
-【文档已完成同步更新】2026-08-01 — Announcement 新增 category 字段（announcement/notification），铃铛面板拆「公告 / 通知」Tab + 各 Tab 独立未读徽标；缺省/未知值归「公告」；.docs/api/announcements.md、README 已同步
+# SYNC_STATUS 历史信号日志
 
-【文档已完成同步更新】2026-07-24 — 新增 RGB 增益 set_nvidia_rgb_gain 与 ColorConfig.rgb_r/g/b；前端显示色彩调整 + 调节方式 NVIDIA/卓伟/AOC 换算；.docs/api/nvidia.md、config.md、README 已同步
+> 本文件保存 `SYNC_STATUS.md` 累积的历史「文档已完成同步更新」信号。这些信号已被消费，仅供追溯。变更的权威记录在 `.docs/README.md` 迭代记录与 `CHANGELOG.md`。
+
+---
 
 【文档已完成同步更新】2026-05-24 — v0.2.6 集成 tauri-plugin-opener 插件、补全 updater/process/opener 权限；CHANGELOG 与 docs/README 已同步追加 v0.2.6 条目
 

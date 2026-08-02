@@ -12,11 +12,23 @@
 
 ## 迭代记录
 
-### 开发中 — 进程监听 WMI 可靠性
+### v0.4.0 — 2026-08-02 · RGB 增益 + 公告分类 + 保存流程重构
+
+RGB 三通道增益（偏色/白平衡）与三种调节方式换算；公告拆「公告 / 通知」双 Tab；保存动作重构为「更新方案 / 另存为 / 保存方案」三态并禁止删除当前方案；进程监听 WMI 断线自愈。
 
 | 类型 | 端 | 说明 | 涉及文件 | 文档 |
 |------|----|------|---------|------|
+| 新功能 | 后端+前端 | RGB 增益（内部 -100..+100）：`set_nvidia_rgb_gain`；方案字段 `rgb_r/g/b`；「显示色彩调整」分区；调节方式 NVIDIA/卓伟/AOC 仅 UI 换算 | `nvidia.rs`、`config.rs`、`tray.rs`、`ColorAdjuster.tsx`、`rgbScale.ts`、`App.tsx` | [nvidia.md](./api/nvidia.md)、[config.md](./api/config.md) |
+| 新功能 | 后端+前端 | 公告 `category` 字段（`announcement`/`notification`）：铃铛面板拆「公告 / 通知」Tab，各 Tab 独立未读徽标，铃铛仍显示总未读；缺省/未知值归「公告」 | `announcements.rs`、`announcements.ts`、`useAnnouncements.ts`、`AnnouncementBell.tsx`、`App.tsx` | [announcements.md](./api/announcements.md#category分类--客户端-tab) |
+| 新功能 | 前端 | 公告正文 Markdown 外链经 `plugin-opener` 用系统浏览器打开（仅 http/https），新增 `AnnouncementMarkdown` 组件 | `src/components/AnnouncementMarkdown.tsx`、`AnnouncementDetailModal.tsx`、`AnnouncementModal.tsx` | [announcements.md](./api/announcements.md) |
+| 新功能 | 前端 | 保存流程重构：有当前方案且有改动时显示「更新方案 / 另存为」双按钮，无当前方案时只显示「保存方案」；「更新方案」只写回颜色参数不改名称/图标；另存为禁止重名覆盖 | `App.tsx`、`SaveModal.tsx` | `CONTEXT.md`（领域语言） |
+| 新功能 | 前端 | 当前方案不可删除：删除入口禁用并提示，防止删除正在应用的方案后托盘/快捷键引用悬空 | `ConfigManager.tsx` | `CONTEXT.md`（领域语言） |
 | 修复 | 后端 | WMI 监听可靠性：断线自愈（指数退避 1s…30s 重订）、脏 `active_rule` 校正、Stopped 多实例防护、可观测 status（`wmi_connected` / `last_error` / `reconnect_attempt`）；无应用层周期轮询 / 无 ETW | `src-tauri/src/process_watcher.rs` | [process_watcher.md](./api/process_watcher.md)、[plans/2026-07-16-process-watcher-wmi-reliability.md](./plans/2026-07-16-process-watcher-wmi-reliability.md) |
+| 修复 | 前端 | 启动时从进程监听状态同步快速方案勾选：根因是 reconcile 可能在前端 listen 就绪前 emit `config-applied` 导致事件丢失；挂载时 `get_watcher_status` 补同步，后端先写 `active_rule` 再 emit | `App.tsx`、`src-tauri/src/process_watcher.rs` | — |
+| 修复 | 后端+CI | updater 签名双重编码：根因是 CI 用 jq @base64 二次包装 .sig 并带入 JSON 引号，客户端下载后 verify_minisign 必失败；.sig 原文直用 + 客户端归一化历史脏签名 + 更新失败透出错误不再静默关弹窗 | `src-tauri/src/updater.rs`、`.github/workflows/`、`UpdateModal.tsx` | — |
+| 改进 | 前端 | 列表/预览布局修正：`min-h-0` / `shrink-0` 修复溢出裁剪，统一圆角 | `ProfileList.tsx`、`PreviewImage.tsx`、`ConfigManager.tsx` | — |
+| 改进 | 后端 | 消除 Rust 编译警告 | `src-tauri/src/process_watcher.rs` | — |
+| 改进 | 文档/仓库 | 新增 `.rules/coding.md`（AI 编码规范）、`.rules/archive.md`、`.rules/subagent-dispatch.md`、PRD/archive skills、归档区 `.docs/archive/`；停止跟踪 `.writing/` 工作缓冲 | `.rules/`、`.skills/shared/`、`.docs/archive/`、`.gitignore` | — |
 
 ---
 
