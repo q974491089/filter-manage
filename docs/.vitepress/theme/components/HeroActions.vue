@@ -8,7 +8,7 @@
 
     <!-- 次要按钮 -->
     <div class="hero-btn-secondary">
-      <a href="#download" class="hero-btn hero-btn-alt" @click.prevent="handleDownload">
+      <a href="/guide/install.html#下载" class="hero-btn hero-btn-alt">
         备用下载
       </a>
       <a href="/guide/" class="hero-btn hero-btn-alt">
