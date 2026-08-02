@@ -1,10 +1,19 @@
-import { type Announcement, fmtDate, plainPreview } from "../lib/announcements";
+import {
+  type Announcement,
+  type AnnouncementCategory,
+  CATEGORY_TABS,
+  fmtDate,
+  plainPreview,
+} from "../lib/announcements";
 import { Icon } from "./Icon";
 import AnnouncementDetailModal from "./AnnouncementDetailModal";
 
 export default function AnnouncementBell({
   items,
   unreadCount,
+  unreadByCategory,
+  activeTab,
+  setActiveTab,
   isRead,
   open,
   setOpen,
@@ -13,8 +22,14 @@ export default function AnnouncementBell({
   openDetail,
   closeDetail,
 }: {
+  /** 当前 Tab 的公告列表（已按分类过滤） */
   items: Announcement[];
+  /** 两类总未读，用于铃铛徽标 */
   unreadCount: number;
+  /** 各 Tab 未读数，用于 Tab 标签徽标 */
+  unreadByCategory: Record<AnnouncementCategory, number>;
+  activeTab: AnnouncementCategory;
+  setActiveTab: (v: AnnouncementCategory) => void;
   isRead: (id: string) => boolean;
   open: boolean;
   setOpen: (v: boolean) => void;
@@ -23,6 +38,9 @@ export default function AnnouncementBell({
   openDetail: (a: Announcement) => void;
   closeDetail: () => void;
 }) {
+  const activeLabel =
+    CATEGORY_TABS.find((t) => t.value === activeTab)?.label ?? "公告";
+
   return (
     <div data-component="AnnouncementBell" data-name="bell-wrapper" className="relative">
       <button
@@ -30,7 +48,7 @@ export default function AnnouncementBell({
         data-name="bell-button"
         onClick={() => setOpen(!open)}
         className="relative w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-primary/10 transition-colors"
-        title="公告（通知）"
+        title="消息中心（公告 / 通知）"
       >
         <Icon name="notifications" className="text-[20px]" />
         {unreadCount > 0 && (
@@ -68,7 +86,7 @@ export default function AnnouncementBell({
               className="relative max-h-[70vh] flex flex-col bg-surface-container/95 backdrop-blur-md border border-outline-variant/20 rounded-xl shadow-2xl shadow-black/40 overflow-hidden"
             >
             <div className="flex items-center justify-between px-md py-sm border-b border-outline-variant/20">
-              <span className="font-title-sm text-title-sm text-on-surface">公告（通知）</span>
+              <span className="font-title-sm text-title-sm text-on-surface">消息中心</span>
               {unreadCount > 0 && (
                 <button
                   data-name="mark-all-read"
@@ -80,10 +98,46 @@ export default function AnnouncementBell({
               )}
             </div>
 
+            {/* 分类 Tab：公告 / 通知。选中态下划线盖住容器底边（-mb-px） */}
+            <div
+              data-component="AnnouncementBell"
+              data-name="bell-tabs"
+              className="flex items-center gap-lg px-md border-b border-outline-variant/20"
+            >
+              {CATEGORY_TABS.map((t) => {
+                const active = activeTab === t.value;
+                const unread = unreadByCategory[t.value];
+                return (
+                  <button
+                    key={t.value}
+                    data-component="AnnouncementBell"
+                    data-name={`bell-tab-${t.value}`}
+                    onClick={() => setActiveTab(t.value)}
+                    aria-selected={active}
+                    className={`flex items-center gap-xs py-sm -mb-px border-b-2 font-label-md text-label-md transition-colors ${
+                      active
+                        ? "border-primary text-primary"
+                        : "border-transparent text-on-surface-variant hover:text-on-surface"
+                    }`}
+                  >
+                    <span>{t.label}</span>
+                    {unread > 0 && (
+                      <span
+                        data-name={`bell-tab-badge-${t.value}`}
+                        className="min-w-[16px] h-4 px-1 rounded-full bg-error text-on-error text-[10px] leading-4 font-bold flex items-center justify-center"
+                      >
+                        {unread > 9 ? "9+" : unread}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="flex-1 overflow-y-auto">
               {items.length === 0 ? (
                 <div data-name="bell-empty" className="px-md py-lg text-center font-label-md text-label-md text-on-surface-variant/60">
-                  暂无公告
+                  暂无{activeLabel}
                 </div>
               ) : (
                 items.map((a) => {

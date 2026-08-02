@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import Markdown from "react-markdown";
 import { type Announcement, fmtDate } from "../lib/announcements";
 import { Icon } from "./Icon";
+import AnnouncementMarkdown from "./AnnouncementMarkdown";
 
 /** 放大预览单条公告的完整内容（居中弹窗）。点击列表行打开，已在 hook 中同步标记已读。 */
 export default function AnnouncementDetailModal({
@@ -67,9 +67,7 @@ export default function AnnouncementDetailModal({
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="prose prose-invert prose-sm max-w-none text-on-surface-variant">
-            <Markdown>{item.body}</Markdown>
-          </div>
+          <AnnouncementMarkdown>{item.body}</AnnouncementMarkdown>
         </div>
 
         <div className="flex justify-end mt-lg">

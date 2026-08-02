@@ -26,6 +26,7 @@
 [
   {
     "id": "2026-07-10-maintenance",        // 稳定唯一 id，前端据此记已读
+    "category": "announcement",             // 可选，分类：见下表。缺省/未知值归「公告」Tab
     "title": "服务器维护通知",
     "body": "## 维护时间\n本周六 02:00–04:00…",  // Markdown
     "level": "normal",                      // "normal" | "important"
@@ -38,7 +39,21 @@
 ]
 ```
 
-Rust 结构（`#[serde(rename_all = "camelCase")]`，`startAt/endAt/pinned/sortOrder` 用 `#[serde(default)]`）与前端 TS 类型一一对应。
+### `category`（分类 → 客户端 Tab）
+
+铃铛面板按此字段分两个 Tab 展示。取值与服务端 `ANNOUNCEMENT_CATEGORIES` 对齐：
+
+| 值 | 客户端 Tab | 用途 |
+|----|-----------|------|
+| `announcement` | 「公告」 | 常规公告 / 说明类内容 |
+| `notification` | 「通知」 | 提醒 / 系统通知类 |
+
+- **缺省或值不认识 → 归「公告」Tab**（`normalizeCategory`）。历史公告未带该字段，行为与加此字段前一致；服务端将来新增分类也不会导致内容凭空消失。
+- 分类只影响面板归属，**不影响** `level === "important"` 的启动弹窗逻辑——两类都会弹。
+
+**新增于**：2026-08-01
+
+Rust 结构（`#[serde(rename_all = "camelCase")]`，`startAt/endAt/pinned/sortOrder/category` 用 `#[serde(default)]`）与前端 TS 类型一一对应。
 
 ## 竞速与降级
 
@@ -52,8 +67,10 @@ Rust 结构（`#[serde(rename_all = "camelCase")]`，`startAt/endAt/pinned/sortO
 
 - 过滤有效期窗口外公告（`now < startAt` 或 `now >= endAt`）。
 - 排序：**置顶（`pinned`）优先** → `sortOrder` 升序 → `publishedAt` 倒序。置顶项标题旁渲染「置顶」tag。
-- 已读：localStorage `announcements_read_ids`，仅本地。
+- 分 Tab：按 `category` 拆「公告 / 通知」两个 Tab（见上表）。铃铛徽标为**两类总未读数**，各 Tab 标签上另显示本类未读数。默认停在「公告」；若公告为空而通知非空，首次加载自动切到「通知」。
+- 已读：localStorage `announcements_read_ids`，仅本地。「全部已读」标记两个 Tab 的全部公告。
 - `level === "important"` 且未读 → 启动弹窗；其余仅铃铛面板。
+- 正文 Markdown 外链：详情/重要弹窗内 `[文字](https://...)` 经 `plugin-opener` 用系统浏览器打开（仅 `http`/`https`）。裸 URL 不会自动成链，请用标准链接语法。
 
 ## 内容维护（服务端，维护者自理）
 

@@ -1,6 +1,6 @@
-import Markdown from "react-markdown";
 import { type Announcement, fmtDate } from "../lib/announcements";
 import { Icon } from "./Icon";
+import AnnouncementMarkdown from "./AnnouncementMarkdown";
 
 export default function AnnouncementModal({
   items,
@@ -38,9 +38,7 @@ export default function AnnouncementModal({
                 </span>
               </div>
               <div className="bg-surface-variant/30 rounded-lg p-md">
-                <div className="prose prose-invert prose-sm max-w-none text-on-surface-variant">
-                  <Markdown>{a.body}</Markdown>
-                </div>
+                <AnnouncementMarkdown>{a.body}</AnnouncementMarkdown>
               </div>
             </div>
           ))}

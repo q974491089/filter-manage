@@ -1,8 +1,10 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   type Announcement,
+  type AnnouncementCategory,
   activeSorted,
+  normalizeCategory,
   loadReadIds,
   saveReadIds,
 } from "../lib/announcements";
@@ -13,6 +15,7 @@ export function useAnnouncements() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [modalItems, setModalItems] = useState<Announcement[]>([]);
   const [detailItem, setDetailItem] = useState<Announcement | null>(null);
+  const [activeTab, setActiveTab] = useState<AnnouncementCategory>("announcement");
 
   // 启动拉取（随 check_update 一并完成；失败静默）
   useEffect(() => {
@@ -23,6 +26,13 @@ export function useAnnouncements() {
         if (cancelled) return;
         const active = activeSorted(raw, Date.now());
         setItems(active);
+        // 默认停在「公告」；若公告为空而通知有内容，开局就切到通知，避免打开面板是空的
+        if (
+          !active.some((a) => normalizeCategory(a) === "announcement") &&
+          active.some((a) => normalizeCategory(a) === "notification")
+        ) {
+          setActiveTab("notification");
+        }
         const read = loadReadIds();
         const importantUnread = active.filter(
           (a) => a.level === "important" && !read.has(a.id)
@@ -40,6 +50,29 @@ export function useAnnouncements() {
 
   const isRead = useCallback((id: string) => readIds.has(id), [readIds]);
 
+  // 按分类拆桶，保留 activeSorted 已排好的顺序（置顶 → sortOrder → 时间倒序）
+  const byCategory = useMemo(() => {
+    const buckets: Record<AnnouncementCategory, Announcement[]> = {
+      announcement: [],
+      notification: [],
+    };
+    items.forEach((a) => buckets[normalizeCategory(a)].push(a));
+    return buckets;
+  }, [items]);
+
+  /** 当前 Tab 要渲染的列表 */
+  const visibleItems = byCategory[activeTab];
+
+  /** 各 Tab 未读数，用于 Tab 标签上的徽标 */
+  const unreadByCategory = useMemo(
+    () => ({
+      announcement: byCategory.announcement.filter((a) => !readIds.has(a.id)).length,
+      notification: byCategory.notification.filter((a) => !readIds.has(a.id)).length,
+    }),
+    [byCategory, readIds]
+  );
+
+  // 铃铛徽标：两类总未读数
   const unreadCount = items.reduce(
     (n, a) => (readIds.has(a.id) ? n : n + 1),
     0
@@ -90,7 +123,11 @@ export function useAnnouncements() {
 
   return {
     items,
+    visibleItems,
     unreadCount,
+    unreadByCategory,
+    activeTab,
+    setActiveTab,
     isRead,
     panelOpen,
     setPanelOpen,

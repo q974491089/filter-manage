@@ -28,6 +28,10 @@ pub struct Announcement {
     /// 渠道："client" | "static" | "web" | 自定义。旧数据缺省时服务端按 client 处理。
     #[serde(default)]
     pub r#type: Option<String>,
+    /// 分类："announcement"（公告）| "notification"（通知）。前端据此分 Tab 展示。
+    /// 缺省或值不认识时前端归入「公告」，兼容未带该字段的历史数据。
+    #[serde(default)]
+    pub category: Option<String>,
     pub title: String,
     pub body: String,
     /// "normal" | "important"

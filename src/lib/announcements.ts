@@ -3,10 +3,20 @@
 
 export type AnnouncementLevel = "normal" | "important";
 
+/** 分类：决定铃铛面板落到哪个 Tab。与服务端 ANNOUNCEMENT_CATEGORIES 对齐。 */
+export type AnnouncementCategory = "announcement" | "notification";
+
+/** Tab 定义，顺序即渲染顺序。 */
+export const CATEGORY_TABS: { value: AnnouncementCategory; label: string }[] = [
+  { value: "announcement", label: "公告" },
+  { value: "notification", label: "通知" },
+];
+
 export interface Announcement {
   id: string;
   rowId?: string;               // 库内 UUID，前端一般忽略
   type?: string;                // 渠道：client / static / web / 自定义。桌面端默认只拿 client
+  category?: string | null;     // 分类：announcement / notification。缺省、null 或未知值归「公告」，见 normalizeCategory
   title: string;
   body: string;                 // Markdown
   level: AnnouncementLevel;
@@ -17,6 +27,14 @@ export interface Announcement {
   endAt?: string | null;        // 可选，缺省=永不过期
   createdAt?: string | null;    // 可选元数据
   updatedAt?: string | null;    // 可选元数据
+}
+
+/**
+ * 收敛 category 到已知 Tab。
+ * 缺省或不认识的值一律归「公告」——历史公告没有该字段，服务端将来加新分类时也不会凭空消失。
+ */
+export function normalizeCategory(a: Announcement): AnnouncementCategory {
+  return a.category === "notification" ? "notification" : "announcement";
 }
 
 /** 格式化 ISO8601 为本地日期；无法解析返回空串。UI 展示用。 */
