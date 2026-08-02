@@ -12,6 +12,13 @@ pub struct ColorConfig {
     pub contrast: i32,
     pub gamma: f64,
     pub digital_vibrance: i32,
+    /// RGB 增益内部标度 -100..+100，缺省 0（兼容旧方案）
+    #[serde(default)]
+    pub rgb_r: i32,
+    #[serde(default)]
+    pub rgb_g: i32,
+    #[serde(default)]
+    pub rgb_b: i32,
     pub icc_profile: Option<String>,
 }
 

@@ -47,9 +47,14 @@ interface ColorConfig {
   contrast: number
   gamma: number
   digital_vibrance: number
+  rgb_r?: number   // -100 ~ 100，默认 0；旧方案缺字段按 0
+  rgb_g?: number
+  rgb_b?: number
   icc_profile: string | null
 }
 ```
+
+**更新于**：2026-07-24 — `ColorConfig` 新增 `rgb_r` / `rgb_g` / `rgb_b`（`#[serde(default)]`，旧方案自动为 0）
 
 **更新于**：2026-06-11 — `ColorConfig` 新增 `icon` 字段（`Option<String>`，Material Icon 名称，旧配置自动为 `null`）
 

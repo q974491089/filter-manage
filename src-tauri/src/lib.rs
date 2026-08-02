@@ -82,6 +82,7 @@ pub fn run() {
             nvidia::set_nvidia_contrast,
             nvidia::set_nvidia_gamma,
             nvidia::set_nvidia_digital_vibrance,
+            nvidia::set_nvidia_rgb_gain,
             nvidia::get_nvidia_settings,
             nvidia::get_dvc_default_ui_value,
             nvidia::sync_dvc_from_driver,

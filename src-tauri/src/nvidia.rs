@@ -8,11 +8,26 @@ pub struct NvidiaSettings {
     pub contrast: i32,         // -82 to 82   (maps to 0.0~1.0, default 0 = 0.5)
     pub gamma: f64,            // 0.4 to 2.8  (direct, default 1.0)
     pub digital_vibrance: i32, // 0 to 100
+    /// RGB 增益内部统一标度：-100 ~ +100，0 = 无偏色
+    #[serde(default)]
+    pub rgb_r: i32,
+    #[serde(default)]
+    pub rgb_g: i32,
+    #[serde(default)]
+    pub rgb_b: i32,
 }
 
 impl Default for NvidiaSettings {
     fn default() -> Self {
-        Self { brightness: 0, contrast: 0, gamma: 1.0, digital_vibrance: 50 }
+        Self {
+            brightness: 0,
+            contrast: 0,
+            gamma: 1.0,
+            digital_vibrance: 50,
+            rgb_r: 0,
+            rgb_g: 0,
+            rgb_b: 0,
+        }
     }
 }
 
@@ -240,27 +255,39 @@ fn calculate_lut(brightness: f64, contrast: f64, gamma: f64) -> [u16; 256] {
     lut
 }
 
-fn apply_gamma_ramp(device_id: &str, brightness: i32, contrast: i32, gamma: f64) -> Result<(), String> {
+/// RGB 增益 -100..+100 → 通道 scale（约 0.52..1.48，兼顾驱动可接受范围）
+fn rgb_gain_to_scale(gain: i32) -> f64 {
+    1.0 + (gain.clamp(-100, 100) as f64 / 100.0) * 0.48
+}
+
+fn apply_gamma_ramp(device_id: &str) -> Result<(), String> {
+    let s = get_or_default_settings(device_id);
     // UI range -> WindowsDisplayAPI range
-    let b = (brightness as f64 + 125.0) / 250.0;
-    let c = (contrast as f64 + 82.0) / 164.0;
-    let g = gamma.clamp(0.4, 2.8);
+    let b = (s.brightness as f64 + 125.0) / 250.0;
+    let c = (s.contrast as f64 + 82.0) / 164.0;
+    let g = s.gamma.clamp(0.4, 2.8);
 
     let lut = calculate_lut(b, c, g);
+    let scales = [
+        rgb_gain_to_scale(s.rgb_r),
+        rgb_gain_to_scale(s.rgb_g),
+        rgb_gain_to_scale(s.rgb_b),
+    ];
 
-    // 在 ICC vcgt 基础上叠加调节：把 lut 作为索引映射应用到 icc_base
+    // 在 ICC vcgt 基础上叠加调节：把 lut 作为索引映射应用到 icc_base，再乘通道增益
     let icc_ramps = DISPLAY_ICC_RAMPS.lock().unwrap();
     let icc_base = icc_ramps.as_ref().and_then(|m| m.get(device_id));
     let mut ramp = [0u16; 768];
     for i in 0..256 {
         for (ch, offset) in [(0usize, 0usize), (1, 256), (2, 512)] {
-            let adjusted = if let Some(base) = icc_base {
+            let base_val = if let Some(base) = icc_base {
                 let idx = (lut[i] as usize * 255 / 65535).min(255);
                 base[ch][idx]
             } else {
                 lut[i]
             };
-            ramp[offset + i] = adjusted;
+            let scaled = (base_val as f64 * scales[ch]).round().clamp(0.0, 65535.0) as u16;
+            ramp[offset + i] = scaled;
         }
     }
     drop(icc_ramps);
@@ -286,22 +313,39 @@ fn apply_gamma_ramp(device_id: &str, brightness: i32, contrast: i32, gamma: f64)
 #[tauri::command]
 pub fn set_nvidia_brightness(device_id: Option<String>, value: i32) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    let s = update_settings(&did, |s| s.brightness = value);
-    apply_gamma_ramp(&did, s.brightness, s.contrast, s.gamma)
+    update_settings(&did, |s| s.brightness = value);
+    apply_gamma_ramp(&did)
 }
 
 #[tauri::command]
 pub fn set_nvidia_contrast(device_id: Option<String>, value: i32) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    let s = update_settings(&did, |s| s.contrast = value);
-    apply_gamma_ramp(&did, s.brightness, s.contrast, s.gamma)
+    update_settings(&did, |s| s.contrast = value);
+    apply_gamma_ramp(&did)
 }
 
 #[tauri::command]
 pub fn set_nvidia_gamma(device_id: Option<String>, value: f64) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    let s = update_settings(&did, |s| s.gamma = value);
-    apply_gamma_ramp(&did, s.brightness, s.contrast, s.gamma)
+    update_settings(&did, |s| s.gamma = value);
+    apply_gamma_ramp(&did)
+}
+
+/// 设置 RGB 增益（内部标度 -100..+100，0 = 无偏色）
+#[tauri::command]
+pub fn set_nvidia_rgb_gain(
+    device_id: Option<String>,
+    r: i32,
+    g: i32,
+    b: i32,
+) -> Result<(), String> {
+    let did = resolve_display_id(device_id);
+    update_settings(&did, |s| {
+        s.rgb_r = r.clamp(-100, 100);
+        s.rgb_g = g.clamp(-100, 100);
+        s.rgb_b = b.clamp(-100, 100);
+    });
+    apply_gamma_ramp(&did)
 }
 
 #[tauri::command]

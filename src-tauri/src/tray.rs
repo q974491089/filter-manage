@@ -147,6 +147,7 @@ pub fn apply_color_config(cfg: &ColorConfig) -> Result<(), String> {
     nvidia::set_nvidia_contrast(None, cfg.contrast)?;
     nvidia::set_nvidia_gamma(None, cfg.gamma)?;
     nvidia::set_nvidia_digital_vibrance(None, cfg.digital_vibrance)?;
+    nvidia::set_nvidia_rgb_gain(None, cfg.rgb_r, cfg.rgb_g, cfg.rgb_b)?;
 
     Ok(())
 }
