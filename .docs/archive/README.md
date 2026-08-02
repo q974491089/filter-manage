@@ -46,3 +46,4 @@
 |------|---------|----------------|------|
 | 2026-07-08 | 多 Agent 框架一次性完工报告 | 根目录/`.agent/` → `reports/` | `MIGRATION_CHECKLIST.md`、`README_MULTI_AGENT.md`、`IMPLEMENTATION_REPORT.md` |
 | 2026-07-08 | SYNC_STATUS 历史信号日志 | `SYNC_STATUS.md` → `sync-log/history.md` | 保留完整同步历史；信号文件只留最近未消费信号 |
+| 2026-08-02 | v0.4.0 发布归档 | `.docs/plans/` → `plans/`；`.docs/handoff/` → `handoff/` | `2026-07-16-process-watcher-wmi-reliability.md`（WMI 可靠性，v0.4.0 发布）、`2026-07-10-announcements.md`（公告，v0.3.5 已上线）、`announcements-server.md`（服务端已上线） |

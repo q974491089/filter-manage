@@ -1,6 +1,6 @@
 # Announcements API（公告功能）
 
-> **状态：🚧 实现中** — 本文档是公告功能三端共享的数据契约。plan: `.docs/plans/2026-07-10-announcements.md`，PRD: `.docs/prd/2026-07-10-announcements.md`。
+> **状态：🚧 实现中** — 本文档是公告功能三端共享的数据契约。plan: `.docs/archive/plans/2026-07-10-announcements.md`，PRD: `.docs/prd/2026-07-10-announcements.md`。
 
 模块：`src-tauri/src/announcements.rs`
 注册：`src-tauri/src/lib.rs`（`invoke_handler`）

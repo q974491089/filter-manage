@@ -1,3 +1,5 @@
+> 📦 已归档 2026-08-02 · 仅供历史追溯，非当前开发依据
+
 # 公告功能 - 服务端交接（Spring Boot + Docker）
 
 > **状态：✅ 已完成（已上线）** — 2026-08-02 验证：双域名 `GET /api/announcements?type=client` 均返回 200 且数据结构符合契约（含 `category` 字段），已有线上公告数据。桌面客户端契约见 `.docs/api/announcements.md`。以下为原始实现需求，留档备查。

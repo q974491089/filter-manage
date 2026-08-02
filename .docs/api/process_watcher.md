@@ -37,7 +37,7 @@ interface WatcherStatus {
 }
 ```
 
-> **字段落地说明**：`wmi_connected` / `last_error` / `reconnect_attempt` 为计划字段（见 `.docs/plans/2026-07-16-process-watcher-wmi-reliability.md`）。若实现时 Rust 侧命名或类型有微调，以 `process_watcher.rs` 中 `WatcherStatus` 为准并回写本文档。前端旧代码可忽略新字段（serde 多字段无妨）。
+> **字段落地说明**：`wmi_connected` / `last_error` / `reconnect_attempt` 为计划字段（见 `.docs/archive/plans/2026-07-16-process-watcher-wmi-reliability.md`）。若实现时 Rust 侧命名或类型有微调，以 `process_watcher.rs` 中 `WatcherStatus` 为准并回写本文档。前端旧代码可忽略新字段（serde 多字段无妨）。
 
 ## AppSettings 扩展字段
 
@@ -164,7 +164,7 @@ AND (TargetInstance.Name = 'delta_force.exe' OR TargetInstance.Name = 'cs2.exe')
 ## 可靠性行为
 
 > 设计目标：消除「WMI 静默死亡后必须重启应用才恢复」的问题。详见计划
-> [2026-07-16-process-watcher-wmi-reliability.md](../plans/2026-07-16-process-watcher-wmi-reliability.md)。
+> [2026-07-16-process-watcher-wmi-reliability.md](../archive/plans/2026-07-16-process-watcher-wmi-reliability.md)。
 
 ### 事件源边界
 

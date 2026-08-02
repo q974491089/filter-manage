@@ -23,7 +23,7 @@ RGB 三通道增益（偏色/白平衡）与三种调节方式换算；公告拆
 | 新功能 | 前端 | 公告正文 Markdown 外链经 `plugin-opener` 用系统浏览器打开（仅 http/https），新增 `AnnouncementMarkdown` 组件 | `src/components/AnnouncementMarkdown.tsx`、`AnnouncementDetailModal.tsx`、`AnnouncementModal.tsx` | [announcements.md](./api/announcements.md) |
 | 新功能 | 前端 | 保存流程重构：有当前方案且有改动时显示「更新方案 / 另存为」双按钮，无当前方案时只显示「保存方案」；「更新方案」只写回颜色参数不改名称/图标；另存为禁止重名覆盖 | `App.tsx`、`SaveModal.tsx` | `CONTEXT.md`（领域语言） |
 | 新功能 | 前端 | 当前方案不可删除：删除入口禁用并提示，防止删除正在应用的方案后托盘/快捷键引用悬空 | `ConfigManager.tsx` | `CONTEXT.md`（领域语言） |
-| 修复 | 后端 | WMI 监听可靠性：断线自愈（指数退避 1s…30s 重订）、脏 `active_rule` 校正、Stopped 多实例防护、可观测 status（`wmi_connected` / `last_error` / `reconnect_attempt`）；无应用层周期轮询 / 无 ETW | `src-tauri/src/process_watcher.rs` | [process_watcher.md](./api/process_watcher.md)、[plans/2026-07-16-process-watcher-wmi-reliability.md](./plans/2026-07-16-process-watcher-wmi-reliability.md) |
+| 修复 | 后端 | WMI 监听可靠性：断线自愈（指数退避 1s…30s 重订）、脏 `active_rule` 校正、Stopped 多实例防护、可观测 status（`wmi_connected` / `last_error` / `reconnect_attempt`）；无应用层周期轮询 / 无 ETW | `src-tauri/src/process_watcher.rs` | [process_watcher.md](./api/process_watcher.md)、[plans/2026-07-16-process-watcher-wmi-reliability.md](./archive/plans/2026-07-16-process-watcher-wmi-reliability.md) |
 | 修复 | 前端 | 启动时从进程监听状态同步快速方案勾选：根因是 reconcile 可能在前端 listen 就绪前 emit `config-applied` 导致事件丢失；挂载时 `get_watcher_status` 补同步，后端先写 `active_rule` 再 emit | `App.tsx`、`src-tauri/src/process_watcher.rs` | — |
 | 修复 | 后端+CI | updater 签名双重编码：根因是 CI 用 jq @base64 二次包装 .sig 并带入 JSON 引号，客户端下载后 verify_minisign 必失败；.sig 原文直用 + 客户端归一化历史脏签名 + 更新失败透出错误不再静默关弹窗 | `src-tauri/src/updater.rs`、`.github/workflows/`、`UpdateModal.tsx` | — |
 | 改进 | 前端 | 列表/预览布局修正：`min-h-0` / `shrink-0` 修复溢出裁剪，统一圆角 | `ProfileList.tsx`、`PreviewImage.tsx`、`ConfigManager.tsx` | — |
@@ -39,7 +39,7 @@ RGB 三通道增益（偏色/白平衡）与三种调节方式换算；公告拆
 | 类型 | 端 | 说明 | 涉及文件 | 文档 |
 |------|----|------|---------|------|
 | 新功能 | 后端 | `get_announcements`：复用 `UPDATE_API_HOSTS` 双域名竞速；`GET /api/announcements?type=client`；失败返空列表静默；`id` 兼容 number/string；字段 `pinned`/`sortOrder` 等 | `src-tauri/src/announcements.rs`、`src-tauri/src/lib.rs` | [announcements.md](./api/announcements.md) |
-| 新功能 | 前端 | 铃铛未读红点 + 列表预览 + 详情弹窗 + 重要公告启动弹窗；置顶/排序/有效期/已读（localStorage）客户端处理 | `src/components/AnnouncementBell.tsx`、`AnnouncementDetailModal.tsx`、`AnnouncementModal.tsx`、`src/hooks/useAnnouncements.ts`、`src/lib/announcements.ts`、`src/App.tsx` | [announcements.md](./api/announcements.md)、[plans/2026-07-10-announcements.md](./plans/2026-07-10-announcements.md) |
+| 新功能 | 前端 | 铃铛未读红点 + 列表预览 + 详情弹窗 + 重要公告启动弹窗；置顶/排序/有效期/已读（localStorage）客户端处理 | `src/components/AnnouncementBell.tsx`、`AnnouncementDetailModal.tsx`、`AnnouncementModal.tsx`、`src/hooks/useAnnouncements.ts`、`src/lib/announcements.ts`、`src/App.tsx` | [announcements.md](./api/announcements.md)、[plans/2026-07-10-announcements.md](./archive/plans/2026-07-10-announcements.md) |
 | 新功能 | 后端 | 启用 `tauri-plugin-single-instance`：重复启动聚焦已有窗口 | `src-tauri/Cargo.toml`、`src-tauri/src/lib.rs` | — |
 | 修复 | 后端 | 订阅后对账（reconcile）：**根因** WMI 不补发订阅前已运行进程的 Started，`active_rule` 为空导致退出不恢复；订阅成功后扫描进程合成 Started | `src-tauri/src/process_watcher.rs` | [process_watcher.md](./api/process_watcher.md) |
 | 修复 | 后端+前端 | `restore_on_exit` 语义明确为恢复默认方案：**根因** `previous_config_name` 从未写入，死分支误导；改为只走 `apply_default_config`，同步 UI/文档 | `process_watcher.rs`、`SettingsModal.tsx`、API/handoff 文档 | [process_watcher.md](./api/process_watcher.md) |
