@@ -80,6 +80,7 @@ pub fn set_icc_base_ramp(ramp: Option<[[u16; 256]; 3]>) {
 // NVAPI
 const NVAPI_ID_INITIALIZE: u32 = 0x0150E828;
 const NVAPI_ID_ENUM_DISPLAY_HANDLE: u32 = 0x9ABDD40D;
+const NVAPI_ID_GET_ASSOCIATED_DISPLAY_HANDLE: u32 = 0x35C29134;
 const NVAPI_ID_SET_DVC_LEVEL: u32 = 0x172409B4;
 const NVAPI_ID_SET_DVC_LEVEL_EX: u32 = 0x4A82C2B1;
 const NVAPI_ID_GET_DVC_INFO_EX: u32 = 0x0E45002D;
@@ -96,19 +97,22 @@ struct NvDvcInfoEx {
 type NvQueryInterface = unsafe extern "C" fn(id: u32) -> *mut std::ffi::c_void;
 type NvInitialize = unsafe extern "C" fn() -> i32;
 type NvEnumDisplayHandle = unsafe extern "C" fn(this_enum: i32, p_nv_disp_handle: *mut u32) -> i32;
+type NvGetAssociatedDisplayHandle =
+    unsafe extern "C" fn(sz_display_name: *const std::ffi::c_char, p_nv_disp_handle: *mut u32) -> i32;
 type NvSetDvcLevel = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, level: i32) -> i32;
 type NvSetDvcLevelEx = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
 type NvGetDvcInfoEx = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
 
-/// 从 device_id (如 "\\.\DISPLAY2") 提取显示器索引（0-based）
-fn display_index_from_device_id(device_id: Option<&str>) -> i32 {
-    device_id
-        .and_then(|id| id.chars().rev().take_while(|c| c.is_ascii_digit()).collect::<String>().chars().rev().collect::<String>().parse::<i32>().ok())
-        .map(|n| (n - 1).max(0)) // DISPLAY1 -> index 0, DISPLAY2 -> index 1
-        .unwrap_or(0)
-}
-
-fn nvapi_load_for_display(display_index: i32) -> Result<(windows::Win32::Foundation::HMODULE, u32), String> {
+/// 取得指定显示器的 NVAPI display handle。
+///
+/// 优先用 `NvAPI_GetAssociatedNvidiaDisplayHandle` 按 Windows 设备名（`\\.\DISPLAYn`）精确匹配。
+/// 不能把 `\\.\DISPLAYn` 里的编号当成 `NvAPI_EnumNvidiaDisplayHandle` 的索引 —— 后者只枚举
+/// 已连接的 NVIDIA 输出，两套编号没有对应关系。主屏是 `\\.\DISPLAY2` 时按编号取索引 1 会拿到
+/// NVAPI_END_ENUMERATION(-7)，数字振动等 NVAPI 调用直接全部失效。
+/// 按名字取不到时回退到第一个 NVIDIA 显示器，保证单显示器场景可用。
+fn nvapi_load_for_display(
+    device_id: Option<&str>,
+) -> Result<(windows::Win32::Foundation::HMODULE, u32, NvQueryInterface), String> {
     unsafe {
         let lib = windows::Win32::System::LibraryLoader::LoadLibraryW(
             windows::core::w!("nvapi64.dll")
@@ -120,33 +124,69 @@ fn nvapi_load_for_display(display_index: i32) -> Result<(windows::Win32::Foundat
         let query_fn: NvQueryInterface = std::mem::transmute(query_ptr);
 
         let init_ptr = query_fn(NVAPI_ID_INITIALIZE);
-        if init_ptr.is_null() { return Err("NvAPI_Initialize not found".into()); }
-        let init_fn: NvInitialize = std::mem::transmute(init_ptr);
-        if init_fn() != 0 { return Err("NvAPI_Initialize failed".into()); }
-
-        let enum_ptr = query_fn(NVAPI_ID_ENUM_DISPLAY_HANDLE);
-        if enum_ptr.is_null() { return Err("NvAPI_EnumNvidiaDisplayHandle not found".into()); }
-        let enum_fn: NvEnumDisplayHandle = std::mem::transmute(enum_ptr);
-        let mut handle: u32 = 0;
-        if enum_fn(display_index, &mut handle) != 0 {
+        if init_ptr.is_null() {
             let _ = windows::Win32::Foundation::FreeLibrary(lib);
-            return Err(format!("No NVIDIA display at index {}", display_index));
+            return Err("NvAPI_Initialize not found".into());
+        }
+        let init_fn: NvInitialize = std::mem::transmute(init_ptr);
+        let init_status = init_fn();
+        if init_status != 0 {
+            let _ = windows::Win32::Foundation::FreeLibrary(lib);
+            return Err(format!("NvAPI_Initialize failed: status={}", init_status));
         }
 
-        Ok((lib, handle))
+        // 1) 指定了显示器 → 必须按设备名精确取到句柄，取不到就报错。
+        //    不回退到"第一个 NVIDIA 显示器"：调用方点名了某台屏，悄悄改另一台
+        //    比明确失败更糟（虚拟显示器、Intel 输出的屏都会走到这里）。
+        let assoc_ptr = query_fn(NVAPI_ID_GET_ASSOCIATED_DISPLAY_HANDLE);
+        if !assoc_ptr.is_null() {
+            if let Some(name) = device_id {
+                let c_name = match std::ffi::CString::new(name) {
+                    Ok(c) => c,
+                    Err(_) => {
+                        let _ = windows::Win32::Foundation::FreeLibrary(lib);
+                        return Err(format!("invalid display name: {}", name));
+                    }
+                };
+                let assoc_fn: NvGetAssociatedDisplayHandle = std::mem::transmute(assoc_ptr);
+                let mut handle: u32 = 0;
+                let status = assoc_fn(c_name.as_ptr(), &mut handle);
+                if status == 0 {
+                    return Ok((lib, handle, query_fn));
+                }
+                let _ = windows::Win32::Foundation::FreeLibrary(lib);
+                return Err(format!(
+                    "display {} is not driven by NVIDIA (GetAssociatedNvidiaDisplayHandle status={})",
+                    name, status
+                ));
+            }
+        }
+
+        // 2) 没指定显示器，或老驱动缺 GetAssociated 入口 → 用第一个 NVIDIA 显示器兜底
+        let enum_ptr = query_fn(NVAPI_ID_ENUM_DISPLAY_HANDLE);
+        if enum_ptr.is_null() {
+            let _ = windows::Win32::Foundation::FreeLibrary(lib);
+            return Err("NvAPI_EnumNvidiaDisplayHandle not found".into());
+        }
+        let enum_fn: NvEnumDisplayHandle = std::mem::transmute(enum_ptr);
+        let mut handle: u32 = 0;
+        let status = enum_fn(0, &mut handle);
+        if status != 0 {
+            let _ = windows::Win32::Foundation::FreeLibrary(lib);
+            return Err(format!(
+                "no NVIDIA display found (EnumNvidiaDisplayHandle status={})",
+                status
+            ));
+        }
+
+        Ok((lib, handle, query_fn))
     }
 }
 
 /// 读取驱动的 DVC 信息（min/max/default/current）
 fn nvapi_get_dvc_info(device_id: Option<&str>) -> Result<(i32, i32, i32, i32), String> {
     unsafe {
-        let idx = display_index_from_device_id(device_id);
-        let (lib, handle) = nvapi_load_for_display(idx)?;
-
-        let query_ptr = windows::Win32::System::LibraryLoader::GetProcAddress(
-            lib, windows::core::s!("nvapi_QueryInterface"),
-        ).ok_or("nvapi_QueryInterface not found")?;
-        let query_fn: NvQueryInterface = std::mem::transmute(query_ptr);
+        let (lib, handle, query_fn) = nvapi_load_for_display(device_id)?;
 
         let get_ptr = query_fn(NVAPI_ID_GET_DVC_INFO_EX);
         if get_ptr.is_null() {
@@ -169,29 +209,52 @@ fn nvapi_get_dvc_info(device_id: Option<&str>) -> Result<(i32, i32, i32, i32), S
         if status == 0 {
             Ok((info.min_level, info.max_level, info.default_level, info.current_level))
         } else {
-            Err(format!("GetDVCInfoEx failed: {}", status))
+            Err(format!(
+                "GetDVCInfoEx failed: status={} (display={})",
+                status, device_id.unwrap_or("<primary>")
+            ))
         }
     }
 }
 
-fn nvapi_set_dvc(level: i32, device_id: Option<&str>) -> Result<(), String> {
-    unsafe {
-        let idx = display_index_from_device_id(device_id);
-        let (lib, handle) = nvapi_load_for_display(idx)?;
+/// UI 0..100 → 驱动标度 [min, max]，与 `sync_dvc_from_driver` 的反向换算对称。
+///
+/// NVIDIA 目前报的就是 0..100，换算等价于恒等；但读取路径一直在做归一化，
+/// 写入不做就是不对称的 —— 哪天驱动改了标度（或接 AMD 的 ADL，它的范围由驱动给），
+/// 写入会静默失真而不报错。
+pub(crate) fn ui_to_driver_level(ui: i32, min: i32, max: i32) -> i32 {
+    let ui = ui.clamp(0, 100);
+    if max > min {
+        min + (ui * (max - min)) / 100
+    } else {
+        ui
+    }
+}
 
-        let query_ptr = windows::Win32::System::LibraryLoader::GetProcAddress(
-            lib, windows::core::s!("nvapi_QueryInterface"),
-        ).ok_or("nvapi_QueryInterface not found")?;
-        let query_fn: NvQueryInterface = std::mem::transmute(query_ptr);
+/// 驱动标度 → UI 0..100，`ui_to_driver_level` 的反向换算。
+/// 拿不到有效范围时退回 50（面板默认位置），而不是 0 —— 0 是"完全去色"。
+fn driver_to_ui_level(value: i32, min: i32, max: i32) -> i32 {
+    let range = max - min;
+    if range > 0 {
+        ((value - min) * 100 / range).clamp(0, 100)
+    } else {
+        50
+    }
+}
+
+/// `ui_level` 是 UI 标度的 0..100，换算成驱动标度后写入。
+fn nvapi_set_dvc(ui_level: i32, device_id: Option<&str>) -> Result<(), String> {
+    unsafe {
+        let (lib, handle, query_fn) = nvapi_load_for_display(device_id)?;
 
         // 先尝试 SetDVCLevelEx（新接口，直接传结构体，范围与面板一致）
         let set_ex_ptr = query_fn(NVAPI_ID_SET_DVC_LEVEL_EX);
-        let status = if !set_ex_ptr.is_null() {
+        let (status, api) = if !set_ex_ptr.is_null() {
             // 先读取当前 info 获取 min/max
             let get_ptr = query_fn(NVAPI_ID_GET_DVC_INFO_EX);
             let mut info = NvDvcInfoEx {
                 version: (std::mem::size_of::<NvDvcInfoEx>() as u32) | 0x10000,
-                current_level: level,
+                current_level: 0, // 等 min/max 确定后再按驱动标度换算
                 min_level: 0,
                 max_level: 100,
                 default_level: 50,
@@ -208,8 +271,9 @@ fn nvapi_set_dvc(level: i32, device_id: Option<&str>) -> Result<(), String> {
                     info.default_level = cur.default_level;
                 }
             }
+            info.current_level = ui_to_driver_level(ui_level, info.min_level, info.max_level);
             let set_ex_fn: NvSetDvcLevelEx = std::mem::transmute(set_ex_ptr);
-            set_ex_fn(handle, 0, &mut info)
+            (set_ex_fn(handle, 0, &mut info), "SetDVCLevelEx")
         } else {
             // 回退到旧接口
             let set_ptr = query_fn(NVAPI_ID_SET_DVC_LEVEL);
@@ -217,12 +281,23 @@ fn nvapi_set_dvc(level: i32, device_id: Option<&str>) -> Result<(), String> {
                 let _ = windows::Win32::Foundation::FreeLibrary(lib);
                 return Err("NvAPI_SetDVCLevel not found".into());
             }
+            // 旧接口标度是 0..63，且与 Ex 的 0..100 不是线性对应（本机实测 0→Ex50、
+            // 63→Ex100，即旧接口只能加饱和、不能降），没法从 UI 值精确还原。
+            // 只有缺 SetDVCLevelEx 的老驱动才会走到这里，按比例缩放兜底。
+            let legacy_level = (ui_level.clamp(0, 100) * 63) / 100;
             let set_fn: NvSetDvcLevel = std::mem::transmute(set_ptr);
-            set_fn(handle, 0, level)
+            (set_fn(handle, 0, legacy_level), "SetDVCLevel")
         };
 
         let _ = windows::Win32::Foundation::FreeLibrary(lib);
-        if status == 0 { Ok(()) } else { Err(format!("SetDVCLevel failed: {}", status)) }
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(format!(
+                "{} failed: status={} (display={}, ui_level={})",
+                api, status, device_id.unwrap_or("<primary>"), ui_level
+            ))
+        }
     }
 }
 
@@ -348,11 +423,60 @@ pub fn set_nvidia_rgb_gain(
     apply_gamma_ramp(&did)
 }
 
+// ─── 数字振动后端分派 ─────────────────────────────────────────────────────────
+//
+// NVIDIA 叫 Digital Vibrance，AMD 叫 Saturation，都是同一个旋钮。前端命令名沿用
+// `*_nvidia_*` 且签名不变；这里按"NVIDIA 优先，NVIDIA 明确不在时转 AMD ADLX"分派。
+// "明确不在"指没有驱动、初始化失败、或这台显示器不由 NVIDIA 输出 —— 混合输出机器上
+// 每台屏各自归属，所以判断是按显示器做的，不是按机器。
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DvcVendor {
+    Nvidia,
+    Amd,
+}
+
+impl DvcVendor {
+    fn as_str(self) -> &'static str {
+        match self {
+            DvcVendor::Nvidia => "nvidia",
+            DvcVendor::Amd => "amd",
+        }
+    }
+}
+
+fn nvidia_absent(err: &str) -> bool {
+    err.contains("nvapi64.dll not found")
+        || err.contains("NvAPI_Initialize failed")
+        || err.contains("is not driven by NVIDIA")
+        || err.contains("no NVIDIA display found")
+}
+
+/// `(min, max, default, current)` 及命中的厂商。
+fn dvc_get_info(did: &str) -> Result<(DvcVendor, (i32, i32, i32, i32)), String> {
+    match nvapi_get_dvc_info(Some(did)) {
+        Ok(v) => Ok((DvcVendor::Nvidia, v)),
+        Err(nv) if nvidia_absent(&nv) => crate::amd::get_saturation_info(did)
+            .map(|v| (DvcVendor::Amd, v))
+            .map_err(|amd| format!("NVIDIA: {} | AMD: {}", nv, amd)),
+        Err(e) => Err(e),
+    }
+}
+
+fn dvc_set(did: &str, ui_level: i32) -> Result<(), String> {
+    match nvapi_set_dvc(ui_level, Some(did)) {
+        Ok(()) => Ok(()),
+        Err(nv) if nvidia_absent(&nv) => crate::amd::set_saturation_ui(did, ui_level)
+            .map_err(|amd| format!("NVIDIA: {} | AMD: {}", nv, amd)),
+        Err(e) => Err(e),
+    }
+}
+
 #[tauri::command]
 pub fn set_nvidia_digital_vibrance(device_id: Option<String>, value: i32) -> Result<(), String> {
     let did = resolve_display_id(device_id);
     update_settings(&did, |s| s.digital_vibrance = value);
-    nvapi_set_dvc(value.clamp(0, 100), Some(&did))
+    dvc_set(&did, value.clamp(0, 100))
 }
 
 /// 解析 device_id，fallback 到主显示器
@@ -369,14 +493,9 @@ fn resolve_display_id(device_id: Option<String>) -> String {
 #[tauri::command]
 pub fn sync_dvc_from_driver(device_id: Option<String>) -> i32 {
     let did = resolve_display_id(device_id);
-    match nvapi_get_dvc_info(Some(&did)) {
-        Ok((min, max, default, current)) => {
-            let range = max - min;
-            let ui_value = if range > 0 {
-                ((current - min) * 100 / range).clamp(0, 100)
-            } else {
-                50
-            };
+    match dvc_get_info(&did) {
+        Ok((_, (min, max, default, current))) => {
+            let ui_value = driver_to_ui_level(current, min, max);
             eprintln!("[DVC] display={} min={} max={} default={} current={} => ui={}", did, min, max, default, current, ui_value);
             update_settings(&did, |s| s.digital_vibrance = ui_value);
             ui_value
@@ -391,15 +510,8 @@ pub fn sync_dvc_from_driver(device_id: Option<String>) -> i32 {
 #[tauri::command]
 pub fn get_dvc_default_ui_value(device_id: Option<String>) -> i32 {
     let did = resolve_display_id(device_id);
-    match nvapi_get_dvc_info(Some(&did)) {
-        Ok((min, max, default, _)) => {
-            let range = max - min;
-            if range > 0 {
-                ((default - min) * 100 / range).clamp(0, 100)
-            } else {
-                50
-            }
-        }
+    match dvc_get_info(&did) {
+        Ok((_, (min, max, default, _))) => driver_to_ui_level(default, min, max),
         Err(_) => 50,
     }
 }
@@ -408,4 +520,74 @@ pub fn get_dvc_default_ui_value(device_id: Option<String>) -> i32 {
 pub fn get_nvidia_settings(device_id: Option<String>) -> Result<NvidiaSettings, String> {
     let did = resolve_display_id(device_id);
     Ok(get_or_default_settings(&did))
+}
+
+
+/// 数字振动的可用性与驱动值域。
+#[derive(Debug, Serialize)]
+pub struct DvcCapability {
+    pub supported: bool,
+    /// 命中的后端："nvidia" / "amd"；不支持时为 None。前端据此决定标签文案
+    pub vendor: Option<String>,
+    /// 不支持时给用户看的一句话
+    pub reason: Option<String>,
+    /// 驱动实际标度（UI 始终是 0..100），仅供诊断展示
+    pub driver_min: i32,
+    pub driver_max: i32,
+    /// 驱动默认值换算到 UI 标度的结果
+    pub default_ui_value: i32,
+}
+
+/// 探测当前显示器能不能调数字振动/饱和度，以及由哪家驱动接管。
+///
+/// 前端据此决定滑块是否可交互与标签文案：Intel 机器上两家驱动都不在，
+/// 让用户每拉一次滑块弹一次错误只是噪音 —— 直接禁用并说明原因才对。
+#[tauri::command]
+pub fn get_dvc_capability(device_id: Option<String>) -> DvcCapability {
+    let did = resolve_display_id(device_id);
+    match dvc_get_info(&did) {
+        Ok((vendor, (min, max, default, _))) => DvcCapability {
+            supported: true,
+            vendor: Some(vendor.as_str().to_string()),
+            reason: None,
+            driver_min: min,
+            driver_max: max,
+            default_ui_value: driver_to_ui_level(default, min, max),
+        },
+        Err(e) => {
+            eprintln!("[DVC] capability probe failed for {}: {}", did, e);
+            DvcCapability {
+                supported: false,
+                vendor: None,
+                reason: Some(humanize_dvc_error(&e)),
+                driver_min: 0,
+                driver_max: 100,
+                default_ui_value: 50,
+            }
+        }
+    }
+}
+
+/// 把驱动层的原始失败翻译成用户能看懂的话。分派失败时原始串形如
+/// `NVIDIA: ... | AMD: ...`，两边都要看。原始串仍会进 stderr，诊断时看日志。
+fn humanize_dvc_error(err: &str) -> String {
+    let no_nvidia_driver =
+        err.contains("nvapi64.dll not found") || err.contains("NvAPI_Initialize failed");
+    let no_amd_driver = err.contains("amdadlx64.dll not found");
+    let not_nvidia_display =
+        err.contains("is not driven by NVIDIA") || err.contains("no NVIDIA display found");
+
+    if no_nvidia_driver && no_amd_driver {
+        "未检测到 NVIDIA 或 AMD 显卡驱动，数字振动 / 饱和度不可用".to_string()
+    } else if err.contains("saturation not supported") || err.contains("custom color not supported") {
+        "当前 AMD 驱动或显示器不支持饱和度调节（可尝试更新 Adrenalin 驱动、关闭 HDR）".to_string()
+    } else if err.contains("not found among") || err.contains("cannot identify") {
+        "无法在 AMD 驱动中定位当前显示器，饱和度调节不可用".to_string()
+    } else if err.contains("ADLXInitialize failed") {
+        "AMD ADLX 初始化失败，饱和度调节不可用（驱动可能过旧）".to_string()
+    } else if not_nvidia_display && no_amd_driver {
+        "当前显示器不由 NVIDIA 显卡输出，无法调节数字振动".to_string()
+    } else {
+        format!("数字振动 / 饱和度不可用：{}", err)
+    }
 }

@@ -18,6 +18,18 @@ interface DisplayMonitor {
   is_primary: boolean;
 }
 
+/** 数字振动能力探测结果（对应后端 `nvidia::DvcCapability`） */
+interface DvcCapability {
+  supported: boolean;
+  /** 命中的后端："nvidia" | "amd"；不支持时为 null */
+  vendor: string | null;
+  /** 不支持时的原因，可直接展示给用户 */
+  reason: string | null;
+  driver_min: number;
+  driver_max: number;
+  default_ui_value: number;
+}
+
 interface ColorAdjusterProps {
   brightness: number;
   contrast: number;
@@ -37,6 +49,9 @@ interface ColorAdjusterProps {
   onRgbChange: (r: number, g: number, b: number) => void;
   onRgbScaleModeChange: (mode: RgbScaleMode) => void;
   onDeviceChange: (deviceId: string | undefined) => void;
+  showToast?: (type: "success" | "error", text: string) => void;
+  /** 数字振动能力；null 表示尚未探测完 */
+  dvcCapability?: DvcCapability | null;
 }
 
 function ColorAdjuster({
@@ -56,13 +71,27 @@ function ColorAdjuster({
   onDigitalVibranceChange,
   onRgbChange,
   onRgbScaleModeChange,
+  showToast,
+  dvcCapability,
 }: ColorAdjusterProps) {
+  // NVAPI / gamma ramp 的失败必须让用户看见：静默失败会表现成"拉了滑块没反应"，
+  // 而后端的错误串里带着 display 名和 status，是排查的唯一线索。
+  // 尚未探测完（null/undefined）时按可用对待，避免首帧闪一下灰
+  const dvcSupported = dvcCapability?.supported !== false;
+  // "数字振动"是 NVIDIA 的叫法，AMD 那边叫饱和度，同一个旋钮换个名
+  const isAmd = dvcCapability?.vendor === "amd";
+
+  const reportFailure = (key: string, label: string, err: unknown) => {
+    console.error(`Failed to set ${key}:`, err);
+    showToast?.("error", `${label}设置失败: ${err}`);
+  };
+
   const handleBrightnessChange = async (value: number) => {
     onBrightnessChange(value);
     try {
       await invoke("set_nvidia_brightness", { deviceId: selectedDeviceId, value });
     } catch (err) {
-      console.error("Failed to set brightness:", err);
+      reportFailure("brightness", "亮度", err);
     }
   };
 
@@ -71,7 +100,7 @@ function ColorAdjuster({
     try {
       await invoke("set_nvidia_contrast", { deviceId: selectedDeviceId, value });
     } catch (err) {
-      console.error("Failed to set contrast:", err);
+      reportFailure("contrast", "对比度", err);
     }
   };
 
@@ -80,7 +109,7 @@ function ColorAdjuster({
     try {
       await invoke("set_nvidia_gamma", { deviceId: selectedDeviceId, value });
     } catch (err) {
-      console.error("Failed to set gamma:", err);
+      reportFailure("gamma", "伽马", err);
     }
   };
 
@@ -89,7 +118,7 @@ function ColorAdjuster({
     try {
       await invoke("set_nvidia_digital_vibrance", { deviceId: selectedDeviceId, value });
     } catch (err) {
-      console.error("Failed to set digital vibrance:", err);
+      reportFailure("digital vibrance", "数字振动", err);
     }
   };
 
@@ -103,7 +132,7 @@ function ColorAdjuster({
         b,
       });
     } catch (err) {
-      console.error("Failed to set RGB gain:", err);
+      reportFailure("RGB gain", "RGB 增益", err);
     }
   };
 
@@ -189,8 +218,14 @@ function ColorAdjuster({
             />
 
             <SliderControl
-              label="数字振动 (Digital Vibrance)"
-              description="调整色彩饱和度，数值越高颜色越鲜艳"
+              label={isAmd ? "色彩饱和度 (Saturation)" : "数字振动 (Digital Vibrance)"}
+              description={
+                dvcSupported
+                  ? isAmd
+                    ? "AMD 驱动的饱和度调节，数值越高颜色越鲜艳"
+                    : "调整色彩饱和度，数值越高颜色越鲜艳"
+                  : dvcCapability?.reason ?? "当前显示器不支持数字振动"
+              }
               icon="palette"
               value={digitalVibrance}
               min={0}
@@ -198,6 +233,7 @@ function ColorAdjuster({
               step={1}
               formatValue={(v) => `${v}%`}
               onChange={handleDigitalVibranceChange}
+              disabled={!dvcSupported}
             />
           </div>
         </div>
@@ -286,6 +322,7 @@ interface SliderControlProps {
   formatValue: (v: number) => string;
   onChange: (v: number) => void;
   accentClass?: string;
+  disabled?: boolean;
 }
 
 function SliderControl({
@@ -299,9 +336,14 @@ function SliderControl({
   formatValue,
   onChange,
   accentClass,
+  disabled = false,
 }: SliderControlProps) {
   return (
-    <div data-components="SliderControl" data-name={label}>
+    <div
+      data-components="SliderControl"
+      data-name={label}
+      className={disabled ? "opacity-50" : undefined}
+    >
       <div className="flex justify-between items-center">
         <label className="font-label-md text-label-md text-on-surface flex items-center gap-xs">
           <Icon name={icon} className="text-primary text-[18px]" />
@@ -325,8 +367,9 @@ function SliderControl({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className={`w-full mt-[16px] pt-[6px] ${accentClass || ""}`}
+        className={`w-full mt-[16px] pt-[6px] ${disabled ? "cursor-not-allowed" : ""} ${accentClass || ""}`}
       />
     </div>
   );

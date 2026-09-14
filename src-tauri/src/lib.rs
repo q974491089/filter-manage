@@ -6,6 +6,7 @@ mod shortcut;
 mod tray;
 mod updater;
 mod announcements;
+mod amd;
 
 use tauri::Manager;
 
@@ -48,16 +49,17 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // 读取设置决定关闭行为
+                        // ⚠ 实际的关闭行为由前端 onCloseRequested 决定，不在这里。
+                        // Tauri 只要检测到前端注册了 close-requested 监听器，就会自己
+                        // 无条件 prevent_close（见 tauri 的 manager/window.rs），再把事件
+                        // 抛给前端；前端不 preventDefault 时由 JS 包装层调 destroy()。
+                        //
+                        // 这里只保留一层兜底：前端尚未加载完（监听器还没注册）时，
+                        // 若用户没选过关闭行为就先别让窗口关掉，否则他永远看不到询问弹窗。
                         let settings = config::get_app_settings().unwrap_or_default();
                         if !settings.close_prompted {
-                            // 用户尚未选择过关闭行为：阻止关闭并保持窗口可见，
-                            // 由前端弹窗询问（缩小到托盘 / 直接退出），选择后写回设置
                             api.prevent_close();
                         }
-                        // close_prompted == true 时：
-                        // - close_to_tray == true → 不阻止，让前端调用 hide() 隐藏窗口
-                        // - close_to_tray == false → 不阻止，正常退出
                     }
                 });
             }
@@ -85,6 +87,7 @@ pub fn run() {
             nvidia::set_nvidia_rgb_gain,
             nvidia::get_nvidia_settings,
             nvidia::get_dvc_default_ui_value,
+            nvidia::get_dvc_capability,
             nvidia::sync_dvc_from_driver,
             // Config
             config::save_config,
@@ -130,6 +133,7 @@ pub fn run() {
         .run(|_app, event| {
             if let tauri::RunEvent::Exit = event {
                 process_watcher::stop_watcher();
+                amd::shutdown();
             }
         });
 }

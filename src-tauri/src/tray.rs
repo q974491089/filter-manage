@@ -146,7 +146,11 @@ pub fn apply_color_config(cfg: &ColorConfig) -> Result<(), String> {
     nvidia::set_nvidia_brightness(None, cfg.brightness)?;
     nvidia::set_nvidia_contrast(None, cfg.contrast)?;
     nvidia::set_nvidia_gamma(None, cfg.gamma)?;
-    nvidia::set_nvidia_digital_vibrance(None, cfg.digital_vibrance)?;
+    // 数字振动只有 NVIDIA 输出的显示器支持，失败不阻断其余调节 ——
+    // AMD / Intel 机器上它必然失败，但 RGB 增益等仍然应该照常应用。
+    if let Err(e) = nvidia::set_nvidia_digital_vibrance(None, cfg.digital_vibrance) {
+        eprintln!("[apply] digital vibrance skipped: {}", e);
+    }
     nvidia::set_nvidia_rgb_gain(None, cfg.rgb_r, cfg.rgb_g, cfg.rgb_b)?;
 
     Ok(())

@@ -12,6 +12,25 @@
 
 ## 迭代记录
 
+### v0.5.0 — 2026-09-14 · AMD 饱和度支持 + NVIDIA DVC 句柄修复 + 能力探测
+
+AMD 显卡通过 ADLX 接入饱和度调节，与 NVIDIA 数字振动共用同一滑块并按厂商分派；修复 Optimus 笔记本上 NVIDIA 数字振动静默失效的根因（按编号猜 NVAPI 句柄索引）；新增能力探测让不支持的显示器置灰而非报错；修复"直接关闭"失效与托盘切方案时 RGB 增益被跳过。
+
+| 类型 | 端 | 说明 | 涉及文件 | 文档 |
+|------|----|------|---------|------|
+| 修复 | 后端 | NVIDIA 数字振动在主屏非 `\\.\DISPLAY1` 的机器上完全失效：根因是把 `\\.\DISPLAYn` 的编号当成 `NvAPI_EnumNvidiaDisplayHandle` 的索引，而后者只枚举已连接的 NVIDIA 输出 —— Optimus 笔记本 Intel 占 DISPLAY1-4、NVIDIA 主屏在 DISPLAY5，取索引 4 得 `END_ENUMERATION(-7)`，整条链在取句柄这步就断。改用 `NvAPI_GetAssociatedNvidiaDisplayHandle` 按设备名精确取；明确指定显示器却取不到时报错不回退（虚拟显示器/Intel 输出的屏悄悄改到别的屏比失败更糟） | `src-tauri/src/nvidia.rs` | [nvidia.md](./api/nvidia.md) |
+| 新功能 | 后端+前端 | AMD 饱和度支持：新建 `amd.rs` 通过 ADLX（`amdadlx64.dll`）按虚表槽位直接调用，不引入 SDK；`nvidia.rs` 四个 DVC 命令内部加厂商分派（NVIDIA 优先，NVIDIA 明确不在时转 AMD，按显示器判断）；显示器用 EDID 型号名与 ADLX `Name()` 匹配；`get_dvc_capability` 新增 `vendor` 字段，前端 AMD 时滑块标签改"色彩饱和度"。ADL 老接口不可用：RX 7900 XT 实测 `ColorCaps` 报 0x30 只剩色温 | `src-tauri/src/amd.rs`、`nvidia.rs`、`icc.rs`（`get_monitor_name_from_edid` 开放）、`lib.rs`（退出钩子 `amd::shutdown`）、`App.tsx`、`ColorAdjuster.tsx` | [amd.md](./api/amd.md)、[nvidia.md](./api/nvidia.md) |
+| 新功能 | 后端+前端 | 数字振动能力探测与降级：`get_dvc_capability` 探测当前显示器能否调 DVC 及厂商；不支持时滑块置灰、描述改为原因文案，应用方案时跳过 DVC 调用。动机：失败改 toast 后 Intel 机器每拉一次滑块弹一次错 | `nvidia.rs`、`App.tsx`、`ColorAdjuster.tsx` | [nvidia.md](./api/nvidia.md) |
+| 修复 | 后端 | DVC 写入路径补 UI↔驱动标度换算（`ui_to_driver_level` / `driver_to_ui_level` 成对）：原先读取归一化、写入直传不对称，NVIDIA 恰好 0..100 未暴露；AMD 值域 [0,200] 中性 100 必须换算 | `nvidia.rs` | [nvidia.md](./api/nvidia.md) |
+| 修复 | 前端 | NVAPI / gamma ramp 失败只进 `console.error`，用户看到的就是"拉了没反应"；改为 toast 上报，后端错误串补接口名、status、显示器名 | `ColorAdjuster.tsx`、`App.tsx`、`nvidia.rs` | — |
+| 修复 | 后端 | 托盘/进程监听应用方案与恢复默认 ICC：DVC 失败用 `?` 直接 return，后面的 RGB 增益整个被跳过；改为记日志不阻断 | `src-tauri/src/tray.rs`、`icc.rs` | — |
+| 修复 | 前端 | 关闭行为设"直接关闭"后点 X 无反应：根因是 Tauri 检测到 JS 注册了 close-requested 监听就无条件 `prevent_close`，再由 JS 包装层调 `destroy()`，而 capabilities 只有 `core:window:allow-hide` 没有 `allow-destroy`，destroy 被权限系统拒绝；改为显式 `exit(0)`，与首次弹窗的"直接退出"一致。`lib.rs` 里原注释把机制说反了，已修正 | `App.tsx`、`src-tauri/src/lib.rs` | — |
+| 改进 | 配置 | 主窗口 `center: true`，每次启动居中；托盘恢复仍保留原位置（走 hide/show，窗口对象不销毁） | `src-tauri/tauri.conf.json` | — |
+| 改进 | 工具 | 新增 `tools/gpu-color-diag.bat`：bat+PowerShell 双格式单文件，双击运行，采集 Windows 显示适配器 / NVAPI / ADL / ADLX 四节现场信息并存桌面，供用户报障。本次两个根因（DISPLAY5、ADL caps=0x30）都是它定位的 | `tools/gpu-color-diag.bat` | — |
+| 改进 | 文档 | 备用下载按钮改为跳转安装指南下载渠道表 | `docs/` | — |
+
+---
+
 ### v0.4.0 — 2026-08-02 · RGB 增益 + 公告分类 + 保存流程重构
 
 RGB 三通道增益（偏色/白平衡）与三种调节方式换算；公告拆「公告 / 通知」双 Tab；保存动作重构为「更新方案 / 另存为 / 保存方案」三态并禁止删除当前方案；进程监听 WMI 断线自愈。

@@ -39,6 +39,18 @@ interface DisplayMonitor {
   is_primary: boolean;
 }
 
+/** 数字振动能力探测结果（对应后端 `nvidia::DvcCapability`） */
+interface DvcCapability {
+  supported: boolean;
+  /** 命中的后端："nvidia" | "amd"；不支持时为 null */
+  vendor: string | null;
+  /** 不支持时的原因，可直接展示给用户 */
+  reason: string | null;
+  driver_min: number;
+  driver_max: number;
+  default_ui_value: number;
+}
+
 interface AppSettings {
   close_to_tray: boolean | null;  // null=未选择，true=最小化到托盘，false=直接关闭
   close_prompted: boolean;
@@ -93,6 +105,7 @@ function App() {
     iccProfile: "Default",
   });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
+  const [dvcCap, setDvcCap] = useState<DvcCapability | null>(null);
   const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
 
@@ -158,9 +171,16 @@ function App() {
           return;
         }
         if (settings.close_to_tray === false) {
-          // 已设置为直接关闭 → 直接退出
+          // 已设置为直接关闭 → 显式退出应用。
+          //
+          // 不能靠"不 preventDefault 让它自然关闭"：Tauri 只要检测到前端注册了
+          // close-requested 监听器就会自己 prevent_close，再由 JS 包装层调
+          // window.destroy()。而 capabilities 里没有 core:window:allow-destroy
+          // （只加了 allow-hide），destroy 会被权限系统拒绝，窗口纹丝不动。
+          // 走 process 插件的 exit()，和弹窗里选"直接退出"完全一致。
           console.log("[App] close_to_tray=false, exiting");
-          // 不 preventDefault，让窗口正常关闭退出
+          event.preventDefault();
+          await exit(0);
           return;
         }
 
@@ -280,6 +300,19 @@ function App() {
       window.clearTimeout(t);
     };
   }, [syncUiFromAppliedConfig]);
+
+  // 数字振动只有 NVIDIA 输出的显示器支持。先探测，再决定滑块能不能拖、
+  // 应用方案时要不要调它 —— 否则 AMD / Intel 机器上每次操作都会弹一次错误。
+  useEffect(() => {
+    let cancelled = false;
+    invoke<DvcCapability>("get_dvc_capability", { deviceId: selectedDeviceId })
+      .then((cap) => { if (!cancelled) setDvcCap(cap); })
+      .catch((err) => {
+        console.error("Failed to probe DVC capability:", err);
+        if (!cancelled) setDvcCap(null);
+      });
+    return () => { cancelled = true; };
+  }, [selectedDeviceId]);
 
   const showToast = useCallback((type: "success" | "error", text: string) => {
     setToast({ type, text });
@@ -407,15 +440,20 @@ function App() {
     }
 
     try {
-      await Promise.all([
+      const calls = [
         invoke("set_nvidia_brightness", { deviceId: selectedDeviceId, value: config.brightness }),
         invoke("set_nvidia_contrast", { deviceId: selectedDeviceId, value: config.contrast }),
         invoke("set_nvidia_gamma", { deviceId: selectedDeviceId, value: config.gamma }),
-        invoke("set_nvidia_digital_vibrance", { deviceId: selectedDeviceId, value: config.digital_vibrance }),
         invoke("set_nvidia_rgb_gain", { deviceId: selectedDeviceId, r: rr, g: rg, b: rb }),
-      ]);
+      ];
+      // 探测到明确不支持才跳过；尚未探测完（null）时照常尝试
+      if (dvcCap?.supported !== false) {
+        calls.push(invoke("set_nvidia_digital_vibrance", { deviceId: selectedDeviceId, value: config.digital_vibrance }));
+      }
+      await Promise.all(calls);
     } catch (err) {
       console.error("Failed to apply NVIDIA:", err);
+      showToast("error", `应用颜色设置失败: ${err}`);
     }
   };
 
@@ -801,6 +839,8 @@ function App() {
               }}
               onRgbScaleModeChange={handleRgbScaleModeChange}
               onDeviceChange={setSelectedDeviceId}
+              showToast={showToast}
+              dvcCapability={dvcCap}
             />
           </div>
           <div data-name="preview-config-panel" className="col-span-4 flex flex-col min-h-0 h-full overflow-hidden gap-gutter">

@@ -70,7 +70,7 @@ fn parse_edid_monitor_name(edid: &[u8]) -> Option<String> {
 
 /// 从注册表 EDID 获取显示器型号名称
 /// pnp_id 格式: \\?\DISPLAY#ACR0838#...#{...}  或  DISPLAY\ACR0838\...
-fn get_monitor_name_from_edid(pnp_id: &str) -> Option<String> {
+pub(crate) fn get_monitor_name_from_edid(pnp_id: &str) -> Option<String> {
     let upper = pnp_id.to_uppercase();
     // 支持多种格式:
     //   MONITOR\ACR0838\{...}\0001        (EnumDisplayDevices 不带flag)
@@ -501,8 +501,12 @@ pub(crate) fn restore_default_icc(device_id: Option<String>) -> Result<(), Strin
 
     apply_icc_profile(&profile_path, device_id.clone())?;
 
-    // 恢复数字震动为 NVIDIA 面板默认 50%
-    crate::nvidia::set_nvidia_digital_vibrance(device_id, 50)
+    // 恢复数字振动为 NVIDIA 面板默认 50%。仅 NVIDIA 支持，
+    // 失败不影响 ICC 本身已经恢复成功这个事实。
+    if let Err(e) = crate::nvidia::set_nvidia_digital_vibrance(device_id, 50) {
+        eprintln!("[ICC] restore default: digital vibrance reset skipped: {}", e);
+    }
+    Ok(())
 }
 
 #[tauri::command]
