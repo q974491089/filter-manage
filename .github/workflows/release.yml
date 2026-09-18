@@ -159,28 +159,21 @@ jobs:
             https://api.cloudflare.com/client/v4/user/tokens/verify)
           echo "$TOKEN_STATUS" | jq '{success, result: {status: .result.status, expires_on: .result.expires_on}}'
 
-          API_BASE="https://api.cloudflare.com/client/v4/accounts/${R2_ACCOUNT_ID}/r2/buckets/${R2_BUCKET}/objects"
-
-          upload_object() {
-            local key="$1" file="$2" content_type="$3"
-            echo "Uploading ${key}..."
-            curl --fail-with-body --retry 3 --retry-all-errors --max-time 600 \
-              --request PUT "${API_BASE}/${key}" \
-              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              --header "Content-Type: ${content_type}" \
-              --header "cf-r2-jurisdiction: default" \
-              --data-binary "@${file}"
-          }
-
-          upload_object "latest.json" \
-            "/tmp/r2-release/latest-r2.json" \
-            "application/json; charset=utf-8"
-          upload_object "releases/${VERSION}/${ASSET}" \
-            "/tmp/r2-release/${ASSET}" \
-            "application/vnd.microsoft.portable-executable"
-          upload_object "releases/${VERSION}/${ASSET}.sig" \
-            "/tmp/r2-release/${ASSET}.sig" \
-            "text/plain; charset=utf-8"
+          npx --yes wrangler@4.105.0 r2 object put \
+            "${R2_BUCKET}/releases/${VERSION}/${ASSET}" \
+            --remote --force --file "/tmp/r2-release/${ASSET}" \
+            --content-type "application/vnd.microsoft.portable-executable" \
+            --cache-control "public, max-age=31536000, immutable"
+          npx --yes wrangler@4.105.0 r2 object put \
+            "${R2_BUCKET}/releases/${VERSION}/${ASSET}.sig" \
+            --remote --force --file "/tmp/r2-release/${ASSET}.sig" \
+            --content-type "text/plain; charset=utf-8" \
+            --cache-control "public, max-age=31536000, immutable"
+          npx --yes wrangler@4.105.0 r2 object put \
+            "${R2_BUCKET}/latest.json" \
+            --remote --force --file /tmp/r2-release/latest-r2.json \
+            --content-type "application/json; charset=utf-8" \
+            --cache-control "no-cache, no-store, must-revalidate"
 
       - name: Publish R2 download links
         env:
