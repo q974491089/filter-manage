@@ -6,7 +6,30 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "@tailwindcss/typography>nanoid": "5.1.16",
+      "@vitejs/plugin-react>nanoid": "5.1.16",
+      "@vitejs/plugin-vue>nanoid": "5.1.16",
+      "@vue/compiler-sfc>nanoid": "5.1.16",
+      "@vue/server-renderer>nanoid": "5.1.16",
+      "@vueuse/core>nanoid": "5.1.16",
+      "@vueuse/integrations>nanoid": "5.1.16",
+      "@vueuse/shared>nanoid": "5.1.16",
+      "autoprefixer>nanoid": "5.1.16",
+      "embla-carousel-vue>nanoid": "5.1.16",
+      "nanoid>nanoid": "5.1.16",
+      "postcss>nanoid": "5.1.16",
+      "postcss-import>nanoid": "5.1.16",
+      "postcss-js>nanoid": "5.1.16",
+      "postcss-load-config>nanoid": "5.1.16",
+      "postcss-nested>nanoid": "5.1.16",
+      "tailwindcss>nanoid": "5.1.16",
+      "vite>nanoid": "5.1.16",
+      "vitepress>nanoid": "5.1.16",
+      "vue>nanoid": "5.1.16",
+      "nanoid": "5.1.16"
+    }
   },
   "scripts": {
     "dev": "vite",
