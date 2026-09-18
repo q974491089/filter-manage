@@ -41,11 +41,16 @@ jobs:
             '.platforms["windows-x86_64"].url = $url' \
             /tmp/r2-release/latest.json > /tmp/r2-release/latest-r2.json
 
+      - name: Install R2 upload client
+        run: npm install --no-save --no-package-lock --ignore-scripts @aws-sdk/client-s3
+
       - name: Upload assets to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           VERSION: ${{ inputs.version }}
@@ -53,26 +58,49 @@ jobs:
         run: |
           set -euo pipefail
           ASSET="Filter-Manage_${VERSION}_x64-setup.exe"
-          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-          PREFIX="releases/${VERSION}"
 
           : "${AWS_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID secret missing}"
           : "${AWS_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY secret missing}"
           : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID secret missing}"
           : "${R2_BUCKET:?R2_BUCKET secret missing}"
 
-          aws s3 cp "/tmp/r2-release/${ASSET}" "s3://${R2_BUCKET}/${PREFIX}/${ASSET}" \
-            --endpoint-url "$ENDPOINT" \
-            --content-type "application/vnd.microsoft.portable-executable" \
-            --cache-control "public, max-age=31536000, immutable" --no-progress
-          aws s3 cp "/tmp/r2-release/${ASSET}.sig" "s3://${R2_BUCKET}/${PREFIX}/${ASSET}.sig" \
-            --endpoint-url "$ENDPOINT" \
-            --content-type "text/plain; charset=utf-8" \
-            --cache-control "public, max-age=31536000, immutable" --no-progress
-          aws s3 cp /tmp/r2-release/latest-r2.json "s3://${R2_BUCKET}/latest.json" \
-            --endpoint-url "$ENDPOINT" \
-            --content-type "application/json; charset=utf-8" \
-            --cache-control "no-cache, no-store, must-revalidate" --no-progress
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+
+          const accountId = process.env.R2_ACCOUNT_ID;
+          const bucket = process.env.R2_BUCKET;
+          const version = process.env.VERSION;
+          const asset = `Filter-Manage_${version}_x64-setup.exe`;
+          const client = new S3Client({
+            region: 'auto',
+            endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+            forcePathStyle: true,
+            maxAttempts: 5,
+          });
+
+          async function put(key, file, contentType, cacheControl) {
+            const body = fs.createReadStream(file);
+            await client.send(new PutObjectCommand({
+              Bucket: bucket,
+              Key: key,
+              Body: body,
+              ContentType: contentType,
+              CacheControl: cacheControl,
+            }));
+            console.log(`Uploaded ${key}`);
+          }
+
+          (async () => {
+            await put(`releases/${version}/${asset}`, `/tmp/r2-release/${asset}`, 'application/vnd.microsoft.portable-executable', 'public, max-age=31536000, immutable');
+            await put(`releases/${version}/${asset}.sig`, `/tmp/r2-release/${asset}.sig`, 'text/plain; charset=utf-8', 'public, max-age=31536000, immutable');
+            await put('latest.json', '/tmp/r2-release/latest-r2.json', 'application/json; charset=utf-8', 'no-cache, no-store, must-revalidate');
+          })().catch((error) => {
+            console.error(error.name || 'R2 upload failed');
+            console.error(error.message || error);
+            process.exitCode = 1;
+          });
+          NODE
 
       - name: Publish R2 download links
         env:
