@@ -163,6 +163,7 @@ jobs:
             "${R2_BUCKET}/releases/${VERSION}/${ASSET}" \
             --remote --force --file "/tmp/r2-release/${ASSET}" \
             --content-type "application/vnd.microsoft.portable-executable" \
+            --content-disposition "attachment; filename=\"${ASSET}\"" \
             --cache-control "public, max-age=31536000, immutable"
           npx --yes wrangler@4.105.0 r2 object put \
             "${R2_BUCKET}/releases/${VERSION}/${ASSET}.sig" \
