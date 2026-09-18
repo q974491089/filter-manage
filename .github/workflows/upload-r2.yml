@@ -56,6 +56,11 @@ jobs:
           : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID secret missing}"
           : "${R2_BUCKET:?R2_BUCKET secret missing}"
 
+          TOKEN_STATUS=$(curl -fsS --max-time 30 \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            https://api.cloudflare.com/client/v4/user/tokens/verify)
+          echo "$TOKEN_STATUS" | jq '{success, result: {status: .result.status, expires_on: .result.expires_on}}'
+
           API_BASE="https://api.cloudflare.com/client/v4/accounts/${R2_ACCOUNT_ID}/r2/buckets/${R2_BUCKET}/objects"
 
           upload_object() {
@@ -69,15 +74,15 @@ jobs:
               --data-binary "@${file}"
           }
 
+          upload_object "latest.json" \
+            "/tmp/r2-release/latest-r2.json" \
+            "application/json; charset=utf-8"
           upload_object "releases/${VERSION}/${ASSET}" \
             "/tmp/r2-release/${ASSET}" \
             "application/vnd.microsoft.portable-executable"
           upload_object "releases/${VERSION}/${ASSET}.sig" \
             "/tmp/r2-release/${ASSET}.sig" \
             "text/plain; charset=utf-8"
-          upload_object "latest.json" \
-            "/tmp/r2-release/latest-r2.json" \
-            "application/json; charset=utf-8"
 
       - name: Publish R2 download links
         env:
