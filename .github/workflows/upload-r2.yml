@@ -38,7 +38,7 @@ jobs:
 
           R2_ASSET_URL="${R2_PUBLIC_URL%/}/releases/${VERSION}/${ASSET}"
           jq --arg url "$R2_ASSET_URL" \
-            '.platforms["windows-x86_64"].url = $url' \
+            '.platforms["windows-x86_64"].url = $url | .platforms["windows-x86_64-nsis"].url = $url' \
             /tmp/r2-release/latest.json > /tmp/r2-release/latest-r2.json
 
       - name: Upload assets to R2
