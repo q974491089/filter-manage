@@ -60,9 +60,10 @@ jobs:
 
           upload_object() {
             local key="$1" file="$2" content_type="$3"
+            local encoded_key="${key//\//%2F}"
             echo "Uploading ${key}..."
             curl --fail-with-body --retry 3 --retry-all-errors --max-time 600 \
-              --request PUT "${API_BASE}/${key}" \
+              --path-as-is --request PUT "${API_BASE}/${encoded_key}" \
               --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
               --header "Content-Type: ${content_type}" \
               --header "cf-r2-jurisdiction: default" \
