@@ -55,6 +55,7 @@ interface AppSettings {
   close_to_tray: boolean | null;  // null=未选择，true=最小化到托盘，false=直接关闭
   close_prompted: boolean;
   autostart: boolean;
+  run_as_admin: boolean;
   tray_presets: string[];
   shortcuts: { shortcut: string; config_name: string }[];
 }

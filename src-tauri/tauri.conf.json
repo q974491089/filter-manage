@@ -19,6 +19,7 @@
         "height": 1080,
         "resizable": true,
         "fullscreen": false,
+        "visible": false,
         "dragDropEnabled": true
       }
     ],
