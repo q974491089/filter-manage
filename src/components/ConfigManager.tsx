@@ -32,6 +32,7 @@ interface AppSettings {
   close_to_tray: boolean | null;
   close_prompted: boolean;
   autostart: boolean;
+  run_as_admin: boolean;
   shortcut_notification: boolean;
   tray_presets: string[];
   shortcuts: ShortcutBinding[];
