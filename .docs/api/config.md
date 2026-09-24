@@ -24,6 +24,7 @@
     "close_to_tray": true,
     "close_prompted": false,
     "autostart": false,
+    "run_as_admin": false,
     "tray_presets": [],
     "shortcuts": [{ "shortcut": "Ctrl+Shift+1", "config_name": "游戏模式" }],
     "shortcut_notification": true
@@ -31,7 +32,7 @@
 }
 ```
 
-**云端同步说明**：上传/下载整个 `app.json` 即可恢复所有配置。不希望跨设备同步的字段（如 `autostart`）由前端在上传前排除，后端不感知云同步逻辑。
+**云端同步说明**：上传/下载整个 `app.json` 即可恢复所有配置。不希望跨设备同步的字段（如 `autostart`、`run_as_admin` —— 均为本机自启/权限状态）由前端在上传前排除，后端不感知云同步逻辑。
 
 **旧格式迁移**：启动时自动兼容三代旧格式（散文件 `*.json`、`profiles.json`、`__settings__.json`），迁移后删除旧文件，幂等。
 
@@ -168,6 +169,7 @@ interface AppSettings {
   close_to_tray: boolean;        // 关闭时最小化到托盘（默认 true）
   close_prompted: boolean;       // 是否已通过弹窗选择过关闭行为（默认 false）
   autostart: boolean;            // 开机自启（默认 false）
+  run_as_admin: boolean;         // 以管理员身份运行（默认 false）
   tray_presets: string[];        // 托盘展示的方案名列表（空=默认前5个）
   shortcuts: ShortcutBinding[];  // 快捷键绑定
 }
@@ -237,7 +239,7 @@ await invoke('resume_shortcuts');
 
 ### `enable_autostart`
 
-启用开机自启。
+启用开机自启。自启机制由 `run_as_admin` 决定：非管理员写 HKCU 注册表 Run 项（带 `--silent` 参数，开机静默进托盘）；管理员改用 Windows 计划任务（登录触发 + 最高权限，静默提权、无 UAC）。两种机制互斥，切换时自动清理另一种。
 
 ```ts
 await invoke('enable_autostart');
@@ -245,7 +247,7 @@ await invoke('enable_autostart');
 
 ### `disable_autostart`
 
-禁用开机自启。
+禁用开机自启（同时清理注册表 Run 项与计划任务）。
 
 ```ts
 await invoke('disable_autostart');
@@ -253,11 +255,32 @@ await invoke('disable_autostart');
 
 ### `is_autostart_enabled`
 
-查询开机自启是否已启用。
+查询开机自启是否已启用（注册表 Run 项或计划任务任一存在即为 true）。
 
 ```ts
 const enabled = await invoke<boolean>('is_autostart_enabled');
 ```
+
+### `is_running_as_admin`
+
+查询当前进程是否以管理员（提升令牌）运行。
+
+```ts
+const elevated = await invoke<boolean>('is_running_as_admin');
+```
+
+### `set_run_as_admin`
+
+设置「以管理员身份运行」并持久化到 `AppSettings.run_as_admin`。
+- 开启且当前未提权 → 以管理员重启（触发一次 UAC）；提权实例启动后建立计划任务（若同时开了自启）。用户取消 UAC 时回滚开关并返回错误。
+- 开启且已提权 → 立即按自启开关建立/清理机制。
+- 关闭 → 删除计划任务并按需回退到注册表自启；下次普通启动即为非管理员。
+
+```ts
+await invoke('set_run_as_admin', { enabled: true });
+```
+
+> ⚠ 开机静默自启与管理员运行的联动依赖 Windows 计划任务，仅 Windows 有效；真实开机/UAC 行为需在 Windows 侧重启验证。
 
 ### `refresh_tray_menu`
 

@@ -56,6 +56,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub autostart: bool,
     #[serde(default)]
+    pub run_as_admin: bool,
+    #[serde(default)]
     pub tray_presets: Vec<String>,
     #[serde(default)]
     pub shortcuts: Vec<ShortcutBinding>,
@@ -77,6 +79,7 @@ impl Default for AppSettings {
             close_to_tray: None,
             close_prompted: false,
             autostart: false,
+            run_as_admin: false,
             tray_presets: Vec::new(),
             shortcuts: Vec::new(),
             shortcut_notification: true,
