@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc, Arc, Mutex, OnceLock,
 };
 use std::thread;
@@ -29,8 +29,13 @@ pub struct RunningProcess {
 #[derive(Debug, Serialize, Clone)]
 pub struct WatcherStatus {
     pub enabled: bool,
+    /// 最近激活的那条规则（= active_rules 的最后一条）；仅为兼容旧前端保留，
+    /// 「屏幕上实际是什么方案」看 active_config_name
     pub active_rule: Option<ProcessRule>,
+    /// 监听器当前贴在屏幕上的方案名；restore_on_exit=false 的规则退出后仍保留
     pub active_config_name: Option<String>,
+    /// 当前处于激活状态的规则，按激活顺序排列（多个被监听的进程同时运行时会有多条）
+    pub active_rules: Vec<ProcessRule>,
     pub subscribed_processes: Vec<String>,
     /// 当前是否持有存活的 WMI 事件通道
     pub wmi_connected: bool,
@@ -40,8 +45,47 @@ pub struct WatcherStatus {
     pub reconnect_attempt: u32,
 }
 
+/// 监听器当前「贴在」屏幕上的那条规则。`restore_on_exit=false` 的规则在进程退出后
+/// 屏幕不会还原，这个记录会保留，保证 status 与屏幕一致。
+#[derive(Clone)]
+struct AppliedConfig {
+    rule_id: String,
+    config_name: String,
+}
+
+/// 进程退出后要把屏幕切到的目标
+#[derive(Clone)]
+enum SwitchTarget {
+    /// 回退到这条（仍在运行的）规则对应的方案
+    Rule { rule_id: String, config_name: String },
+    /// 恢复默认方案
+    Default,
+    /// 屏幕保持不动（进程退出但 restore_on_exit=false）
+    Keep,
+}
+
+/// 切方案失败后的待重试项
+struct PendingRestore {
+    target: SwitchTarget,
+    /// 切换成功后要从 active_rules 里移除的规则
+    rule_ids: Vec<String>,
+    /// 这些规则监听的进程名：重试前要确认它们确实还没回来，
+    /// 否则进程重启后这次恢复会把刚生效的配色又冲掉
+    process_names: Vec<String>,
+    /// 发起时的 APPLY_GENERATION；被别的应用改写后说明用户接管了屏幕，放弃重试
+    generation: u64,
+    attempt: u32,
+    notify: bool,
+    due_at: Instant,
+}
+
 struct WatcherState {
-    active_rule: Option<ProcessRule>,
+    /// 已激活的规则，按激活顺序排列（最早激活的在前）
+    active_rules: Vec<ProcessRule>,
+    /// 当前贴屏幕的规则
+    applied: Option<AppliedConfig>,
+    /// 恢复默认/回退失败后的重试队列（同一时刻最多一条）
+    pending_restore: Option<PendingRestore>,
     subscribed_processes: Vec<String>,
     wmi_connected: bool,
     last_error: Option<String>,
@@ -52,11 +96,32 @@ struct WatcherState {
 
 static WATCHER_RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// 每次「屏幕上的配色被改写」时自增（托盘 / 快捷键 / 进程监听 / 前端手动应用都算）。
+///
+/// 用途：待重试的恢复动作记下发起时的代号，重试前先比对——代号变了说明期间有人
+/// 手动改过配色，这时再恢复默认就会把用户刚选的设置冲掉，直接放弃重试。
+static APPLY_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// 任何会改写屏幕色彩的路径都要调一次，见 `tray::apply_color_config`、
+/// `icc::apply_icc_profile`、`icc::restore_default_icc`。
+pub(crate) fn note_color_applied() {
+    APPLY_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+fn apply_generation() -> u64 {
+    APPLY_GENERATION.load(Ordering::SeqCst)
+}
+
+/// 切方案失败后的重试次数上限；超过后保留状态、交给下次重订时的对账继续兜底
+const RESTORE_RETRY_MAX: u32 = 3;
+
 fn state() -> &'static Arc<Mutex<WatcherState>> {
     static STATE: OnceLock<Arc<Mutex<WatcherState>>> = OnceLock::new();
     STATE.get_or_init(|| {
         Arc::new(Mutex::new(WatcherState {
-            active_rule: None,
+            active_rules: Vec::new(),
+            applied: None,
+            pending_restore: None,
             subscribed_processes: Vec::new(),
             wmi_connected: false,
             last_error: None,
@@ -437,12 +502,21 @@ fn show_toast(body: &str) {
         }
     }
 
+    // 方案名是用户自由输入，含 & < > 等字符会破坏 XML；转义后再拼，避免 LoadXml 失败导致监听线程 panic 退出
+    let safe_body = body
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
     let xml = XmlDocument::new().unwrap();
-    xml.LoadXml(&HSTRING::from(format!(
-        r#"<toast><visual><binding template="ToastGeneric"><text>Filter Manage</text><text>{}</text></binding></visual></toast>"#,
-        body
-    )))
-    .unwrap();
+    if xml
+        .LoadXml(&HSTRING::from(format!(
+            r#"<toast><visual><binding template="ToastGeneric"><text>Filter Manage</text><text>{}</text></binding></visual></toast>"#,
+            safe_body
+        )))
+        .is_err()
+    {
+        return;
+    }
 
     if let Ok(toast) = ToastNotification::CreateToastNotification(&xml) {
         let _ = toast.SetTag(&HSTRING::from(new_tag));
@@ -663,28 +737,44 @@ mod wmi_impl {
     }
 }
 
+/// 订阅结果（成功/失败原因）通过 `ready_rx` 回传给调用方。
+///
+/// 之前这里只回传 JoinHandle，调用方 spawn 成功就当订阅成功上报健康状态——
+/// 而 `WmiSubscription::new` 是在线程里跑的，失败时线程只是 return，没人知道，
+/// 前端会一直显示「已连接」但一条事件都收不到。
+type WmiMonitorParts = (
+    thread::JoinHandle<()>,
+    mpsc::Receiver<Result<(), String>>,
+);
+
 #[cfg(windows)]
 fn spawn_wmi_monitor(
     event_tx: mpsc::Sender<ProcessEvent>,
     wql: String,
     stop_rx: mpsc::Receiver<()>,
-) -> Option<thread::JoinHandle<()>> {
-    thread::Builder::new()
+) -> Option<WmiMonitorParts> {
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
+
+    let handle = thread::Builder::new()
         .name("wmi-monitor".into())
         .spawn(move || {
             let sub = match wmi_impl::WmiSubscription::new(&wql, event_tx) {
                 Ok(s) => s,
                 Err(e) => {
                     pw_log(format!("WMI subscribe failed: {e}"));
+                    let _ = ready_tx.send(Err(e));
                     return;
                 }
             };
 
+            let _ = ready_tx.send(Ok(()));
             // Block until stop signal arrives (subscription stays alive)
             let _ = stop_rx.recv();
             drop(sub);
         })
-        .ok()
+        .ok()?;
+
+    Some((handle, ready_rx))
 }
 
 #[cfg(not(windows))]
@@ -692,29 +782,321 @@ fn spawn_wmi_monitor(
     _event_tx: mpsc::Sender<ProcessEvent>,
     _wql: String,
     _stop_rx: mpsc::Receiver<()>,
-) -> Option<thread::JoinHandle<()>> {
+) -> Option<WmiMonitorParts> {
     None
 }
 
 // ─── 事件处理 ────────────────────────────────────────────────────────────────
 
-/// 清除 active_rule；若 restore 为 true 则恢复默认方案。调用前不得持有 state 锁。
-fn clear_active_rule(app: &AppHandle, restore: bool, notify: bool, reason: &str) {
-    {
-        let mut st = state().lock().unwrap();
-        if st.active_rule.is_none() {
-            return;
+/// 从 active_rules 移除这些规则，并清掉指向它们的待重试项（单次加锁）。不动 `applied`。
+fn forget_rules(ids: &[String]) {
+    let mut st = state().lock().unwrap();
+    st.active_rules.retain(|r| !ids.contains(&r.id));
+    let emptied = match st.pending_restore.as_mut() {
+        Some(p) => {
+            p.rule_ids.retain(|id| !ids.contains(id));
+            p.rule_ids.is_empty()
         }
-        st.active_rule = None;
+        None => false,
+    };
+    if emptied {
+        st.pending_restore = None;
     }
-    pw_log(format!("clear active_rule ({reason}) restore={restore}"));
-    if restore {
-        if let Err(e) = tray::apply_default_config() {
-            pw_log(format!("apply_default_config failed: {e}"));
-        } else {
+}
+
+/// 把屏幕切到目标方案
+fn apply_target(target: &SwitchTarget) -> Result<(), String> {
+    match target {
+        SwitchTarget::Rule { config_name, .. } => {
+            let cfg = config::load_config(config_name.clone())?;
+            tray::apply_color_config(&cfg)
+        }
+        SwitchTarget::Default => tray::apply_default_config(),
+        SwitchTarget::Keep => Ok(()),
+    }
+}
+
+/// 切换成功后通知前端 + 弹提示
+fn announce_target(app: &AppHandle, target: &SwitchTarget, notify: bool) {
+    match target {
+        SwitchTarget::Rule { config_name, .. } => {
+            let _ = app.emit("config-applied", config_name);
+            if notify {
+                show_toast(&format!("进程退出：已回退到「{}」", config_name));
+            }
+        }
+        SwitchTarget::Default => {
             let _ = app.emit("config-applied", "__default__");
             if notify {
                 show_toast("进程退出：已恢复默认方案");
+            }
+        }
+        SwitchTarget::Keep => {}
+    }
+}
+
+/// 丢弃待重试项，并把它名下那批（进程已退出的）规则一并移出 active_rules。
+/// 屏幕已经落到新目标上时用它收尾。
+fn take_pending_restore(st: &mut WatcherState) {
+    if let Some(p) = st.pending_restore.take() {
+        st.active_rules.retain(|r| !p.rule_ids.contains(&r.id));
+    }
+}
+
+/// 登记一条待重试的切方案动作
+fn schedule_restore_retry(target: SwitchTarget, leaving: &[ProcessRule], notify: bool) {
+    let mut st = state().lock().unwrap();
+    let attempt = st.pending_restore.as_ref().map(|p| p.attempt).unwrap_or(0) + 1;
+    st.pending_restore = Some(PendingRestore {
+        target,
+        rule_ids: leaving.iter().map(|r| r.id.clone()).collect(),
+        process_names: leaving.iter().map(|r| r.process_name.clone()).collect(),
+        generation: apply_generation(),
+        attempt,
+        notify,
+        due_at: Instant::now() + Duration::from_secs(1u64 << attempt.min(3)),
+    });
+}
+
+/// 把一批规则移出 active_rules（进程退出 / 规则被删除或停用 / 监听关闭）。
+///
+/// 关键顺序：**先让屏幕切到正确的方案，成功之后才改内存状态**。这样切换失败时
+/// `get_watcher_status` 报的仍是屏幕上实际生效的方案，不会出现「状态说没有方案、
+/// 屏幕还停在触发方案」的错位；失败的动作会进重试队列。
+///
+/// 调用前不得持有 state 锁。
+fn deactivate_rules(app: &AppHandle, leaving: &[ProcessRule], reason: &str, notify: bool) {
+    if leaving.is_empty() {
+        return;
+    }
+    let leaving_ids: Vec<String> = leaving.iter().map(|r| r.id.clone()).collect();
+
+    let (owns_screen, restore_on_exit, survivor) = {
+        let st = state().lock().unwrap();
+        let owns_screen = st
+            .applied
+            .as_ref()
+            .is_some_and(|a| leaving_ids.contains(&a.rule_id));
+        if !owns_screen {
+            (false, false, None)
+        } else {
+            let restore = st
+                .applied
+                .as_ref()
+                .and_then(|a| st.active_rules.iter().find(|r| r.id == a.rule_id))
+                .map(|r| r.restore_on_exit)
+                .unwrap_or(true);
+            // 待重试队列里的规则进程也已经退出了，不能拿它当接管目标，
+            // 否则会把屏幕切到一条早就没了进程的方案上
+            let retired: &[String] = st
+                .pending_restore
+                .as_ref()
+                .map(|p| p.rule_ids.as_slice())
+                .unwrap_or(&[]);
+            let survivor = st
+                .active_rules
+                .iter()
+                .rev()
+                .find(|r| !leaving_ids.contains(&r.id) && !retired.contains(&r.id))
+                .cloned();
+            (true, restore, survivor)
+        }
+    };
+
+    // 屏幕上的方案不由这批规则提供 → 直接清状态，不用动屏幕
+    if !owns_screen {
+        pw_log(format!(
+            "deactivate ({reason}) without switching: {:?}",
+            leaving.iter().map(|r| r.process_name.as_str()).collect::<Vec<_>>()
+        ));
+        forget_rules(&leaving_ids);
+        return;
+    }
+
+    let target = match (&survivor, restore_on_exit) {
+        // 还有别的被监听进程在跑 → 回退到它那条更新一点的规则
+        (Some(r), _) => SwitchTarget::Rule {
+            rule_id: r.id.clone(),
+            config_name: r.config_name.clone(),
+        },
+        (None, true) => SwitchTarget::Default,
+        // restore_on_exit=false：进程退出后刻意保留当前配色，屏幕不动
+        (None, false) => SwitchTarget::Keep,
+    };
+
+    pw_log(format!("deactivate ({reason}) → {}", describe_target(&target)));
+
+    if matches!(target, SwitchTarget::Keep) {
+        forget_rules(&leaving_ids);
+        return;
+    }
+
+    match apply_target(&target) {
+        Ok(()) => {
+            {
+                let mut st = state().lock().unwrap();
+                st.active_rules.retain(|r| !leaving_ids.contains(&r.id));
+                // 屏幕已经落到新目标上，之前排队的恢复动作连同它的规则一起作废
+                take_pending_restore(&mut st);
+                st.applied = match &target {
+                    SwitchTarget::Rule { rule_id, config_name } => Some(AppliedConfig {
+                        rule_id: rule_id.clone(),
+                        config_name: config_name.clone(),
+                    }),
+                    _ => None,
+                };
+            }
+            pw_log(format!("deactivate ({reason}) applied {}", describe_target(&target)));
+            announce_target(app, &target, notify);
+        }
+        Err(e) => {
+            // 屏幕没切换成功，状态就不能提前改：规则留在 active_rules 里，
+            // status 与屏幕保持一致，并排队重试
+            pw_log(format!(
+                "deactivate ({reason}) failed: {e}; queued for retry"
+            ));
+            schedule_restore_retry(target, leaving, notify);
+        }
+    }
+}
+
+fn describe_target(target: &SwitchTarget) -> String {
+    match target {
+        SwitchTarget::Rule { config_name, .. } => format!("config '{config_name}'"),
+        SwitchTarget::Default => "default".to_string(),
+        SwitchTarget::Keep => "keep".to_string(),
+    }
+}
+
+/// 规则在监听期间被改了绑定方案。若它正是当前生效的那条，按新方案重新应用
+/// （不用先回默认再切一次，避免闪一下）；否则只更新记录。
+fn reactivate_rule(app: &AppHandle, rule: &ProcessRule) {
+    let was_applied = state()
+        .lock()
+        .unwrap()
+        .applied
+        .as_ref()
+        .is_some_and(|a| a.rule_id == rule.id);
+
+    if was_applied {
+        let target = SwitchTarget::Rule {
+            rule_id: rule.id.clone(),
+            config_name: rule.config_name.clone(),
+        };
+        if let Err(e) = apply_target(&target) {
+            // 新方案没应用成功：状态保持旧值，屏幕也还是旧方案，两边一致
+            pw_log(format!("reactivate {} failed: {e}", rule.id));
+            return;
+        }
+    }
+
+    {
+        let mut st = state().lock().unwrap();
+        if let Some(slot) = st.active_rules.iter_mut().find(|r| r.id == rule.id) {
+            *slot = rule.clone();
+        }
+        if was_applied {
+            st.applied = Some(AppliedConfig {
+                rule_id: rule.id.clone(),
+                config_name: rule.config_name.clone(),
+            });
+            // 新方案已经生效，排队的恢复动作作废
+            take_pending_restore(&mut st);
+        }
+    }
+    pw_log(format!("reactivated {} → {}", rule.id, rule.config_name));
+    if was_applied {
+        let _ = app.emit("config-applied", &rule.config_name);
+    }
+}
+
+/// 重试队列的驱动器，由 watcher 主循环每次迭代调用。
+fn tick_pending_restore(app: &AppHandle) {
+    if state().lock().unwrap().pending_restore.is_none() {
+        return;
+    }
+
+    // 期间有别的应用改写了屏幕（托盘 / 快捷键 / 前端手动应用）→ 作废，
+    // 否则重试会把用户刚选的配色覆盖掉
+    let stale_ids = {
+        let st = state().lock().unwrap();
+        st.pending_restore
+            .as_ref()
+            .filter(|p| p.generation != apply_generation())
+            .map(|p| p.rule_ids.clone())
+    };
+    if let Some(ids) = stale_ids {
+        pw_log("pending restore dropped: the screen was changed elsewhere");
+        {
+            let mut st = state().lock().unwrap();
+            take_pending_restore(&mut st);
+            // 屏幕现在由别人决定，监听器已经不知道它是什么方案了
+            if st.applied.as_ref().is_some_and(|a| ids.contains(&a.rule_id)) {
+                st.applied = None;
+            }
+        }
+        return;
+    }
+
+    let due = {
+        let st = state().lock().unwrap();
+        st.pending_restore
+            .as_ref()
+            .filter(|p| Instant::now() >= p.due_at)
+            .map(|p| (p.target.clone(), p.rule_ids.clone(), p.process_names.clone(), p.attempt, p.notify))
+    };
+    let Some((target, rule_ids, process_names, attempt, notify)) = due else {
+        return;
+    };
+
+    // 等待期间进程又起来了：这时屏幕上的配色对它是正确的，这次恢复已经没有意义
+    let running = running_process_names();
+    if process_names
+        .iter()
+        .any(|n| running.iter().any(|p| p.eq_ignore_ascii_case(n)))
+    {
+        pw_log("pending restore dropped: the process came back");
+        state().lock().unwrap().pending_restore = None;
+        return;
+    }
+
+    match apply_target(&target) {
+        Ok(()) => {
+            {
+                let mut st = state().lock().unwrap();
+                st.pending_restore = None;
+                st.active_rules.retain(|r| !rule_ids.contains(&r.id));
+                st.applied = match &target {
+                    SwitchTarget::Rule { rule_id, config_name } => Some(AppliedConfig {
+                        rule_id: rule_id.clone(),
+                        config_name: config_name.clone(),
+                    }),
+                    _ => None,
+                };
+            }
+            pw_log(format!(
+                "pending restore succeeded on attempt {attempt}: {}",
+                describe_target(&target)
+            ));
+            announce_target(app, &target, notify);
+        }
+        Err(e) => {
+            if attempt >= RESTORE_RETRY_MAX {
+                // 放弃重试但状态保持真实：规则仍在 active_rules 里，status 报的就是屏幕上的方案。
+                // 下次重订 WMI 时 reconcile 会发现它的进程已退出，再走一遍修复流程。
+                pw_log(format!(
+                    "restore failed {attempt} times, giving up until next reconcile: {e}"
+                ));
+                state().lock().unwrap().pending_restore = None;
+                return;
+            }
+            pw_log(format!("restore attempt {attempt} failed: {e}"));
+            let mut st = state().lock().unwrap();
+            if let Some(p) = st.pending_restore.as_mut() {
+                p.attempt = attempt + 1;
+                // 本次失败过程中可能已经有部分应用落到了屏幕上，重新对齐代号
+                p.generation = apply_generation();
+                p.due_at = Instant::now() + Duration::from_secs(1u64 << (attempt + 1).min(3));
             }
         }
     }
@@ -741,9 +1123,13 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
                 settings
                     .process_rules
                     .iter()
-                    .find(|r| r.enabled && r.process_name.eq_ignore_ascii_case(&name))
+                    .find(|r| {
+                        r.enabled
+                            && r.process_name.eq_ignore_ascii_case(&name)
+                            // 已经在激活列表里 → 方案早就应用过了，不用重复切
+                            && !st.active_rules.iter().any(|a| a.id == r.id)
+                    })
                     .cloned()
-                    .filter(|rule| st.active_rule.as_ref().map(|r| &r.id) != Some(&rule.id))
             };
             let Some(rule) = rule else {
                 return;
@@ -752,23 +1138,34 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
             let config_name = rule.config_name.clone();
             let notify = settings.process_notification;
 
-            match config::load_config(config_name.clone()) {
-                Ok(cfg) => match tray::apply_color_config(&cfg) {
-                    Ok(()) => {
-                        // 先登记 active_rule，再 emit，避免前端 get_watcher_status 与事件竞态
-                        state().lock().unwrap().active_rule = Some(rule);
-                        pw_log(format!("active_rule set config={config_name}"));
-                        let _ = app.emit("config-applied", &config_name);
-                        if notify {
-                            show_toast(&format!("进程触发：已切换到「{}」", config_name));
-                        }
+            let applied = config::load_config(config_name.clone())
+                .and_then(|cfg| tray::apply_color_config(&cfg));
+            match applied {
+                Ok(()) => {
+                    // 先登记再 emit，避免前端 get_watcher_status 与事件竞态
+                    {
+                        let mut st = state().lock().unwrap();
+                        st.active_rules.retain(|r| r.id != rule.id);
+                        st.active_rules.push(rule.clone());
+                        st.applied = Some(AppliedConfig {
+                            rule_id: rule.id.clone(),
+                            config_name: config_name.clone(),
+                        });
+                        // 新方案已经生效，之前排队的恢复动作作废
+                        take_pending_restore(&mut st);
                     }
-                    Err(e) => {
-                        pw_log(format!("apply_color_config failed: {e}"));
+                    pw_log(format!(
+                        "activated config={config_name} (active={})",
+                        state().lock().unwrap().active_rules.len()
+                    ));
+                    let _ = app.emit("config-applied", &config_name);
+                    if notify {
+                        show_toast(&format!("进程触发：已切换到「{}」", config_name));
                     }
-                },
+                }
                 Err(e) => {
-                    pw_log(format!("load_config failed for '{config_name}': {e}"));
+                    // 应用失败就不登记：状态里没有它，屏幕上也还是旧方案，两边一致
+                    pw_log(format!("apply config '{config_name}' failed: {e}"));
                 }
             }
         }
@@ -786,19 +1183,16 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
                 return;
             }
 
-            let (should_clear, restore, notify) = {
+            let leaving: Vec<ProcessRule> = {
                 let st = state().lock().unwrap();
-                match &st.active_rule {
-                    Some(active) if active.process_name.eq_ignore_ascii_case(&name) => {
-                        (true, active.restore_on_exit, settings.process_notification)
-                    }
-                    _ => (false, false, false),
-                }
+                st.active_rules
+                    .iter()
+                    .filter(|r| r.process_name.eq_ignore_ascii_case(&name))
+                    .cloned()
+                    .collect()
             };
 
-            if should_clear {
-                clear_active_rule(app, restore, notify, "process stopped");
-            }
+            deactivate_rules(app, &leaving, "process stopped", settings.process_notification);
         }
     }
 }
@@ -809,8 +1203,8 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
 /// 订阅前就已在运行的进程不会补发「启动」事件。
 ///
 /// 在（重新）订阅成功后调用一次（非周期轮询）：
-/// - 校正脏 active_rule（规则失效 / 进程已退出）
-/// - 对仍在运行的首个匹配规则补 Started
+/// - 校正每条 active_rule（规则被删/停用/改过方案、进程已退出）
+/// - 对仍在运行但尚未激活的规则补 Started
 fn reconcile_running_processes(app: &AppHandle) {
     let settings = match config::get_app_settings() {
         Ok(s) => s,
@@ -826,57 +1220,79 @@ fn reconcile_running_processes(app: &AppHandle) {
 
     let running = running_process_names();
 
-    // A. 校正已有 active_rule（释放锁后再调 handle_event / clear）
-    let active_snapshot = state().lock().unwrap().active_rule.clone();
-    if let Some(active) = active_snapshot {
-        let rule_still_enabled = settings
-            .process_rules
-            .iter()
-            .any(|r| r.enabled && r.id == active.id);
-        if !rule_still_enabled {
-            clear_active_rule(
-                app,
-                active.restore_on_exit,
-                settings.process_notification,
-                "rule disabled or removed",
-            );
-        } else {
-            let proc_running = running
+    // A. 校正已有的 active_rules（快照后再逐个处理，处理过程中不得持锁）
+    let snapshot = state().lock().unwrap().active_rules.clone();
+    for active in snapshot {
+        let current = settings.process_rules.iter().find(|r| r.id == active.id);
+        match current {
+            None => {
+                pw_log(format!("reconcile: rule removed → deactivate {}", active.id));
+                deactivate_rules(app, &[active], "rule removed", settings.process_notification);
+            }
+            Some(cur) if !cur.enabled => {
+                pw_log(format!("reconcile: rule disabled → deactivate {}", active.id));
+                deactivate_rules(app, &[active], "rule disabled", settings.process_notification);
+            }
+            Some(_) if !running
                 .iter()
-                .any(|p| p.eq_ignore_ascii_case(&active.process_name));
-            if !proc_running {
+                .any(|p| p.eq_ignore_ascii_case(&active.process_name)) =>
+            {
                 pw_log(format!(
                     "reconcile: active process gone → Stopped {}",
                     active.process_name
                 ));
                 handle_event(ProcessEvent::Stopped(active.process_name.clone()), app);
-            } else {
-                pw_log("reconcile skip: active_rule still valid");
-                return;
             }
+            // 规则换了监听对象 → 旧进程的关联作废；新对象是否该激活交给下面的 B
+            // 和后续 WMI 事件，这里只把旧的收掉
+            Some(cur) if cur.process_name != active.process_name => {
+                pw_log(format!(
+                    "reconcile: rule {} retargeted {} → {}",
+                    cur.id, active.process_name, cur.process_name
+                ));
+                deactivate_rules(
+                    app,
+                    &[active],
+                    "rule retargeted",
+                    settings.process_notification,
+                );
+            }
+            // 规则换了绑定方案 → 按新方案重新应用，
+            // 否则屏幕会一直停在编辑前的旧方案上
+            Some(cur) if cur.config_name != active.config_name => {
+                pw_log(format!(
+                    "reconcile: rule {} rebound {} → {}",
+                    cur.id, active.config_name, cur.config_name
+                ));
+                reactivate_rule(app, cur);
+            }
+            Some(_) => {}
         }
     }
 
-    // B. active 为空时补第一个正在运行的规则进程
-    if state().lock().unwrap().active_rule.is_some() {
-        return;
+    // B. 对仍在运行、但还没进入 active_rules 的规则补 Started
+    let mut started_any = false;
+    for rule in settings.process_rules.iter().filter(|r| r.enabled) {
+        let already_active = state()
+            .lock()
+            .unwrap()
+            .active_rules
+            .iter()
+            .any(|a| a.id == rule.id);
+        if already_active {
+            continue;
+        }
+        if running
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(&rule.process_name))
+        {
+            pw_log(format!("reconcile Started name={}", rule.process_name));
+            handle_event(ProcessEvent::Started(rule.process_name.clone()), app);
+            started_any = true;
+        }
     }
-
-    if let Some(name) = settings
-        .process_rules
-        .iter()
-        .filter(|r| r.enabled)
-        .find_map(|r| {
-            running
-                .iter()
-                .find(|p| p.eq_ignore_ascii_case(&r.process_name))
-                .cloned()
-        })
-    {
-        pw_log(format!("reconcile Started name={name}"));
-        handle_event(ProcessEvent::Started(name), app);
-    } else {
-        pw_log("reconcile skip: no matching running process");
+    if !started_any {
+        pw_log("reconcile skip: no missing running process");
     }
 }
 
@@ -901,8 +1317,14 @@ fn stop_subscription(
         // 短暂等待线程退出，避免与新订阅重叠过久
         let _ = handle.join();
     }
-    set_health(false, None, state().lock().unwrap().reconnect_attempt);
+    // 先取出 attempt 释放锁，再调 set_health —— set_health 内部会再锁同一把 state()，
+    // 若把 state().lock() 直接写进实参，guard 要到语句结束才释放，会与内部加锁死锁。
+    let attempt = state().lock().unwrap().reconnect_attempt;
+    set_health(false, None, attempt);
 }
+
+/// 订阅结果最多等这么久；WMI 起 COM + 连接 ROOT\CIMV2 偶尔要几秒
+const SUBSCRIBE_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn try_start_subscription(settings: &AppSettings) -> Option<SubscribeParts> {
     if !settings.process_watcher_enabled {
@@ -914,23 +1336,44 @@ fn try_start_subscription(settings: &AppSettings) -> Option<SubscribeParts> {
 
     let (etx, erx) = mpsc::channel();
     let (stx, srx) = mpsc::channel();
-    let handle = spawn_wmi_monitor(etx, wql, srx);
-    if handle.is_none() {
+    let Some((handle, ready_rx)) = spawn_wmi_monitor(etx, wql, srx) else {
         pw_log("WMI subscribe failed: spawn wmi-monitor thread failed");
+        let attempt = state().lock().unwrap().reconnect_attempt;
         set_health(
             false,
             Some("failed to spawn wmi-monitor thread".into()),
-            state().lock().unwrap().reconnect_attempt,
+            attempt,
         );
         return None;
-    }
+    };
 
-    pw_log(format!("WMI subscribed: names={names:?}"));
-    set_health(true, None, 0);
-    Some((handle, erx, stx))
+    // 等线程真正订阅成功再上报健康：只看 spawn 成功会把「线程起来了但订阅失败」
+    // 也算成已连接，前端显示正常、实际收不到任何事件。
+    match ready_rx.recv_timeout(SUBSCRIBE_READY_TIMEOUT) {
+        Ok(Ok(())) => {
+            pw_log(format!("WMI subscribed: names={names:?}"));
+            set_health(true, None, 0);
+            Some((Some(handle), erx, stx))
+        }
+        Ok(Err(e)) => {
+            // 线程已经自己退出了，句柄直接丢弃
+            pw_log(format!("WMI subscribe failed: {e}"));
+            let attempt = state().lock().unwrap().reconnect_attempt;
+            set_health(false, Some(format!("WMI subscribe failed: {e}")), attempt);
+            None
+        }
+        Err(e) => {
+            // 超时：让线程尽快收摊，这次按失败处理
+            pw_log(format!("WMI subscribe timed out waiting for ready: {e}"));
+            drop(stx);
+            let attempt = state().lock().unwrap().reconnect_attempt;
+            set_health(false, Some("WMI subscribe timed out".into()), attempt);
+            None
+        }
+    }
 }
 
-/// 关监听或无规则时：停 WMI、清订阅名、按需 restore active。
+/// 关监听或无规则时：停 WMI、清订阅名、把所有激活规则收掉。
 fn teardown_subscription(
     app: &AppHandle,
     monitor_handle: &mut Option<thread::JoinHandle<()>>,
@@ -943,20 +1386,13 @@ fn teardown_subscription(
     set_health(false, None, 0);
 
     if restore_active {
-        let (restore, notify) = {
-            let st = state().lock().unwrap();
-            match &st.active_rule {
-                Some(a) => (a.restore_on_exit, true),
-                None => (false, false),
-            }
-        };
-        // notify 用 settings
-        let notify = config::get_app_settings()
-            .map(|s| s.process_notification)
-            .unwrap_or(true)
-            && notify;
-        if state().lock().unwrap().active_rule.is_some() {
-            clear_active_rule(app, restore, notify, "watcher disabled or no rules");
+        let leaving = state().lock().unwrap().active_rules.clone();
+        if !leaving.is_empty() {
+            // notify 用 settings
+            let notify = config::get_app_settings()
+                .map(|s| s.process_notification)
+                .unwrap_or(true);
+            deactivate_rules(app, &leaving, "watcher disabled or no rules", notify);
         }
     }
 }
@@ -1006,6 +1442,9 @@ pub fn init_watcher(app: &AppHandle) {
             }
 
             loop {
+                // 上次恢复默认失败的话，到点了在这里重试
+                tick_pending_restore(&app_handle);
+
                 match cmd_receiver.try_recv() {
                     Ok(WatcherCommand::Resubscribe) => {
                         pw_log("command Resubscribe");
@@ -1241,8 +1680,9 @@ pub fn get_watcher_status() -> Result<WatcherStatus, String> {
     let st = state().lock().unwrap();
     Ok(WatcherStatus {
         enabled: settings.process_watcher_enabled,
-        active_rule: st.active_rule.clone(),
-        active_config_name: st.active_rule.as_ref().map(|r| r.config_name.clone()),
+        active_rule: st.active_rules.last().cloned(),
+        active_config_name: st.applied.as_ref().map(|a| a.config_name.clone()),
+        active_rules: st.active_rules.clone(),
         subscribed_processes: st.subscribed_processes.clone(),
         wmi_connected: st.wmi_connected,
         last_error: st.last_error.clone(),

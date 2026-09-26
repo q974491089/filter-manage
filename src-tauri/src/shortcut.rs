@@ -27,11 +27,21 @@ fn show_toast(body: &str) {
         }
     }
 
+    // 方案名是用户自由输入，含 & < > 等字符会破坏 XML；转义后再拼，避免 LoadXml 失败导致 panic
+    let safe_body = body
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
     let xml = XmlDocument::new().unwrap();
-    xml.LoadXml(&HSTRING::from(format!(
-        r#"<toast><visual><binding template="ToastGeneric"><text>Filter Manage</text><text>{}</text></binding></visual></toast>"#,
-        body
-    ))).unwrap();
+    if xml
+        .LoadXml(&HSTRING::from(format!(
+            r#"<toast><visual><binding template="ToastGeneric"><text>Filter Manage</text><text>{}</text></binding></visual></toast>"#,
+            safe_body
+        )))
+        .is_err()
+    {
+        return;
+    }
 
     if let Ok(toast) = ToastNotification::CreateToastNotification(&xml) {
         let _ = toast.SetTag(&HSTRING::from(new_tag));
@@ -44,19 +54,33 @@ fn show_toast(body: &str) {
 #[cfg(not(windows))]
 fn show_toast(_body: &str) {}
 
-/// 应用启动时注册所有已保存的快捷键
+/// 应用启动时注册所有已保存的快捷键。
+///
+/// 单个绑定失败不中断其余绑定：旧版本可能存过当前解析器不认的字符串，
+/// 之前这里用 `?` 直接返回，一条坏数据就让后面所有快捷键永久失效。
 pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
     let settings = config::get_app_settings()?;
     let existing_configs = config::list_configs().unwrap_or_default();
     let existing_names: Vec<&str> = existing_configs.iter().map(|c| c.name.as_str()).collect();
+    let mut failed: Vec<String> = Vec::new();
     for binding in &settings.shortcuts {
         // 跳过方案已被删除的孤儿绑定（__default__ 是特殊的恢复默认，始终保留）
         if binding.config_name != "__default__" && !existing_names.contains(&binding.config_name.as_str()) {
             continue;
         }
-        register_shortcut(app, binding)?;
+        if let Err(e) = register_shortcut(app, binding) {
+            eprintln!(
+                "[shortcut] 注册 '{}' → '{}' 失败: {e}",
+                binding.shortcut, binding.config_name
+            );
+            failed.push(binding.shortcut.clone());
+        }
     }
-    Ok(())
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("以下快捷键注册失败：{}", failed.join("、")))
+    }
 }
 
 /// 注册单个快捷键

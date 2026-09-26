@@ -99,15 +99,17 @@ pub async fn check_update(
     let mut fut_a = tokio::spawn(fetch(host_a));
     let mut fut_b = tokio::spawn(fetch(host_b));
 
+    // 双域名竞速取「先成功者」而非「先完成者」：DNS/连接失败往往几毫秒就返回，
+    // 若让它抢先并 abort 掉健康的一方，就白白降级到 GitHub。先完成的一方失败时，改等另一方。
     let info: Option<UpdateInfo> = tokio::select! {
-        a = &mut fut_a => {
-            fut_b.abort();
-            a.ok().and_then(|r| r.ok()).flatten()
-        }
-        b = &mut fut_b => {
-            fut_a.abort();
-            b.ok().and_then(|r| r.ok()).flatten()
-        }
+        a = &mut fut_a => match a.ok().and_then(|r| r.ok()).flatten() {
+            Some(i) => { fut_b.abort(); Some(i) }
+            None => fut_b.await.ok().and_then(|r| r.ok()).flatten(),
+        },
+        b = &mut fut_b => match b.ok().and_then(|r| r.ok()).flatten() {
+            Some(i) => { fut_a.abort(); Some(i) }
+            None => fut_a.await.ok().and_then(|r| r.ok()).flatten(),
+        },
     };
 
     let info = match info {
@@ -149,7 +151,10 @@ pub async fn download_update(
 
     let client = match reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(120))
+        // 用「空闲读取超时」而不是 `timeout()` 的整请求超时：后者从连接开始计时到
+        // body 读完为止，安装包大 + 网速慢时会在固定秒数被整段掐断，明明还在正常下载。
+        // read_timeout 只在「迟迟收不到下一个数据块」时才中断，慢速连接不会误杀。
+        .read_timeout(Duration::from_secs(30))
         .build()
     {
         Ok(c) => c,
@@ -248,7 +253,10 @@ pub fn cancel_update_download(state: State<'_, UpdaterState>) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn install_update(state: State<'_, UpdaterState>) -> Result<(), String> {
+pub fn install_update(
+    app: AppHandle,
+    state: State<'_, UpdaterState>,
+) -> Result<(), String> {
     let path = state
         .staged_path
         .lock()
@@ -265,6 +273,9 @@ pub fn install_update(state: State<'_, UpdaterState>) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("failed to launch installer: {e}"))?;
 
+    // 直接 exit 会跳过 RunEvent::Exit 的清理：托盘图标残留、AMD 状态不还原，
+    // 残留的窗口/图标句柄还可能让安装器覆盖文件失败
+    crate::shutdown_runtime(&app);
     std::process::exit(0);
 }
 

@@ -5,10 +5,28 @@ use tauri::Manager;
 use winreg::enums::*;
 use winreg::RegKey;
 
+/// 系统 ICC 配置文件目录。Windows 通常在 C 盘，但系统可能装在其它盘符，
+/// 用 %SystemRoot%（找不到时回退 C:\Windows）拼出真实路径。
+fn color_dir() -> PathBuf {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+    PathBuf::from(root).join("System32\\spool\\drivers\\color")
+}
+
+/// 判断文件是否为 ICC/ICM 配置（扩展名大小写不敏感）
+fn is_icc_ext(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            let e = e.to_ascii_lowercase();
+            e == "icc" || e == "icm"
+        })
+        .unwrap_or(false)
+}
+
 /// 将打包的内置 ICC 文件安装到系统 ICC 目录（首次启动调用）
 #[tauri::command]
 pub fn install_builtin_icc_profiles(app: tauri::AppHandle) -> Result<u32, String> {
-    let color_dir = PathBuf::from("C:\\Windows\\System32\\spool\\drivers\\color");
+    let color_dir = color_dir();
     let resource_dir = app.path().resource_dir()
         .map_err(|e| format!("Failed to get resource dir: {}", e))?
         .join("icc");
@@ -233,7 +251,7 @@ fn resolve_device_pnp(target: Option<String>) -> Result<String, String> {
 
 #[tauri::command]
 pub fn get_icc_profiles() -> Result<Vec<IccProfile>, String> {
-    let color_dir = PathBuf::from("C:\\Windows\\System32\\spool\\drivers\\color");
+    let color_dir = color_dir();
 
     if !color_dir.exists() {
         return Err("ICC profile directory not found".to_string());
@@ -244,7 +262,7 @@ pub fn get_icc_profiles() -> Result<Vec<IccProfile>, String> {
     if let Ok(entries) = fs::read_dir(color_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("icc") || path.extension().and_then(|e| e.to_str()) == Some("icm") {
+            if is_icc_ext(&path) {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -264,11 +282,18 @@ pub fn get_icc_profiles() -> Result<Vec<IccProfile>, String> {
 }
 
 fn read_u16_be(data: &[u8], offset: usize) -> u16 {
-    u16::from_be_bytes([data[offset], data[offset + 1]])
+    // 越界返回 0，避免解析损坏/截断的 ICC 时直接 panic（这些数据来自用户导入的文件）
+    match data.get(offset..offset + 2) {
+        Some(b) => u16::from_be_bytes([b[0], b[1]]),
+        None => 0,
+    }
 }
 
 fn read_u32_be(data: &[u8], offset: usize) -> u32 {
-    u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
+    match data.get(offset..offset + 4) {
+        Some(b) => u32::from_be_bytes([b[0], b[1], b[2], b[3]]),
+        None => 0,
+    }
 }
 
 /// 从 ICC 文件解析 vcgt 标签，返回 [R256, G256, B256] 的 gamma ramp（每个值 0..=65535）
@@ -295,7 +320,7 @@ fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
         }
     }
 
-    if vcgt_offset == 0 || vcgt_offset + 8 > icc_data.len() {
+    if vcgt_offset == 0 || vcgt_offset + 12 > icc_data.len() {
         eprintln!("ICC: No vcgt tag found");
         return None;
     }
@@ -315,7 +340,16 @@ fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
         eprintln!("ICC: vcgt table: channels={} entries={} entry_size={}", channels, entry_count, entry_size);
 
         if channels < 3 || entry_count == 0 || entry_size == 0 { return None; }
-        if vcgt.len() < 18 + channels * entry_count * entry_size { return None; }
+        if entry_size != 1 && entry_size != 2 { return None; }
+        // 用 checked 运算算总长，避免超大 entry_count/entry_size 相乘溢出后绕过边界检查
+        let need = channels
+            .checked_mul(entry_count)
+            .and_then(|v| v.checked_mul(entry_size))
+            .and_then(|v| v.checked_add(18));
+        match need {
+            Some(n) if vcgt.len() >= n => {}
+            _ => return None,
+        }
 
         for ch in 0..3 {
             for i in 0..256 {
@@ -332,18 +366,23 @@ fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
             }
         }
     } else if gamma_type == 1 {
-        // Formula type: gamma, min, max per channel (each as u16.u16 fixed point)
-        if vcgt.len() < 12 + 3 * 6 { return None; }
+        // Formula type：每通道 3 个 s15Fixed16 值（各 4 字节，= raw_i32 / 65536），
+        // 顺序为 R{gamma,min,max} G{gamma,min,max} B{gamma,min,max}，标签体至少 12 + 9*4 = 48 字节
+        if vcgt.len() < 12 + 9 * 4 { return None; }
         eprintln!("ICC: vcgt formula type");
+        let read_s15f16 = |off: usize| read_u32_be(vcgt, off) as i32 as f64 / 65536.0;
         for ch in 0..3 {
-            let base = 12 + ch * 6;
-            let gamma = read_u16_be(vcgt, base) as f64 / 256.0
-                + read_u16_be(vcgt, base + 2) as f64 / 65536.0;
-            let min = read_u16_be(vcgt, base + 2) as f64 / 65535.0;
-            let max = read_u16_be(vcgt, base + 4) as f64 / 65535.0;
+            let base = 12 + ch * 12;
+            let gamma = read_s15f16(base);
+            let min = read_s15f16(base + 4);
+            let max = read_s15f16(base + 8);
+            // 非法参数（gamma<=0 或 max<=min）会算出无意义/全 0 曲线，直接放弃这个 ICC
+            if !(gamma > 0.0) || max <= min {
+                return None;
+            }
             for i in 0..256 {
                 let x = i as f64 / 255.0;
-                let y = min + (max - min) * x.powf(gamma);
+                let y = (min + (max - min) * x.powf(gamma)).clamp(0.0, 1.0);
                 ramp[ch][i] = (y * 65535.0).round() as u16;
             }
         }
@@ -359,6 +398,10 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
     use windows::Win32::UI::ColorSystem::*;
     use windows::core::PCWSTR;
 
+    // 前端「应用方案」和恢复默认都走这里；屏幕配色被改写，通知进程监听
+    // 作废它排队中的恢复动作（否则会把用户刚选的设置覆盖掉）
+    crate::process_watcher::note_color_applied();
+
     let profile_path_buf = PathBuf::from(profile_path);
     let file_name = profile_path_buf
         .file_name()
@@ -366,8 +409,7 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
         .ok_or("Invalid profile path")?
         .to_string();
 
-    let color_dir = "C:\\Windows\\System32\\spool\\drivers\\color";
-    let dest_path = format!("{}\\{}", color_dir, file_name);
+    let dest_path = color_dir().join(&file_name);
 
     if !std::path::Path::new(&dest_path).exists() {
         fs::copy(profile_path, &dest_path)
@@ -386,7 +428,11 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
 
     unsafe {
         // 1. WCS 注册（让颜色管理面板同步）
-        let dest_path_w: Vec<u16> = dest_path.encode_utf16().chain(std::iter::once(0)).collect();
+        let dest_path_w: Vec<u16> = dest_path
+            .to_string_lossy()
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
         let _ = InstallColorProfileW(None, PCWSTR(dest_path_w.as_ptr()));
         let _ = WcsSetUsePerUserProfiles(PCWSTR(device_id_w.as_ptr()), CLASS_MONITOR, true);
         let _ = WcsAssociateColorProfileWithDevice(
@@ -485,7 +531,7 @@ pub fn get_current_icc_profile() -> Result<String, String> {
 /// 同步恢复系统默认 sRGB 配置（清除 vcgt ramp），并将 DVC 复位为 50。
 /// 供托盘/快捷键等同步上下文直接调用（避免在回调里 block_on 跑 async）。
 pub(crate) fn restore_default_icc(device_id: Option<String>) -> Result<(), String> {
-    let color_dir = PathBuf::from("C:\\Windows\\System32\\spool\\drivers\\color");
+    let color_dir = color_dir();
 
     let default_profile = [
         "sRGB Color Space Profile.icm",
@@ -520,7 +566,7 @@ pub async fn restore_default_icc_profile(device_id: Option<String>) -> Result<()
 #[tauri::command]
 pub fn open_icc_directory() -> Result<(), String> {
     std::process::Command::new("explorer")
-        .arg("C:\\Windows\\System32\\spool\\drivers\\color")
+        .arg(color_dir())
         .spawn()
         .map_err(|e| format!("Failed to open directory: {}", e))?;
     Ok(())
@@ -542,7 +588,7 @@ pub fn import_icc_profile(src_path: String) -> Result<String, String> {
         .ok_or("Invalid file name")?
         .to_string();
 
-    let color_dir = PathBuf::from("C:\\Windows\\System32\\spool\\drivers\\color");
+    let color_dir = color_dir();
     let dest = color_dir.join(&file_name);
 
     fs::copy(&src, &dest).map_err(|e| format!("Failed to copy ICC profile: {}", e))?;
@@ -555,7 +601,7 @@ pub fn import_icc_profile(src_path: String) -> Result<String, String> {
 /// profile_name: ICC 文件名（不含路径），dest_dir: 目标目录路径
 #[tauri::command]
 pub fn export_icc_profile(profile_name: String, dest_dir: String) -> Result<String, String> {
-    let color_dir = PathBuf::from("C:\\Windows\\System32\\spool\\drivers\\color");
+    let color_dir = color_dir();
     let src = color_dir.join(&profile_name);
 
     if !src.exists() {
