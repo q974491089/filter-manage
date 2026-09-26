@@ -73,3 +73,19 @@ docs/.vitepress/dist/
 # Local scripts (may contain credentials)
 scripts/upload-cloud.sh
 scripts/upload-server.py
+
+# ── 本地专属：AI 工具/助手配置、项目文档、生成物 —— 不 push 到远程 ──────────
+# 这些目录留在本地即可（历史里仍可找回），不再随仓库分发
+.agent/
+.backup/
+.claude/
+.codex/
+.docs/
+.grok/
+.kiro/
+.learnings/
+.opencode/
+.qoder/
+.rules/
+.skills/
+
