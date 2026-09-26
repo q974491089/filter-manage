@@ -17,7 +17,11 @@ function Toggle({ checked, onChange, size = "md", disabled = false }: ToggleProp
       role="switch"
       aria-checked={checked}
       disabled={disabled}
-      onClick={() => onChange(!checked)}
+      onClick={(e) => {
+        // 设置行本身常是可点击的 <button>，阻止冒泡避免同一次点击触发两次切换
+        e.stopPropagation();
+        onChange(!checked);
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();

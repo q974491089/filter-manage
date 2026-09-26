@@ -131,6 +131,10 @@ pub(crate) fn apply_default_config() -> Result<(), String> {
 
 /// 应用 ColorConfig 的所有设置
 pub fn apply_color_config(cfg: &ColorConfig) -> Result<(), String> {
+    // 屏幕上的配色从这里被改写，通知进程监听：它可能有排队中的恢复动作，
+    // 再执行就会把这次应用覆盖掉
+    crate::process_watcher::note_color_applied();
+
     // 先处理 ICC（作为 gamma 基础 ramp），再叠加 NVIDIA 调节——与前端 handleApply 顺序一致。
     // ICC 失败（如引用的文件已删除）只跳过，不阻断后续 NVIDIA 应用。
     match &cfg.icc_profile {

@@ -152,15 +152,29 @@ fn write_store(store: &AppStore) -> Result<(), String> {
     let json = serde_json::to_string_pretty(store)
         .map_err(|e| format!("Failed to serialize app store: {}", e))?;
 
-    // 写前备份（app.json.bak），损坏时可手动恢复
+    // 写前备份（app.json.bak），损坏时可手动恢复。
+    // 只在现有主文件能正常解析时才覆盖备份——否则一个损坏的主文件会把最后一份可用备份冲掉。
     if path.exists() {
-        let _ = fs::copy(&path, path.with_extension("json.bak"));
+        let main_ok = fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<AppStore>(&s).ok())
+            .is_some();
+        if main_ok {
+            let _ = fs::copy(&path, path.with_extension("json.bak"));
+        }
     }
 
-    // 原子写：先写临时文件，再 rename，避免写入中断导致文件损坏
+    // 原子写：先写临时文件并 fsync（防断电后出现全 0 文件），再 rename
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json)
-        .map_err(|e| format!("Failed to write app.json.tmp: {}", e))?;
+    {
+        use std::io::Write;
+        let mut f = fs::File::create(&tmp)
+            .map_err(|e| format!("Failed to create app.json.tmp: {}", e))?;
+        f.write_all(json.as_bytes())
+            .map_err(|e| format!("Failed to write app.json.tmp: {}", e))?;
+        f.sync_all()
+            .map_err(|e| format!("Failed to flush app.json.tmp: {}", e))?;
+    }
     fs::rename(&tmp, &path)
         .map_err(|e| format!("Failed to rename app.json.tmp: {}", e))
 }
@@ -180,20 +194,30 @@ fn app_path() -> Result<PathBuf, String> {
 pub fn migrate_legacy_files() -> Result<(), String> {
     let config_dir = get_config_dir()?;
     let mut store = read_store()?;
-    let existing: std::collections::HashSet<String> =
+    let mut existing: std::collections::HashSet<String> =
         store.presets.iter().map(|p| p.name.clone()).collect();
     let mut dirty = false;
+
+    // 只有「内容确实进了新库」的旧文件才登记在这里，等 write_store 成功之后再删。
+    // 之前是先删后写、而且解析失败的文件也照删，中途失败就等于旧配置没了、新的也没写进去。
+    let mut consumed: Vec<PathBuf> = Vec::new();
 
     // 迁移 __settings__.json
     let settings_path = config_dir.join("__settings__.json");
     if settings_path.exists() {
+        let mut migrated = false;
         if let Ok(json) = fs::read_to_string(&settings_path) {
             if let Ok(settings) = serde_json::from_str::<AppSettings>(&json) {
                 store.settings = settings;
                 dirty = true;
+                migrated = true;
             }
         }
-        let _ = fs::remove_file(&settings_path);
+        if migrated {
+            consumed.push(settings_path);
+        } else {
+            eprintln!("[migrate] __settings__.json 解析失败，保留原文件");
+        }
     }
 
     // 迁移 profiles.json（过渡格式）
@@ -206,20 +230,29 @@ pub fn migrate_legacy_files() -> Result<(), String> {
             #[serde(default)]
             presets: Vec<ColorConfig>,
         }
+        let mut migrated = false;
         if let Ok(json) = fs::read_to_string(&profiles_path) {
             if let Ok(ps) = serde_json::from_str::<ProfileStore>(&json) {
-                if store.default_preset.is_none() {
+                // 只有默认方案也要标记 dirty：否则 write_store 被跳过、文件却被删，
+                // default_preset 就凭空丢了
+                if store.default_preset.is_none() && ps.default_preset.is_some() {
                     store.default_preset = ps.default_preset;
+                    dirty = true;
                 }
                 for preset in ps.presets {
-                    if !existing.contains(&preset.name) {
+                    if existing.insert(preset.name.clone()) {
                         store.presets.push(preset);
                         dirty = true;
                     }
                 }
+                migrated = true;
             }
         }
-        let _ = fs::remove_file(&profiles_path);
+        if migrated {
+            consumed.push(profiles_path);
+        } else {
+            eprintln!("[migrate] profiles.json 解析失败，保留原文件");
+        }
     }
 
     // 迁移散落的单个 *.json 预设文件
@@ -240,26 +273,36 @@ pub fn migrate_legacy_files() -> Result<(), String> {
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_string();
-            if let Ok(json) = fs::read_to_string(&path) {
-                if let Ok(mut config) = serde_json::from_str::<ColorConfig>(&json) {
-                    if !existing.contains(&stem) {
-                        if stem == DEFAULT_CONFIG_NAME {
-                            config.name = DEFAULT_CONFIG_NAME.to_string();
-                            if store.default_preset.is_none() {
-                                store.default_preset = Some(DEFAULT_CONFIG_NAME.to_string());
-                            }
-                        }
-                        store.presets.push(config);
-                        dirty = true;
+            // 解析不出来的文件不迁移也不删除，留在原地等人工处理
+            let Ok(json) = fs::read_to_string(&path) else {
+                eprintln!("[migrate] {file_name} 读取失败，保留原文件");
+                continue;
+            };
+            let Ok(mut config) = serde_json::from_str::<ColorConfig>(&json) else {
+                eprintln!("[migrate] {file_name} 解析失败，保留原文件");
+                continue;
+            };
+            if existing.insert(stem.clone()) {
+                if stem == DEFAULT_CONFIG_NAME {
+                    config.name = DEFAULT_CONFIG_NAME.to_string();
+                    if store.default_preset.is_none() {
+                        store.default_preset = Some(DEFAULT_CONFIG_NAME.to_string());
                     }
                 }
+                store.presets.push(config);
+                dirty = true;
             }
-            let _ = fs::remove_file(&path);
+            consumed.push(path);
         }
     }
 
     if dirty {
         write_store(&store)?;
+    }
+
+    // 落盘成功之后才删旧文件：write_store 失败会直接返回 Err，旧配置原样留着下次再迁
+    for path in consumed {
+        let _ = fs::remove_file(&path);
     }
 
     Ok(())
@@ -307,6 +350,10 @@ pub fn delete_config(name: String) -> Result<(), String> {
     if store.default_preset.as_deref() == Some(name.as_str()) {
         store.default_preset = None;
     }
+    // 级联清理引用被删方案的设置，避免留下指向不存在方案的孤儿快捷键/规则/托盘项
+    store.settings.shortcuts.retain(|s| s.config_name != name);
+    store.settings.process_rules.retain(|r| r.config_name != name);
+    store.settings.tray_presets.retain(|t| *t != name);
     write_store(&store)
 }
 
@@ -324,7 +371,23 @@ pub fn rename_config(old_name: String, new_name: String) -> Result<(), String> {
         .ok_or_else(|| format!("Config '{}' not found", old_name))?;
     preset.name = new_name.clone();
     if store.default_preset.as_deref() == Some(old_name.as_str()) {
-        store.default_preset = Some(new_name);
+        store.default_preset = Some(new_name.clone());
+    }
+    // 级联更新引用旧名的设置，否则快捷键/进程规则/托盘列表会指向不存在的方案而静默失效
+    for s in store.settings.shortcuts.iter_mut() {
+        if s.config_name == old_name {
+            s.config_name = new_name.clone();
+        }
+    }
+    for r in store.settings.process_rules.iter_mut() {
+        if r.config_name == old_name {
+            r.config_name = new_name.clone();
+        }
+    }
+    for t in store.settings.tray_presets.iter_mut() {
+        if *t == old_name {
+            *t = new_name.clone();
+        }
     }
     write_store(&store)
 }

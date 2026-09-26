@@ -96,12 +96,20 @@ struct NvDvcInfoEx {
 
 type NvQueryInterface = unsafe extern "C" fn(id: u32) -> *mut std::ffi::c_void;
 type NvInitialize = unsafe extern "C" fn() -> i32;
-type NvEnumDisplayHandle = unsafe extern "C" fn(this_enum: i32, p_nv_disp_handle: *mut u32) -> i32;
-type NvGetAssociatedDisplayHandle =
-    unsafe extern "C" fn(sz_display_name: *const std::ffi::c_char, p_nv_disp_handle: *mut u32) -> i32;
-type NvSetDvcLevel = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, level: i32) -> i32;
-type NvSetDvcLevelEx = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
-type NvGetDvcInfoEx = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
+/// NVAPI 的 NvDisplayHandle 是不透明指针（x64 上 8 字节）。曾误声明为 u32，
+/// 驱动会往 4 字节的栈槽写 8 字节，是未定义行为，且句柄高 32 位被截断。
+type NvDisplayHandle = *mut std::ffi::c_void;
+type NvEnumDisplayHandle =
+    unsafe extern "C" fn(this_enum: i32, p_nv_disp_handle: *mut NvDisplayHandle) -> i32;
+type NvGetAssociatedDisplayHandle = unsafe extern "C" fn(
+    sz_display_name: *const std::ffi::c_char,
+    p_nv_disp_handle: *mut NvDisplayHandle,
+) -> i32;
+type NvSetDvcLevel = unsafe extern "C" fn(h_nv_disp: NvDisplayHandle, output_id: u32, level: i32) -> i32;
+type NvSetDvcLevelEx =
+    unsafe extern "C" fn(h_nv_disp: NvDisplayHandle, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
+type NvGetDvcInfoEx =
+    unsafe extern "C" fn(h_nv_disp: NvDisplayHandle, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
 
 /// 取得指定显示器的 NVAPI display handle。
 ///
@@ -112,7 +120,7 @@ type NvGetDvcInfoEx = unsafe extern "C" fn(h_nv_disp: u32, output_id: u32, p_dvc
 /// 按名字取不到时回退到第一个 NVIDIA 显示器，保证单显示器场景可用。
 fn nvapi_load_for_display(
     device_id: Option<&str>,
-) -> Result<(windows::Win32::Foundation::HMODULE, u32, NvQueryInterface), String> {
+) -> Result<(windows::Win32::Foundation::HMODULE, NvDisplayHandle, NvQueryInterface), String> {
     unsafe {
         let lib = windows::Win32::System::LibraryLoader::LoadLibraryW(
             windows::core::w!("nvapi64.dll")
@@ -149,7 +157,7 @@ fn nvapi_load_for_display(
                     }
                 };
                 let assoc_fn: NvGetAssociatedDisplayHandle = std::mem::transmute(assoc_ptr);
-                let mut handle: u32 = 0;
+                let mut handle: NvDisplayHandle = std::ptr::null_mut();
                 let status = assoc_fn(c_name.as_ptr(), &mut handle);
                 if status == 0 {
                     return Ok((lib, handle, query_fn));
@@ -169,7 +177,7 @@ fn nvapi_load_for_display(
             return Err("NvAPI_EnumNvidiaDisplayHandle not found".into());
         }
         let enum_fn: NvEnumDisplayHandle = std::mem::transmute(enum_ptr);
-        let mut handle: u32 = 0;
+        let mut handle: NvDisplayHandle = std::ptr::null_mut();
         let status = enum_fn(0, &mut handle);
         if status != 0 {
             let _ = windows::Win32::Foundation::FreeLibrary(lib);

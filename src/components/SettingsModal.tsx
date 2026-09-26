@@ -196,7 +196,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
       showToast("success", newValue ? "已启用开机自启" : "已禁用开机自启");
     } catch (err) {
       console.error("Failed to toggle autostart:", err);
-      showToast("error", "操作失败");
+      showToast("error", `操作失败：${err}`);
     }
   };
 
@@ -210,8 +210,8 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
       );
       if (!ok) return;
     }
-    // 乐观更新 UI；失败（含用户取消 UAC）时回滚
-    setSettings({ ...settings, run_as_admin: newValue });
+    // 乐观更新 UI；失败（含用户取消 UAC）时回滚。用函数式更新，避免 await 期间的其他改动被旧快照覆盖
+    setSettings((s) => ({ ...s, run_as_admin: newValue }));
     try {
       // 后端会持久化开关；开启且未提权时会以管理员重启（本进程随即退出）
       await invoke("set_run_as_admin", { enabled: newValue });
@@ -220,7 +220,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
         newValue ? "已启用管理员运行" : "已关闭管理员运行，重启应用后生效",
       );
     } catch (err) {
-      setSettings({ ...settings, run_as_admin: !newValue });
+      setSettings((s) => ({ ...s, run_as_admin: !newValue }));
       console.error("Failed to toggle run_as_admin:", err);
       showToast("error", `操作失败：${err}`);
     }
@@ -512,12 +512,12 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 <div className="h-px bg-outline-variant/30 w-full" />
 
                 {/* 关闭行为下拉框 */}
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1 text-left">
+                <div className="flex items-center justify-between gap-6">
+                  <div className="flex-1 min-w-0 space-y-1 text-left">
                     <h4 className="font-title-sm text-title-sm">
                       关闭行为
                     </h4>
-                    <p className="font-label-sm text-label-sm text-on-surface-variant">
+                    <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
                       {settings.close_to_tray === null
                         ? "首次关闭时将弹窗询问"
                         : settings.close_to_tray
@@ -525,7 +525,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                           : "关闭后将直接退出应用"}
                     </p>
                   </div>
-                  <div className="relative">
+                  <div className="relative shrink-0">
                     <select
                       value={settings.close_to_tray === null ? "" : String(settings.close_to_tray)}
                       onChange={(e) => handleCloseToTrayChange(e.target.value)}
@@ -541,13 +541,13 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
 
                 <button
                   onClick={handleToggleAutostart}
-                  className="w-full flex items-center justify-between group cursor-pointer"
+                  className="w-full flex items-center justify-between gap-6 group cursor-pointer"
                 >
-                  <div className="space-y-1 text-left">
+                  <div className="flex-1 min-w-0 space-y-1 text-left">
                     <h4 className="font-title-sm text-title-sm group-hover:text-primary transition-colors duration-200">
                       开机时自动启动
                     </h4>
-                    <p className="font-label-sm text-label-sm text-on-surface-variant">
+                    <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
                       在 Windows 启动时自动运行 Filter Manage
                     </p>
                   </div>
@@ -561,14 +561,14 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                 <button
                   onClick={handleToggleRunAsAdmin}
                   data-name="run-as-admin-toggle"
-                  className="w-full flex items-center justify-between group cursor-pointer"
+                  className="w-full flex items-center justify-between gap-6 group cursor-pointer"
                 >
-                  <div className="space-y-1 text-left">
+                  <div className="flex-1 min-w-0 space-y-1 text-left">
                     <h4 className="font-title-sm text-title-sm group-hover:text-primary transition-colors duration-200">
                       以管理员身份运行
                     </h4>
-                    <p className="font-label-sm text-label-sm text-on-surface-variant">
-                      提升权限以确保颜色设置、ICC 安装与进程监听完整生效（需重启应用；开机自启将改用计划任务静默提权）
+                    <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
+                      颜色设置、ICC 安装或进程监听不生效时开启。开启后会重启应用，开机自启时无需确认权限。
                     </p>
                   </div>
                   <Toggle checked={settings.run_as_admin} onChange={handleToggleRunAsAdmin} />

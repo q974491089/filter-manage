@@ -11,8 +11,20 @@ mod admin;
 
 use tauri::Manager;
 
+/// 退出前的进程内清理：停进程监听线程、还原 AMD 状态、释放托盘/窗口资源。
+///
+/// `RunEvent::Exit` 会走到这里；安装更新后主动 `process::exit` 的那条路径
+/// 也必须显式调用，否则这些清理全被跳过。
+pub(crate) fn shutdown_runtime(app: &tauri::AppHandle) {
+    process_watcher::stop_watcher();
+    amd::shutdown();
+    app.cleanup_before_exit();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 自提权重启拉起的新实例：先等旧进程完全退出，再让单实例插件做检测
+    admin::wait_for_relaunch_parent();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -35,22 +47,29 @@ pub fn run() {
             let handle = app.handle().clone();
             let settings = config::get_app_settings().unwrap_or_default();
 
-            // 需要管理员但当前未提权 → 以管理员重启（成功则本进程退出）。
-            // 用户取消 UAC 时不循环、不退出，本次以非管理员继续运行。
-            if settings.run_as_admin && !admin::is_elevated() {
-                if let Err(e) = admin::relaunch_elevated() {
+            // 需要管理员但当前未提权 → 以管理员重启（成功则本进程退出），保留 --silent 等启动参数。
+            // 用户取消 UAC 时不循环、不退出，本次以非管理员继续运行；标准用户无法以本人身份提权，直接跳过。
+            if settings.run_as_admin && !admin::is_elevated() && admin::can_elevate() {
+                if let Err(e) = admin::relaunch_elevated(&handle, true) {
                     eprintln!("[admin] 提权重启已跳过: {e}");
                 }
             }
 
             // 刚提权/首次开启管理员自启：确保计划任务存在，并互斥关掉注册表自启。
-            // 条件短路保证非管理员用户启动时不会调用 schtasks。
-            if settings.run_as_admin
+            // 条件短路保证非管理员用户启动时不会调用 schtasks；dev 构建不自动注册，
+            // 否则计划任务会指向 target 下的调试 exe。
+            if !cfg!(debug_assertions)
+                && settings.run_as_admin
                 && settings.autostart
                 && admin::is_elevated()
                 && !admin::scheduled_task_exists()
             {
                 let _ = admin::reconcile_autostart(&handle, true, true);
+            }
+
+            // 旧版本写入的注册表自启项不带 --silent，升级后开机仍会弹窗：给旧值补上参数
+            if !settings.run_as_admin {
+                admin::add_silent_to_legacy_run_entry(&handle);
             }
 
             // 迁移旧版多文件配置到 profiles.json（幂等，旧文件不存在时无操作）
@@ -161,10 +180,9 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, event| {
+        .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                process_watcher::stop_watcher();
-                amd::shutdown();
+                shutdown_runtime(app);
             }
         });
 }
