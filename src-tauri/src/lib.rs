@@ -23,8 +23,6 @@ pub(crate) fn shutdown_runtime(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 自提权重启拉起的新实例：先等旧进程完全退出，再让单实例插件做检测
-    admin::wait_for_relaunch_parent();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -47,29 +45,20 @@ pub fn run() {
             let handle = app.handle().clone();
             let settings = config::get_app_settings().unwrap_or_default();
 
-            // 需要管理员但当前未提权 → 以管理员重启（成功则本进程退出），保留 --silent 等启动参数。
-            // 用户取消 UAC 时不循环、不退出，本次以非管理员继续运行；标准用户无法以本人身份提权，直接跳过。
-            if settings.run_as_admin && !admin::is_elevated() && admin::can_elevate() {
-                if let Err(e) = admin::relaunch_elevated(&handle, true) {
-                    eprintln!("[admin] 提权重启已跳过: {e}");
-                }
+            // requireAdministrator 清单保证 release 进程必已提权。自启一律用计划任务，
+            // 这里按设置覆盖注册/删除（重复注册可自愈启动参数与 exe 路径变更，含旧版迁移）。
+            // dev 构建不自动注册，否则计划任务会指向 target 下的调试 exe。
+            if !cfg!(debug_assertions) && admin::is_elevated() {
+                let _ = admin::reconcile_autostart(
+                    &handle,
+                    settings.autostart,
+                    settings.autostart_silent,
+                );
             }
-
-            // 刚提权/首次开启管理员自启：确保计划任务存在，并互斥关掉注册表自启。
-            // 条件短路保证非管理员用户启动时不会调用 schtasks；dev 构建不自动注册，
-            // 否则计划任务会指向 target 下的调试 exe。
-            if !cfg!(debug_assertions)
-                && settings.run_as_admin
-                && settings.autostart
-                && admin::is_elevated()
-                && !admin::scheduled_task_exists()
+            // 旧版注册表自启项残留：提权清单下开机必弹 UAC，无条件清理
             {
-                let _ = admin::reconcile_autostart(&handle, true, true);
-            }
-
-            // 旧版本写入的注册表自启项不带 --silent，升级后开机仍会弹窗：给旧值补上参数
-            if !settings.run_as_admin {
-                admin::add_silent_to_legacy_run_entry(&handle);
+                use tauri_plugin_autostart::ManagerExt;
+                let _ = handle.autolaunch().disable();
             }
 
             // 迁移旧版多文件配置到 profiles.json（幂等，旧文件不存在时无操作）
@@ -90,6 +79,11 @@ pub fn run() {
 
             // 监听窗口关闭事件
             if let Some(window) = app.get_webview_window("main") {
+                // 原生标题栏标注管理员状态（任务栏/Alt+Tab 同步可见，参考 v2rayN 的「以管理员身份运行」后缀）
+                if admin::is_elevated() {
+                    let base = window.title().unwrap_or_else(|_| "Filter Manage".to_string());
+                    let _ = window.set_title(&format!("{base} - 以管理员身份运行"));
+                }
                 if !silent {
                     let _ = window.show();
                     let _ = window.set_focus();
@@ -159,9 +153,8 @@ pub fn run() {
             enable_autostart,
             disable_autostart,
             is_autostart_enabled,
-            // Admin (run as administrator)
+            // Admin
             admin::is_running_as_admin,
-            admin::set_run_as_admin,
             // Process Watcher
             process_watcher::get_process_rules,
             process_watcher::add_process_rule,
@@ -188,23 +181,21 @@ pub fn run() {
 }
 
 // === Autostart commands ===
-// 自启机制由 run_as_admin 决定：非管理员用注册表 Run 项，管理员用计划任务。
-// 两者互斥切换在 admin::reconcile_autostart 中处理。
+// 自启一律使用计划任务（requireAdministrator 下注册表 Run 项会开机弹 UAC），
+// 启动参数（静默托盘/显示窗口）由设置的 autostart_silent 决定；
+// 旧版注册表项的清理在 admin::reconcile_autostart 中处理。
 
 #[tauri::command]
 fn enable_autostart(app: tauri::AppHandle) -> Result<(), String> {
-    let run_as_admin = config::get_app_settings()
-        .map(|s| s.run_as_admin)
-        .unwrap_or(false);
-    admin::reconcile_autostart(&app, true, run_as_admin)
+    let silent = config::get_app_settings()
+        .map(|s| s.autostart_silent)
+        .unwrap_or(true);
+    admin::reconcile_autostart(&app, true, silent)
 }
 
 #[tauri::command]
 fn disable_autostart(app: tauri::AppHandle) -> Result<(), String> {
-    let run_as_admin = config::get_app_settings()
-        .map(|s| s.run_as_admin)
-        .unwrap_or(false);
-    admin::reconcile_autostart(&app, false, run_as_admin)
+    admin::reconcile_autostart(&app, false, true)
 }
 
 #[tauri::command]

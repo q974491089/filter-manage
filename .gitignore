@@ -89,3 +89,6 @@ scripts/upload-server.py
 .rules/
 .skills/
 
+
+# Python 缓存（诊断脚本）
+__pycache__/
