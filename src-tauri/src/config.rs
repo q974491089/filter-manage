@@ -55,8 +55,9 @@ pub struct AppSettings {
     pub close_prompted: bool,
     #[serde(default)]
     pub autostart: bool,
-    #[serde(default)]
-    pub run_as_admin: bool,
+    /// 自启时是否静默进托盘（true=仅托盘不弹窗，false=显示主窗口）；旧配置缺省按静默处理
+    #[serde(default = "default_true")]
+    pub autostart_silent: bool,
     #[serde(default)]
     pub tray_presets: Vec<String>,
     #[serde(default)]
@@ -79,7 +80,7 @@ impl Default for AppSettings {
             close_to_tray: None,
             close_prompted: false,
             autostart: false,
-            run_as_admin: false,
+            autostart_silent: true,
             tray_presets: Vec::new(),
             shortcuts: Vec::new(),
             shortcut_notification: true,

@@ -38,7 +38,7 @@ interface AppSettings {
   close_to_tray: boolean | null;  // null=未选择，true=最小化到托盘，false=直接关闭
   close_prompted: boolean;
   autostart: boolean;
-  run_as_admin: boolean;
+  autostart_silent: boolean;
   shortcut_notification: boolean;
   tray_presets: string[];
   shortcuts: ShortcutBinding[];
@@ -129,7 +129,7 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
     close_to_tray: null,
     close_prompted: false,
     autostart: false,
-    run_as_admin: false,
+    autostart_silent: true,
     shortcut_notification: true,
     tray_presets: [],
     shortcuts: [],
@@ -200,29 +200,18 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
     }
   };
 
-  const handleToggleRunAsAdmin = async () => {
-    const newValue = !settings.run_as_admin;
-    if (newValue) {
-      const ok = window.confirm(
-        "开启后将以管理员权限重启应用，并在之后每次启动都请求管理员权限。\n\n" +
-        "若同时开启了开机自启，将改用 Windows 计划任务实现开机静默提权（开机时无需再点 UAC）。\n\n" +
-        "是否继续？"
-      );
-      if (!ok) return;
-    }
-    // 乐观更新 UI；失败（含用户取消 UAC）时回滚。用函数式更新，避免 await 期间的其他改动被旧快照覆盖
-    setSettings((s) => ({ ...s, run_as_admin: newValue }));
+  const handleAutostartSilentChange = async (silent: boolean) => {
+    if (silent === settings.autostart_silent) return;
+    const next = { ...settings, autostart_silent: silent };
+    await saveSettings(next);
+    if (!next.autostart) return;
+    // 自启开着：覆盖注册计划任务，让新的启动参数（--silent / 无参数）立即生效
     try {
-      // 后端会持久化开关；开启且未提权时会以管理员重启（本进程随即退出）
-      await invoke("set_run_as_admin", { enabled: newValue });
-      showToast(
-        "success",
-        newValue ? "已启用管理员运行" : "已关闭管理员运行，重启应用后生效",
-      );
+      await invoke("enable_autostart");
+      showToast("success", silent ? "开机自启将静默进托盘" : "开机自启将显示主窗口");
     } catch (err) {
-      setSettings((s) => ({ ...s, run_as_admin: !newValue }));
-      console.error("Failed to toggle run_as_admin:", err);
-      showToast("error", `操作失败：${err}`);
+      console.error("Failed to re-register autostart task:", err);
+      showToast("error", `应用自启方式失败：${err}`);
     }
   };
 
@@ -539,40 +528,57 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
                   </div>
                 </div>
 
-                <button
-                  onClick={handleToggleAutostart}
-                  className="w-full flex items-center justify-between gap-6 group cursor-pointer"
-                >
-                  <div className="flex-1 min-w-0 space-y-1 text-left">
-                    <h4 className="font-title-sm text-title-sm group-hover:text-primary transition-colors duration-200">
-                      开机时自动启动
-                    </h4>
-                    <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
-                      在 Windows 启动时自动运行 Filter Manage
-                    </p>
-                  </div>
-                  <Toggle checked={settings.autostart} onChange={handleToggleAutostart} />
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={handleToggleAutostart}
+                    className="w-full flex items-center justify-between gap-6 group cursor-pointer"
+                  >
+                    <div className="flex-1 min-w-0 space-y-1 text-left">
+                      <h4 className="font-title-sm text-title-sm group-hover:text-primary transition-colors duration-200">
+                        开机时自动启动
+                      </h4>
+                      <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
+                        在 Windows 启动时自动运行 Filter Manage
+                      </p>
+                    </div>
+                    <Toggle checked={settings.autostart} onChange={handleToggleAutostart} />
+                  </button>
 
-                {/* Divider */}
-                <div className="h-px bg-outline-variant/30 w-full" />
-
-                {/* 以管理员身份运行 */}
-                <button
-                  onClick={handleToggleRunAsAdmin}
-                  data-name="run-as-admin-toggle"
-                  className="w-full flex items-center justify-between gap-6 group cursor-pointer"
-                >
-                  <div className="flex-1 min-w-0 space-y-1 text-left">
-                    <h4 className="font-title-sm text-title-sm group-hover:text-primary transition-colors duration-200">
-                      以管理员身份运行
-                    </h4>
-                    <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
-                      颜色设置、ICC 安装或进程监听不生效时开启。开启后会重启应用，开机自启时无需确认权限。
-                    </p>
-                  </div>
-                  <Toggle checked={settings.run_as_admin} onChange={handleToggleRunAsAdmin} />
-                </button>
+                  {settings.autostart && (
+                    <div className="flex items-center justify-between gap-6 ml-4 pl-5 py-1 border-l-2 border-outline-variant/30 animate-[slide-fade-up_0.3s_cubic-bezier(0.16,1,0.3,1)_forwards]">
+                      <div className="flex-1 min-w-0 space-y-1 text-left">
+                        <h4 className="font-label-md text-label-md">启动方式</h4>
+                        <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
+                          静默托盘：开机只进系统托盘，不弹出主窗口
+                          <br />
+                          显示窗口：开机直接弹出主界面
+                        </p>
+                      </div>
+                      <div className="flex items-center rounded-lg bg-surface-container-highest/60 p-[3px] shrink-0">
+                        <button
+                          onClick={() => handleAutostartSilentChange(true)}
+                          className={`px-3.5 py-1.5 rounded-md font-label-md text-label-md whitespace-nowrap transition-all duration-200 active:scale-95 ${
+                            settings.autostart_silent
+                              ? "bg-primary/15 text-primary"
+                              : "text-on-surface-variant hover:text-on-surface"
+                          }`}
+                        >
+                          静默托盘
+                        </button>
+                        <button
+                          onClick={() => handleAutostartSilentChange(false)}
+                          className={`px-3.5 py-1.5 rounded-md font-label-md text-label-md whitespace-nowrap transition-all duration-200 active:scale-95 ${
+                            settings.autostart_silent
+                              ? "text-on-surface-variant hover:text-on-surface"
+                              : "bg-primary/15 text-primary"
+                          }`}
+                        >
+                          显示窗口
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Divider */}
                 <div className="h-px bg-outline-variant/30 w-full" />

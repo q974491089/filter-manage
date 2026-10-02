@@ -8,6 +8,7 @@
 import {
   MdAdd,
   MdAddPhotoAlternate,
+  MdAdminPanelSettings,
   MdAutoAwesome,
   MdCheck,
   MdCheckCircle,
@@ -55,6 +56,7 @@ import {
   // Outlined 变体
   MdOutlineAdd,
   MdOutlineAddPhotoAlternate,
+  MdOutlineAdminPanelSettings,
   MdOutlineAutoAwesome,
   MdOutlineCheck,
   MdOutlineCheckCircle,
@@ -117,6 +119,7 @@ interface IconEntry {
 export const iconMap: Record<string, IconEntry> = {
   add: { outlined: MdOutlineAdd, filled: MdAdd },
   add_photo_alternate: { outlined: MdOutlineAddPhotoAlternate, filled: MdAddPhotoAlternate },
+  admin_panel_settings: { outlined: MdOutlineAdminPanelSettings, filled: MdAdminPanelSettings },
   check: { outlined: MdOutlineCheck, filled: MdCheck },
   check_circle: { outlined: MdOutlineCheckCircle, filled: MdCheckCircle },
   close: { outlined: MdOutlineClose, filled: MdClose },
