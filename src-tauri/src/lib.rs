@@ -1,4 +1,5 @@
 mod config;
+mod debug_recorder;
 mod icc;
 mod nvidia;
 mod process_watcher;
@@ -23,6 +24,16 @@ pub(crate) fn shutdown_runtime(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // panic 兜底：任何线程的 panic 都落盘（logs/crash.log；调试会话中同时进会话日志）。
+    // release 版没有控制台，不挂这个的话 panic 就是无声消失，「奇怪的 bug」再也找不到。
+    std::panic::set_hook(Box::new(|info| {
+        crate::debug_recorder::log_panic(&format!(
+            "线程 {} ：{}",
+            std::thread::current().name().unwrap_or("<unnamed>"),
+            info
+        ));
+    }));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -170,6 +181,12 @@ pub fn run() {
             updater::install_update,
             // Announcements
             announcements::get_announcements,
+            // Debug recorder（左上角图标连点 10 次 → 授权 → 记录 → 桌面报告）
+            debug_recorder::debug_start,
+            debug_recorder::debug_stop,
+            debug_recorder::debug_status,
+            debug_recorder::debug_note,
+            debug_recorder::debug_copy_report_text,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

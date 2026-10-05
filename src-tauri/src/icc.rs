@@ -409,18 +409,31 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
         .ok_or("Invalid profile path")?
         .to_string();
 
+    crate::debug_recorder::log("icc", format!("开始应用：'{file_name}' device={device_id:?}"));
+
     let dest_path = color_dir().join(&file_name);
 
     if !std::path::Path::new(&dest_path).exists() {
-        fs::copy(profile_path, &dest_path)
-            .map_err(|e| format!("Failed to copy ICC profile: {}", e))?;
+        fs::copy(profile_path, &dest_path).map_err(|e| {
+            crate::debug_recorder::log("icc", format!("复制 ICC 到系统目录失败：{e}"));
+            format!("Failed to copy ICC profile: {}", e)
+        })?;
     }
 
     // 读取 ICC 文件解析 vcgt
-    let icc_data = fs::read(&dest_path)
-        .map_err(|e| format!("Failed to read ICC file: {}", e))?;
+    let icc_data = fs::read(&dest_path).map_err(|e| {
+        crate::debug_recorder::log("icc", format!("读取 ICC 失败：{e}"));
+        format!("Failed to read ICC file: {}", e)
+    })?;
+    crate::debug_recorder::log(
+        "icc",
+        format!("文件 {} 字节，来源 '{}'，目标目录文件已存在={}", icc_data.len(), profile_path, std::path::Path::new(&dest_path).exists()),
+    );
 
-    let pnp_id = resolve_device_pnp(device_id.clone())?;
+    let pnp_id = resolve_device_pnp(device_id.clone()).map_err(|e| {
+        crate::debug_recorder::log("icc", format!("显示器定位失败：{e}"));
+        e
+    })?;
     let device_id_w: Vec<u16> = pnp_id.encode_utf16().chain(std::iter::once(0)).collect();
     let file_name_w: Vec<u16> = file_name.encode_utf16().chain(std::iter::once(0)).collect();
 
@@ -451,6 +464,15 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
 
         // 2. 直接用 SetDeviceGammaRamp 写入显卡 LUT（立即生效）
         if let Some(ramp) = parse_vcgt(&icc_data) {
+            crate::debug_recorder::log(
+                "icc",
+                format!(
+                    "vcgt 有效：中间调 R={} G={} B={}（高字节 0-255）",
+                    ramp[0][128] >> 8,
+                    ramp[1][128] >> 8,
+                    ramp[2][128] >> 8
+                ),
+            );
             // 获取目标显示器的 adapter device_id (\\.\DISPLAYx)
             let adapter_id = device_id.unwrap_or_else(|| {
                 get_display_monitors()
@@ -484,12 +506,25 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
                     gamma_ramp.as_ptr() as *const _,
                 );
                 eprintln!("ICC: SetDeviceGammaRamp result: {:?}", result);
+                crate::debug_recorder::log(
+                    "icc",
+                    format!(
+                        "SetDeviceGammaRamp device={adapter_id} 返回={}（TRUE≠生效，见 verify 行）",
+                        result.as_bool()
+                    ),
+                );
+                crate::debug_recorder::verify_ramp(&adapter_id, &gamma_ramp);
                 let _ = windows::Win32::Graphics::Gdi::DeleteDC(hdc);
             } else {
                 eprintln!("ICC: Failed to create DC for adapter: {}", adapter_id);
+                crate::debug_recorder::log("icc", format!("CreateDCW 失败：{adapter_id}"));
             }
         } else {
             eprintln!("ICC: No vcgt in profile, only WCS registration done");
+            crate::debug_recorder::log(
+                "icc",
+                "该 ICC 无有效 vcgt：只做 WCS 注册，不写 LUT（屏幕不会有可见变化）".to_string(),
+            );
             // 没有 vcgt，清空基础 ramp（等同于线性）
             let adapter_id = device_id.unwrap_or_else(|| {
                 get_display_monitors()

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "../lib/ipc";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Icon } from "./Icon";

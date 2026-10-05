@@ -135,11 +135,23 @@ pub fn apply_color_config(cfg: &ColorConfig) -> Result<(), String> {
     // 再执行就会把这次应用覆盖掉
     crate::process_watcher::note_color_applied();
 
+    crate::debug_recorder::log(
+        "config",
+        format!(
+            "应用方案 '{}' icc={:?} 亮度={} 对比度={} 伽马={} DVC={} RGB=({},{},{})（后台路径：托盘/快捷键/进程监听/自动恢复）",
+            cfg.name, cfg.icc_profile, cfg.brightness, cfg.contrast, cfg.gamma,
+            cfg.digital_vibrance, cfg.rgb_r, cfg.rgb_g, cfg.rgb_b
+        ),
+    );
+
     // 先处理 ICC（作为 gamma 基础 ramp），再叠加 NVIDIA 调节——与前端 handleApply 顺序一致。
     // ICC 失败（如引用的文件已删除）只跳过，不阻断后续 NVIDIA 应用。
     match &cfg.icc_profile {
         Some(icc_path) => {
-            let _ = icc::apply_icc_profile(icc_path, None);
+            if let Err(e) = icc::apply_icc_profile(icc_path, None) {
+                // 只跳过不阻断，但必须留痕——否则「方案应用了但 ICC 没生效」无从排查
+                crate::debug_recorder::log("config", format!("方案 '{}' 的 ICC 应用失败：{e}", cfg.name));
+            }
         }
         None => {
             // 无 ICC → 恢复系统默认 sRGB（清除残留 vcgt ramp），与前端一致

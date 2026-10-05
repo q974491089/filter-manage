@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/ipc";
+import { debugNote } from "../lib/debug";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Icon } from "./Icon";
@@ -67,6 +68,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
 
   const importIccFiles = async (paths: string[]) => {
     setImporting(true);
+    debugNote(`拖拽导入 ${paths.length} 个 ICC 文件`);
     let successCount = 0;
     for (const filePath of paths) {
       try {
@@ -89,6 +91,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
 
   const handleImport = async () => {
     try {
+      debugNote("点击「导入 ICC」按钮");
       const selected = await open({
         filters: [{ name: "ICC Profile", extensions: ["icc", "icm"] }],
         multiple: false,
@@ -107,6 +110,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
 
   const handleProfileSelect = async (profile: IccProfile) => {
     try {
+      debugNote(`点击 ICC「${profile.name}」`);
       await invoke("set_icc_profile", {
         profilePath: profile.path,
         deviceId: selectedDeviceId,
@@ -119,6 +123,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
 
   const handleRestoreDefault = async () => {
     try {
+      debugNote("点击「恢复默认」ICC");
       await invoke("restore_default_icc_profile", {
         deviceId: selectedDeviceId,
       });
