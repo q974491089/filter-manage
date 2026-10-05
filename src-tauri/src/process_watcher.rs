@@ -441,7 +441,7 @@ fn list_running_processes() -> Vec<RunningProcess> {
 // ─── 轻量进程名枚举（对账用，不提取图标）──────────────────────────────────────
 
 #[cfg(windows)]
-fn running_process_names() -> Vec<String> {
+pub(crate) fn running_process_names() -> Vec<String> {
     let mut names = Vec::new();
 
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
@@ -475,7 +475,7 @@ fn running_process_names() -> Vec<String> {
 }
 
 #[cfg(not(windows))]
-fn running_process_names() -> Vec<String> {
+pub(crate) fn running_process_names() -> Vec<String> {
     Vec::new()
 }
 

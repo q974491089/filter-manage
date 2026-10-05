@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/ipc";
 import ShortcutInput from "./ShortcutInput";
 import Toggle from "./Toggle";
 import TextSwitch from "./TextSwitch";

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
+import { debugNote } from "../lib/debug";
 
 const PRESET_ICONS = [
   { icon: "tune", label: "默认" },
@@ -65,12 +66,15 @@ function SaveModal({
       (n) => n.toLowerCase() === trimmed.toLowerCase()
     );
     if (duplicate) {
+      // 前端本地校验的失败不发命令，error toast 也接不到——这里必须自己记
+      debugNote(`另存失败（方案重名）：「${trimmed}」`, "ui-error");
       setError(`方案「${trimmed}」已存在，请换一个名称`);
       return;
     }
 
     const icon = useCustomIcon && customIconUrl ? customIconUrl : selectedIcon;
     try {
+      debugNote(`另存为新方案「${trimmed}」`);
       await onSave(trimmed, icon);
       onClose();
     } catch {

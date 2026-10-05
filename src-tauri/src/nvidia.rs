@@ -373,7 +373,23 @@ fn apply_gamma_ramp(device_id: &str) -> Result<(), String> {
             ramp[offset + i] = scaled;
         }
     }
+    // 是否有 ICC 基础曲线要在 drop 借用之前取出，日志行要用
+    let has_icc_base = icc_base.is_some();
     drop(icc_ramps);
+
+    crate::debug_recorder::log(
+        "gamma",
+        format!(
+            "device={device_id} 亮度={} 对比度={} 伽马={} RGB=({},{},{}) icc_base={has_icc_base} 中间调R={}",
+            s.brightness,
+            s.contrast,
+            s.gamma,
+            s.rgb_r,
+            s.rgb_g,
+            s.rgb_b,
+            ramp[128] >> 8
+        ),
+    );
 
     unsafe {
         // 使用 CreateDCW 指定具体显示器
@@ -389,6 +405,14 @@ fn apply_gamma_ramp(device_id: &str) -> Result<(), String> {
         }
         let result = windows::Win32::UI::ColorSystem::SetDeviceGammaRamp(hdc, ramp.as_ptr() as *const _);
         let _ = windows::Win32::Graphics::Gdi::DeleteDC(hdc);
+        crate::debug_recorder::log(
+            "gamma",
+            format!(
+                "device={device_id} SetDeviceGammaRamp 返回={}（TRUE≠生效，见 verify 行）",
+                result.as_bool()
+            ),
+        );
+        crate::debug_recorder::verify_ramp(device_id, &ramp);
         if result.as_bool() { Ok(()) } else { Err(format!("SetDeviceGammaRamp failed for {}", device_id)) }
     }
 }
@@ -472,12 +496,27 @@ fn dvc_get_info(did: &str) -> Result<(DvcVendor, (i32, i32, i32, i32)), String> 
 }
 
 fn dvc_set(did: &str, ui_level: i32) -> Result<(), String> {
-    match nvapi_set_dvc(ui_level, Some(did)) {
+    let outcome = match nvapi_set_dvc(ui_level, Some(did)) {
         Ok(()) => Ok(()),
         Err(nv) if nvidia_absent(&nv) => crate::amd::set_saturation_ui(did, ui_level)
             .map_err(|amd| format!("NVIDIA: {} | AMD: {}", nv, amd)),
         Err(e) => Err(e),
-    }
+    };
+    // 数字振动是独立于 gamma LUT 的另一条管线，记录它才能在调试报告里
+    // 对比「gamma 死了 DVC 活着」这类关键症状
+    crate::debug_recorder::log(
+        "dvc",
+        format!(
+            "device={did} 目标={ui_level} 结果={}{}",
+            if outcome.is_ok() { "成功" } else { "失败" },
+            outcome
+                .as_ref()
+                .err()
+                .map(|e| format!("：{e}"))
+                .unwrap_or_default()
+        ),
+    );
+    outcome
 }
 
 #[tauri::command]

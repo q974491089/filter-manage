@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/ipc";
+import { debugNote } from "../lib/debug";
 import { useState } from "react";
 import ShortcutInput from "./ShortcutInput";
 import Toggle from "./Toggle";
@@ -83,6 +84,7 @@ function ConfigManager({
 
   const handleLoad = async (name: string) => {
     try {
+      debugNote(`点击方案「${name}」`);
       const config = await invoke<ColorConfig>("load_config", { name });
       onConfigLoad(config);
       showToast("success", `已加载「${name}」`);
@@ -98,6 +100,7 @@ function ConfigManager({
       return;
     }
     try {
+      debugNote(`删除方案「${name}」`);
       await invoke("delete_config", { name });
       showToast("success", `已删除「${name}」`);
       onConfigsChange();
@@ -108,6 +111,7 @@ function ConfigManager({
 
   const handleEdit = async (e: React.MouseEvent, name: string) => {
     e.stopPropagation();
+    debugNote(`编辑方案「${name}」`);
     setEditingConfig(name);
     setEditName(name);
     setShowEditModal(true);
@@ -154,8 +158,10 @@ function ConfigManager({
     try {
       // 如果名称改变了，需要重命名配置
       if (editName !== editingConfig) {
+        debugNote(`重命名方案「${editingConfig}」→「${editName}」`);
         await invoke("rename_config", { oldName: editingConfig, newName: editName });
       }
+      debugNote(`保存方案设置「${editName}」`);
 
       // 保存 icon 到配置
       const icon = editUseCustomIcon && editCustomIconUrl ? editCustomIconUrl : editIcon;
@@ -229,6 +235,7 @@ function ConfigManager({
     if (!settings || !editingConfig) return;
 
     try {
+      debugNote(`绑定快捷键「${shortcut}」→ 方案「${editingConfig}」`);
       await invoke("bind_shortcut", { shortcut, configName: editingConfig });
       const newShortcuts = settings.shortcuts.filter(s => s.config_name !== editingConfig);
       newShortcuts.push({ shortcut, config_name: editingConfig });
@@ -244,6 +251,7 @@ function ConfigManager({
     if (!settings || !editingConfig) return;
 
     try {
+      debugNote(`清除快捷键（方案「${editingConfig}」）`);
       await invoke("unbind_shortcut", { configName: editingConfig });
       const newShortcuts = settings.shortcuts.filter(s => s.config_name !== editingConfig);
       setSettings({ ...settings, shortcuts: newShortcuts });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./lib/ipc";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { exit } from "@tauri-apps/plugin-process";
@@ -10,6 +10,7 @@ import ConfigManager from "./components/ConfigManager";
 import SaveModal from "./components/SaveModal";
 import UpdateModal from "./components/UpdateModal";
 import AboutModal from "./components/AboutModal";
+import DebugModeModal from "./components/DebugModeModal";
 import SettingsModal from "./components/SettingsModal";
 import ClosePromptModal from "./components/ClosePromptModal";
 import AnnouncementBell from "./components/AnnouncementBell";
@@ -17,6 +18,7 @@ import AnnouncementModal from "./components/AnnouncementModal";
 import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
 import { useAnnouncements } from "./hooks/useAnnouncements";
+import { debugNote, setDebugRecording } from "./lib/debug";
 import type { RgbScaleMode } from "./lib/rgbScale";
 
 interface ColorConfig {
@@ -93,6 +95,11 @@ function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showClosePrompt, setShowClosePrompt] = useState(false);
   const [closePromptInitialTray, setClosePromptInitialTray] = useState<boolean | null>(null);
+  // 调试模式：左上角图标 15 秒内连点 10 次触发（彩蛋入口），授权后记录操作与系统响应
+  const [showDebugModal, setShowDebugModal] = useState(false);
+  const [debugActive, setDebugActive] = useState(false);
+  const [debugLogPath, setDebugLogPath] = useState<string | null>(null);
+  const [lastReportPath, setLastReportPath] = useState<string | null>(null);
   const updater = useUpdater();
   const ann = useAnnouncements();
   const [baseline, setBaseline] = useState({
@@ -108,6 +115,7 @@ function App() {
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const [dvcCap, setDvcCap] = useState<DvcCapability | null>(null);
   const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const logoClicksRef = useRef({ count: 0, first: 0 });
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
 
   const hasChanges =
@@ -317,6 +325,12 @@ function App() {
 
   const showToast = useCallback((type: "success" | "error", text: string) => {
     setToast({ type, text });
+    // error toast 是「用户可见失败」的统一出口：后端校验失败、前端本地判断失败
+    // （如方案重名）最终都会走到这里。调试中一并落盘——比 invoke 漏斗多覆盖
+    // 一层不发命令、纯前端判断出来的失败。
+    if (type === "error") {
+      debugNote(`用户可见错误提示：${text}`, "ui-error");
+    }
     setTimeout(() => setToast(null), 3000);
   }, []);
 
@@ -399,7 +413,60 @@ function App() {
     init();
   }, [refreshConfigs]);
 
+  // 全局 JS 错误兜底：调试中任何未捕获异常 / 未处理 Promise 拒绝都进日志
+  useEffect(() => {
+    if (!debugActive) return;
+    const onError = (e: ErrorEvent) => {
+      debugNote(`JS 错误：${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`, "ui-error");
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      debugNote(`未处理的 Promise 拒绝：${String(e.reason)}`, "ui-error");
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  }, [debugActive]);
+
+  // 应用启动时同步一次后端的记录状态（调试中重启 app 后状态条要能恢复）；
+  // debugActive 变化同步给行为记录模块（所有组件的 debugNote 靠这个开关门控）
+  useEffect(() => {
+    invoke<boolean>("debug_status")
+      .then((active) => {
+        setDebugActive(active);
+        setDebugRecording(active);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setDebugRecording(debugActive);
+  }, [debugActive]);
+
+  // 左上角图标 15 秒内连点 10 次进入调试模式；记录中再点 = 打开控制弹窗
+  const handleLogoClick = () => {
+    if (debugActive) {
+      setShowDebugModal(true);
+      return;
+    }
+    const now = Date.now();
+    const st = logoClicksRef.current;
+    // 从第一次点击起算 15 秒窗口，超时重新计数
+    if (now - st.first > 15000) st.count = 0;
+    if (st.count === 0) st.first = now;
+    st.count += 1;
+    if (st.count >= 5 && st.count < 10) {
+      showToast("success", `再点击 ${10 - st.count} 次开启调试模式`);
+    } else if (st.count >= 10) {
+      st.count = 0;
+      setShowDebugModal(true);
+    }
+  };
+
   const handleApply = async (config: ColorConfig) => {
+    debugNote(`应用方案「${config.name}」`);
     const rr = config.rgb_r ?? 0;
     const rg = config.rgb_g ?? 0;
     const rb = config.rgb_b ?? 0;
@@ -460,6 +527,7 @@ function App() {
 
   const handleRestore = async () => {
     setLoading(true);
+    debugNote("点击「重置默认」");
     try {
       const def = await invoke<ColorConfig | null>("load_default_config");
       if (def) {
@@ -484,6 +552,7 @@ function App() {
 
   const handleMonitorChange = async (deviceId: string) => {
     setSelectedDeviceId(deviceId || undefined);
+    debugNote(`切换显示器 → ${deviceId || "主显示器"}`);
     try {
       const settings = await invoke<{
         brightness: number;
@@ -669,11 +738,73 @@ function App() {
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
       <UpdateModal updater={updater} />
       <AnnouncementModal items={ann.modalItems} onDismiss={ann.dismissModal} />
+      <DebugModeModal
+        open={showDebugModal}
+        active={debugActive}
+        logPath={debugLogPath}
+        reportPath={lastReportPath}
+        onClose={() => {
+          setShowDebugModal(false);
+          setLastReportPath(null);
+        }}
+        onStarted={(logPath) => {
+          setDebugActive(true);
+          setDebugLogPath(logPath);
+          setLastReportPath(null);
+          showToast("success", "调试记录已开启");
+        }}
+        onStopped={(reportPath) => {
+          setDebugActive(false);
+          setDebugLogPath(null);
+          // 弹窗停在「报告已生成」完成态：文件已自动复制到剪贴板，可复制文案或确认路径
+          setLastReportPath(reportPath);
+          // 后端停止时已自动恢复默认配置：把界面滑条拉回与屏幕一致，
+          // 避免界面显示调试值、屏幕却是默认值的错位
+          (async () => {
+            try {
+              const def = await invoke<ColorConfig | null>("load_default_config");
+              const dvcDefault = await invoke<number>("get_dvc_default_ui_value", {
+                deviceId: selectedDeviceId,
+              });
+              const rr = def?.rgb_r ?? 0;
+              const rg = def?.rgb_g ?? 0;
+              const rb = def?.rgb_b ?? 0;
+              const profile = def?.icc_profile || "Default";
+              setBrightness(def?.brightness ?? 0);
+              setContrast(def?.contrast ?? 0);
+              setGamma(def?.gamma ?? 1.0);
+              setDigitalVibrance(dvcDefault);
+              setRgbR(rr);
+              setRgbG(rg);
+              setRgbB(rb);
+              setActiveProfile(profile);
+              setSelectedConfig("");
+              setBaseline({
+                brightness: def?.brightness ?? 0,
+                contrast: def?.contrast ?? 0,
+                gamma: def?.gamma ?? 1.0,
+                digitalVibrance: dvcDefault,
+                rgbR: rr,
+                rgbG: rg,
+                rgbB: rb,
+                iccProfile: profile,
+              });
+            } catch {
+              // 恢复界面状态失败不影响报告流程；屏幕本身已被后端重置
+            }
+          })();
+        }}
+      />
       {/* Header - Filter Manage style */}
       <header data-name="header" className="bg-surface-container-low border-b border-outline-variant/20 flex items-center px-lg h-16 w-full z-50 fixed top-0">
         {/* Logo & Title */}
         <div className="flex items-center gap-md mr-lg">
-          <img src="/favicon.png" alt="icon" className="w-8 h-8 rounded-md" />
+          <img
+            src="/favicon.png"
+            alt="icon"
+            onClick={handleLogoClick}
+            className="w-8 h-8 rounded-md cursor-default select-none"
+          />
           <div className="flex items-baseline gap-sm">
             <h1 className="font-headline-md text-headline-md font-medium text-primary">Filter Manage</h1>
             <button
@@ -791,6 +922,22 @@ function App() {
 
         </div>
       </header>
+
+      {/* 调试记录中：常驻状态条（点击打开控制弹窗）。
+          交互状态全集：hover 抬升+提亮、active 按压、focus-visible 环、
+          脉冲点传达「记录中」状态，reduced-motion 下全部静态化 */}
+      {debugActive && (
+        <button
+          data-name="debug-chip"
+          onClick={() => setShowDebugModal(true)}
+          title="点击停止记录并生成报告"
+          className="fixed bottom-4 right-4 z-[200] flex items-center gap-xs pl-md pr-sm py-sm rounded-full bg-error text-on-error font-label-md text-label-md shadow-lg ring-1 ring-error/40 cursor-pointer select-none transition-all duration-200 ease-out hover:shadow-xl hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 motion-reduce:transition-none"
+        >
+          <span className="w-2 h-2 rounded-full bg-white animate-pulse motion-reduce:animate-none" />
+          调试记录中
+          <Icon name="expand_more" className="text-[16px] rotate-180 opacity-80" />
+        </button>
+      )}
 
       {/* Toast */}
       {toast && (

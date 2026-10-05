@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/ipc";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export interface Mirror { name: string; url: string }
