@@ -124,6 +124,8 @@ pub fn run() {
             icc::set_icc_profile,
             icc::get_current_icc_profile,
             icc::get_display_monitors,
+            icc::get_display_modes,
+            icc::set_display_mode,
             icc::restore_default_icc_profile,
             icc::import_icc_profile,
             icc::export_icc_profile,

@@ -992,7 +992,11 @@ function App() {
             />
           </div>
           <div data-name="preview-config-panel" className="col-span-4 flex flex-col min-h-0 h-full overflow-hidden gap-gutter">
-            <PreviewImage showToast={showToast} />
+            <PreviewImage
+              showToast={showToast}
+              deviceId={selectedDeviceId}
+              deviceName={monitors.find((m) => m.device_id === selectedDeviceId)?.name}
+            />
             <ConfigManager
               configs={configs}
               selectedConfig={selectedConfig}
