@@ -527,6 +527,91 @@ pub fn set_display_mode(device_id: Option<String>, width: u32, height: u32) -> R
     }
 }
 
+/// 全局唯一的「分辨率还原点」：本应用把某台显示器从原始分辨率切走时记录
+/// (设备名, 宽, 高)，只在第一次改动时记录；应用不带分辨率的方案时自动还原。
+/// Mutex 保并发安全——托盘/快捷键/进程监听/前端可能同时走应用路径。
+static RESOLUTION_UNDO: std::sync::Mutex<Option<(String, u32, u32)>> = std::sync::Mutex::new(None);
+
+/// 解析方案里的 "宽x高" 字符串，容忍空格、大写 X 和 ×
+fn parse_resolution(s: &str) -> Option<(u32, u32)> {
+    let mut parts = s.split(['x', 'X', '×']).map(str::trim);
+    let w: u32 = parts.next()?.parse().ok()?;
+    let h: u32 = parts.next()?.parse().ok()?;
+    (w > 0 && h > 0).then_some((w, h))
+}
+
+/// 方案应用路径的分辨率落地（前端加载方案与后端托盘/快捷键/进程监听共用）。
+///
+/// - `Some("宽x高")`：与当前不同则首次记录还原点后切换；切换成功后若还原点
+///   恰为目标值（已归位）则清除还原点。
+/// - `None`：方案不调节分辨率，但若还原点属于该显示器且当前值已被改走，
+///   则还原到还原点并清除——托盘从 4:3 方案切回旧方案时分辨率跟着回去。
+///
+/// 返回 Err 不应阻断方案里其余配色参数的应用，由调用方决定容错策略。
+pub fn apply_resolution_state(device_id: Option<String>, resolution: Option<&str>) -> Result<(), String> {
+    let device_name = resolve_display_device_name(device_id)?;
+    let target = match resolution {
+        None => None,
+        Some(s) => match parse_resolution(s) {
+            Some(t) => Some(t),
+            None => {
+                eprintln!("[apply] invalid resolution in config: '{}'", s);
+                return Ok(());
+            }
+        },
+    };
+
+    let modes = get_display_modes(Some(device_name.clone()))?;
+    let current = modes
+        .iter()
+        .find(|m| m.is_current)
+        .map(|m| (m.width, m.height))
+        .ok_or_else(|| "Cannot determine current display mode".to_string())?;
+
+    let mut undo = RESOLUTION_UNDO.lock().unwrap();
+    match target {
+        Some((w, h)) => {
+            if (w, h) == current {
+                if *undo == Some((device_name.clone(), w, h)) {
+                    *undo = None;
+                }
+                return Ok(());
+            }
+            if undo.is_none() {
+                *undo = Some((device_name.clone(), current.0, current.1));
+            }
+            let result = set_display_mode(Some(device_name.clone()), w, h);
+            if result.is_ok() && *undo == Some((device_name, w, h)) {
+                *undo = None;
+            }
+            result
+        }
+        None => {
+            let slot = undo.clone();
+            match slot {
+                Some((dev, uw, uh)) if dev == device_name && (uw, uh) != current => {
+                    let result = set_display_mode(Some(device_name), uw, uh);
+                    if result.is_ok() {
+                        *undo = None;
+                    }
+                    result
+                }
+                Some((dev, _, _)) if dev == device_name => {
+                    *undo = None;
+                    Ok(())
+                }
+                _ => Ok(()),
+            }
+        }
+    }
+}
+
+/// Tauri 命令：前端加载方案时应用/还原分辨率，与后端中央路径共享还原点
+#[tauri::command]
+pub fn apply_config_resolution(device_id: Option<String>, resolution: Option<String>) -> Result<(), String> {
+    apply_resolution_state(device_id, resolution.as_deref())
+}
+
 /// 只读集成测试：枚举主显示器的可用模式，不改动任何系统状态。
 #[cfg(test)]
 mod display_mode_tests {
@@ -551,6 +636,16 @@ mod display_mode_tests {
                 "modes should be sorted by area, descending"
             );
         }
+    }
+
+    #[test]
+    fn parse_resolution_formats() {
+        assert_eq!(parse_resolution("1024x768"), Some((1024, 768)));
+        assert_eq!(parse_resolution("2560X1440"), Some((2560, 1440)));
+        assert_eq!(parse_resolution(" 1920 × 1080 "), Some((1920, 1080)));
+        assert_eq!(parse_resolution("0x1080"), None);
+        assert_eq!(parse_resolution("1080"), None);
+        assert_eq!(parse_resolution("axb"), None);
     }
 }
 

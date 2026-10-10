@@ -6,6 +6,7 @@ import { exit } from "@tauri-apps/plugin-process";
 import ProfileList from "./components/ProfileList";
 import ColorAdjuster from "./components/ColorAdjuster";
 import PreviewImage from "./components/PreviewImage";
+import DisplayResolution from "./components/DisplayResolution";
 import ConfigManager from "./components/ConfigManager";
 import SaveModal from "./components/SaveModal";
 import UpdateModal from "./components/UpdateModal";
@@ -31,6 +32,8 @@ interface ColorConfig {
   rgb_r?: number;
   rgb_g?: number;
   rgb_b?: number;
+  /** 目标分辨率 "宽x高"，null/undefined = 方案不调节分辨率 */
+  resolution?: string | null;
   icc_profile: string | null;
 }
 
@@ -114,6 +117,10 @@ function App() {
   });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const [dvcCap, setDvcCap] = useState<DvcCapability | null>(null);
+  /** 当前选中显示器的实际分辨率 "宽x高"，由 DisplayResolution 卡片上报；保存方案时写入 */
+  const [currentResolution, setCurrentResolution] = useState<string | null>(null);
+  /** 变化时让 DisplayResolution 重拉模式（托盘/快捷键/进程监听应用方案后同步） */
+  const [resRefreshKey, setResRefreshKey] = useState(0);
   const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const logoClicksRef = useRef({ count: 0, first: 0 });
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -237,6 +244,8 @@ function App() {
             iccProfile: "Default",
           });
         }
+        // 后台路径可能改了分辨率，让分辨率卡片重拉真实状态
+        setResRefreshKey((k) => k + 1);
       } catch (err) {
         console.error("Failed to sync UI after config-applied:", err);
       }
@@ -267,6 +276,8 @@ function App() {
         rgbB: rb,
         iccProfile: cfg.icc_profile || "Default",
       });
+      // 后台路径可能改了分辨率，让分辨率卡片重拉真实状态
+      setResRefreshKey((k) => k + 1);
     } catch (err) {
       console.error("Failed to sync UI after config-applied:", err);
     }
@@ -479,6 +490,18 @@ function App() {
     setRgbB(rb);
     const profile = config.icc_profile || "Default";
     setActiveProfile(profile);
+
+    // 分辨率先行：模式切换可能重置 gamma ramp，先落分辨率再上色（与后端中央路径一致）。
+    // 失败不阻断配色应用。
+    if (config.resolution) {
+      try {
+        await invoke("apply_config_resolution", { deviceId: selectedDeviceId, resolution: config.resolution });
+      } catch (err) {
+        console.error("Failed to apply config resolution:", err);
+        showToast("error", `分辨率切换失败: ${err}`);
+      }
+    }
+
     setBaseline({
       brightness: config.brightness,
       contrast: config.contrast,
@@ -537,6 +560,12 @@ function App() {
         setSelectedConfig("");
         showToast("success", "已恢复默认设置");
       } else {
+        // 无默认方案：配色无从恢复，但若此前应用过带分辨率的方案，至少把分辨率还回去
+        try {
+          await invoke("apply_config_resolution", { deviceId: selectedDeviceId, resolution: null });
+        } catch {
+          /* 无可还原项，忽略 */
+        }
         showToast("error", "未找到默认设置");
       }
     } catch (err) {
@@ -596,6 +625,7 @@ function App() {
     rgb_r: rgbR,
     rgb_g: rgbG,
     rgb_b: rgbB,
+    resolution: currentResolution,
     icc_profile: activeProfile !== "Default" ? activeProfile : null,
   });
 
@@ -992,10 +1022,13 @@ function App() {
             />
           </div>
           <div data-name="preview-config-panel" className="col-span-4 flex flex-col min-h-0 h-full overflow-hidden gap-gutter">
-            <PreviewImage
+            <PreviewImage showToast={showToast} />
+            <DisplayResolution
               showToast={showToast}
               deviceId={selectedDeviceId}
               deviceName={monitors.find((m) => m.device_id === selectedDeviceId)?.name}
+              onCurrentResolution={setCurrentResolution}
+              refreshKey={resRefreshKey}
             />
             <ConfigManager
               configs={configs}

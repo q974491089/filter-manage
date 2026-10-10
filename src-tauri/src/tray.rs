@@ -125,7 +125,10 @@ pub(crate) fn apply_default_config() -> Result<(), String> {
     if let Some(cfg) = config::load_default_config()? {
         apply_color_config(&cfg)
     } else {
-        icc::restore_default_icc(None)
+        let result = icc::restore_default_icc(None);
+        // 无默认方案时也要还原本应用此前改过的分辨率（如进程监听切走的 4:3）
+        let _ = icc::apply_resolution_state(None, None);
+        result
     }
 }
 
@@ -138,11 +141,18 @@ pub fn apply_color_config(cfg: &ColorConfig) -> Result<(), String> {
     crate::debug_recorder::log(
         "config",
         format!(
-            "应用方案 '{}' icc={:?} 亮度={} 对比度={} 伽马={} DVC={} RGB=({},{},{})（后台路径：托盘/快捷键/进程监听/自动恢复）",
+            "应用方案 '{}' icc={:?} 亮度={} 对比度={} 伽马={} DVC={} RGB=({},{},{}) resolution={:?}（后台路径：托盘/快捷键/进程监听/自动恢复）",
             cfg.name, cfg.icc_profile, cfg.brightness, cfg.contrast, cfg.gamma,
-            cfg.digital_vibrance, cfg.rgb_r, cfg.rgb_g, cfg.rgb_b
+            cfg.digital_vibrance, cfg.rgb_r, cfg.rgb_g, cfg.rgb_b, cfg.resolution
         ),
     );
+
+    // 分辨率先行：模式切换可能重置 gamma/ICC ramp，先落分辨率再上色。
+    // 失败不阻断配色应用（与 DVC 同策略），但必须留痕。
+    if let Err(e) = icc::apply_resolution_state(None, cfg.resolution.as_deref()) {
+        crate::debug_recorder::log("config", format!("方案 '{}' 的分辨率应用失败：{e}", cfg.name));
+        eprintln!("[apply] resolution skipped: {}", e);
+    }
 
     // 先处理 ICC（作为 gamma 基础 ramp），再叠加 NVIDIA 调节——与前端 handleApply 顺序一致。
     // ICC 失败（如引用的文件已删除）只跳过，不阻断后续 NVIDIA 应用。
