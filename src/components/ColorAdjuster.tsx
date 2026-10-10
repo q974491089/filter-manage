@@ -172,15 +172,16 @@ function ColorAdjuster({
         data-name="sliders-card"
         className="flex-1 min-h-0 flex flex-col bg-surface-container rounded-lg border border-outline-variant/20 p-lg shadow-sm overflow-y-auto"
       >
-        {/* 二级：基础参数 — 与下方色彩调整平分卡片高度，空白均匀分给滑条 */}
-        <div data-name="basic-section" className="flex-1 flex flex-col">
+        {/* 二级：基础参数 — 按滑条条数 4:3 分卡片高度，标题贴合内容，
+            多余空间只加在滑条之间（justify-between），不留标题下死空白 */}
+        <div data-name="basic-section" className="flex-[4] flex flex-col">
           <div className="mb-md shrink-0">
             <h4 className="font-label-md text-label-md text-on-surface font-medium">基础参数</h4>
             <p className="text-[11px] leading-snug text-on-surface-variant mt-0.5">
               亮度、对比度、伽马与数字振动，影响整体影调与饱和度
             </p>
           </div>
-          <div className="flex-1 flex flex-col justify-evenly gap-md">
+          <div className="flex-1 flex flex-col justify-between gap-md">
             <SliderControl
               label="亮度 (Brightness)"
               description="调整屏幕整体明暗程度"
@@ -240,7 +241,7 @@ function ColorAdjuster({
 
         {/* 二级：显示色彩调整 — flex-1 不加 min-h-0：内容矮时平分多余空间铺满卡片，
             内容超高（小窗口）时按自身高度撑开走卡片滚动，不裁切 */}
-        <div data-name="rgb-section" className="flex-1 flex flex-col pt-md mt-md border-t border-outline-variant/20">
+        <div data-name="rgb-section" className="flex-[3] flex flex-col pt-md mt-md border-t border-outline-variant/20">
           <div className="flex items-start justify-between gap-md mb-md shrink-0">
             <div className="min-w-0 flex-1 pr-sm">
               <h4 className="font-label-md text-label-md text-on-surface font-medium">显示色彩调整</h4>
@@ -268,7 +269,7 @@ function ColorAdjuster({
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col justify-evenly gap-md">
+          <div className="flex-1 flex flex-col justify-between gap-md">
             <SliderControl
               label="红 (R)"
               description="增强或减弱红色分量，用于偏色与白平衡"
