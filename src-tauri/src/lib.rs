@@ -1,5 +1,6 @@
 mod config;
 mod debug_recorder;
+mod display_watch;
 mod icc;
 mod nvidia;
 mod process_watcher;
@@ -83,6 +84,10 @@ pub fn run() {
 
             // 初始化进程监听（后台线程，自动匹配规则切换方案）
             process_watcher::init_watcher(&handle);
+
+            // 显示器拓扑监听（系统事件：WM_DISPLAYCHANGE / WM_DEVICECHANGE），
+            // Win+P 投影、关显示器、热插拔时把最新显示器列表推给前端
+            display_watch::start(&handle);
 
             // 启动来源：带 --silent（开机自启）→ 保持隐藏仅进托盘；否则显示主窗口。
             // 主窗口在 tauri.conf.json 中初始 visible:false，避免非静默启动时的窗口闪现。

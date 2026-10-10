@@ -617,6 +617,34 @@ function App() {
     }
   };
 
+  // 监听显示器拓扑变化（Win+P 投影 / 关显示器 / 热插拔，后端 WM_DISPLAYCHANGE /
+  // WM_DEVICECHANGE 事件驱动）：「显示器 1/2」标签动态增减；当前选中的显示器
+  // 被移除时自动落到主显示器并加载其参数。
+  // 用 ref 持最新处理器，监听器只注册一次、不随状态重建
+  const selectedDeviceRef = useRef(selectedDeviceId);
+  selectedDeviceRef.current = selectedDeviceId;
+  const monitorChangeRef = useRef(handleMonitorChange);
+  monitorChangeRef.current = handleMonitorChange;
+  useEffect(() => {
+    const unlisten = listen<DisplayMonitor[]>("monitors-changed", (event) => {
+      const list = event.payload;
+      setMonitors(list);
+      setResRefreshKey((k) => k + 1);
+      const stillThere = list.some((m) => m.device_id === selectedDeviceRef.current);
+      if (!stillThere) {
+        const fallback = list.find((m) => m.is_primary) || list[0];
+        if (fallback) {
+          monitorChangeRef.current(fallback.device_id);
+        } else {
+          setSelectedDeviceId(undefined);
+        }
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   const buildColorFields = () => ({
     brightness,
     contrast,

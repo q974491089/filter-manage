@@ -57,7 +57,7 @@ pub struct IccProfile {
     pub is_active: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct DisplayMonitor {
     pub name: String,
     pub device_id: String,
@@ -159,71 +159,83 @@ fn u16_to_str(arr: &[u16]) -> String {
     String::from_utf16_lossy(&arr[..len])
 }
 
-#[tauri::command]
-pub fn get_display_monitors() -> Result<Vec<DisplayMonitor>, String> {
+/// 枚举当前活动显示器（无日志、可高频调用）。
+/// 显示器拓扑监听线程（display_watch）与 get_display_monitors 命令共用。
+pub fn enumerate_display_monitors() -> Vec<DisplayMonitor> {
+    let mut monitors = Vec::new();
+
     unsafe {
-        let user32 = windows::Win32::System::LibraryLoader::LoadLibraryW(windows::core::w!("user32.dll"))
-            .map_err(|e| format!("Failed to load user32.dll: {}", e))?;
+        let Ok(user32) = windows::Win32::System::LibraryLoader::LoadLibraryW(windows::core::w!("user32.dll")) else {
+            eprintln!("ICC: Failed to load user32.dll for monitor enumeration");
+            return monitors;
+        };
 
         type FnEnumDisplayDevicesW = unsafe extern "system" fn(*const u16, u32, *mut DISPLAY_DEVICEW, u32) -> i32;
-        let enum_fn: FnEnumDisplayDevicesW = std::mem::transmute(
+        if let Some(proc_addr) =
             windows::Win32::System::LibraryLoader::GetProcAddress(user32, windows::core::s!("EnumDisplayDevicesW"))
-                .ok_or("EnumDisplayDevicesW not found")?
-        );
+        {
+            let enum_fn: FnEnumDisplayDevicesW = std::mem::transmute(proc_addr);
 
-        let mut monitors = Vec::new();
-        let mut adapter_idx = 0;
-        let mut adapter: DISPLAY_DEVICEW = Default::default();
+            let mut adapter_idx = 0;
+            let mut adapter: DISPLAY_DEVICEW = Default::default();
 
-        while enum_fn(std::ptr::null(), adapter_idx, &mut adapter, 0) != 0 {
-            let is_primary = adapter.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE != 0;
-            let adapter_name_str = u16_to_str(&adapter.DeviceName);
+            while enum_fn(std::ptr::null(), adapter_idx, &mut adapter, 0) != 0 {
+                let is_primary = adapter.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE != 0;
+                let adapter_name_str = u16_to_str(&adapter.DeviceName);
 
-            if adapter.StateFlags & DISPLAY_DEVICE_ACTIVE != 0 {
-                // 用不带 EDD flag 的第二层枚举拿 DeviceID（PnP 路径）
-                let mut mon: DISPLAY_DEVICEW = Default::default();
-                let pnp_id = if enum_fn(adapter.DeviceName.as_ptr(), 0, &mut mon, 0) != 0 {
-                    u16_to_str(&mon.DeviceID)
-                } else {
-                    String::new()
-                };
+                if adapter.StateFlags & DISPLAY_DEVICE_ACTIVE != 0 {
+                    // 用不带 EDD flag 的第二层枚举拿 DeviceID（PnP 路径）
+                    let mut mon: DISPLAY_DEVICEW = Default::default();
+                    let pnp_id = if enum_fn(adapter.DeviceName.as_ptr(), 0, &mut mon, 0) != 0 {
+                        u16_to_str(&mon.DeviceID)
+                    } else {
+                        String::new()
+                    };
 
-                let model = get_monitor_name_from_edid(&pnp_id)
-                    .unwrap_or_else(|| u16_to_str(&adapter.DeviceString));
+                    let model = get_monitor_name_from_edid(&pnp_id)
+                        .unwrap_or_else(|| u16_to_str(&adapter.DeviceString));
 
-                let display_num: String = adapter_name_str
-                    .chars()
-                    .rev()
-                    .take_while(|c| c.is_ascii_digit())
-                    .collect::<String>()
-                    .chars()
-                    .rev()
-                    .collect();
+                    let display_num: String = adapter_name_str
+                        .chars()
+                        .rev()
+                        .take_while(|c| c.is_ascii_digit())
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect();
 
-                let label = if display_num.is_empty() {
-                    model
-                } else {
-                    format!("显示器 {} {}", display_num, model)
-                };
+                    let label = if display_num.is_empty() {
+                        model
+                    } else {
+                        format!("显示器 {} {}", display_num, model)
+                    };
 
-                eprintln!("ICC: Monitor '{}' adapter='{}' pnp='{}'", label, adapter_name_str, pnp_id);
-                monitors.push(DisplayMonitor {
-                    name: label,
-                    device_id: adapter_name_str,
-                    pnp_id,
-                    is_primary,
-                });
+                    monitors.push(DisplayMonitor {
+                        name: label,
+                        device_id: adapter_name_str,
+                        pnp_id,
+                        is_primary,
+                    });
+                }
+
+                adapter_idx += 1;
+                adapter = Default::default();
             }
-
-            adapter_idx += 1;
-            adapter = Default::default();
+        } else {
+            eprintln!("ICC: EnumDisplayDevicesW not found");
         }
 
         let _ = windows::Win32::Foundation::FreeLibrary(user32);
-
-        eprintln!("ICC: Found {} monitors", monitors.len());
-        Ok(monitors)
     }
+
+    monitors
+}
+
+#[tauri::command]
+pub fn get_display_monitors() -> Result<Vec<DisplayMonitor>, String> {
+    let monitors = enumerate_display_monitors();
+    eprintln!("ICC: Found {} monitors", monitors.len());
+    Ok(monitors)
 }
 
 fn resolve_device_pnp(target: Option<String>) -> Result<String, String> {
