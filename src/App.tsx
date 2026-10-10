@@ -1120,7 +1120,6 @@ function App() {
             />
           </div>
           <div data-name="preview-config-panel" className="col-span-4 flex flex-col min-h-0 h-full overflow-hidden gap-gutter">
-            <PreviewImage showToast={showToast} />
             <DisplayResolution
               showToast={showToast}
               deviceId={selectedDeviceId}
@@ -1128,6 +1127,7 @@ function App() {
               onCurrentResolution={setCurrentResolution}
               refreshKey={resRefreshKey}
             />
+            <PreviewImage showToast={showToast} />
             <ConfigManager
               configs={configs}
               selectedConfig={selectedConfig}
