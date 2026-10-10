@@ -4,6 +4,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Icon } from "./Icon";
 
+/** 上次参考图片路径存本机，下次启动自动恢复 */
+const PREVIEW_PATH_KEY = "previewImagePath";
+
 interface PreviewImageProps {
   showToast: (type: "success" | "error", text: string) => void;
 }
@@ -13,6 +16,21 @@ function PreviewImage({ showToast }: PreviewImageProps) {
   const [imageName, setImageName] = useState<string>("");
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // 启动时恢复上次的参考图；文件可能已被删除/移动，失败则静默留空
+  useEffect(() => {
+    const saved = localStorage.getItem(PREVIEW_PATH_KEY);
+    if (!saved) return;
+    invoke<string>("set_preview_image", { imagePath: saved })
+      .then((p) => {
+        setImageSrc(convertFileSrc(p));
+        setImageName(p.split(/[/\\]/).pop() || "");
+      })
+      .catch((err) => {
+        console.error("Failed to restore preview image:", err);
+        localStorage.removeItem(PREVIEW_PATH_KEY);
+      });
+  }, []);
 
   useEffect(() => {
     const unlisten = getCurrentWebview().onDragDropEvent((event) => {
@@ -47,6 +65,7 @@ function PreviewImage({ showToast }: PreviewImageProps) {
       });
       setImageSrc(convertFileSrc(validPath));
       setImageName(path.split(/[/\\]/).pop() || "");
+      localStorage.setItem(PREVIEW_PATH_KEY, validPath);
     } catch (err) {
       showToast("error", `图片加载失败: ${err}`);
     } finally {
@@ -73,6 +92,7 @@ function PreviewImage({ showToast }: PreviewImageProps) {
       setImageSrc(convertFileSrc(validPath));
       const name = (selected as string).split(/[/\\]/).pop() || "";
       setImageName(name);
+      localStorage.setItem(PREVIEW_PATH_KEY, validPath);
     } catch (err) {
       showToast("error", `图片加载失败: ${err}`);
     } finally {
@@ -83,6 +103,7 @@ function PreviewImage({ showToast }: PreviewImageProps) {
   const handleClear = () => {
     setImageSrc(null);
     setImageName("");
+    localStorage.removeItem(PREVIEW_PATH_KEY);
   };
 
   return (
