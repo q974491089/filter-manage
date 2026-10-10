@@ -117,11 +117,38 @@ function App() {
   });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const [dvcCap, setDvcCap] = useState<DvcCapability | null>(null);
+  /** 显示器自定义命名：键取稳定标识（pnp_id 优先，空则 device_id），存本机 localStorage */
+  const [monitorNames, setMonitorNames] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("monitorNames") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  /** 命名/编辑态变化时 +1，让顶部滑动指示器重新测量标签宽度 */
+  const [monitorNameRev, setMonitorNameRev] = useState(0);
+  /** 正在内联重命名的显示器标签键 */
+  const [editingMonitorKey, setEditingMonitorKey] = useState<string | null>(null);
+
+  const setMonitorName = (key: string, name: string) => {
+    const trimmed = name.trim();
+    setMonitorNames((prev) => {
+      const next = { ...prev };
+      if (trimmed) next[key] = trimmed;
+      else delete next[key];
+      localStorage.setItem("monitorNames", JSON.stringify(next));
+      return next;
+    });
+    setMonitorNameRev((r) => r + 1);
+  };
+  const getMonitorDisplayName = (m: DisplayMonitor) =>
+    monitorNames[m.pnp_id || m.device_id] || m.name;
+  const activeMonitor = monitors.find((m) => m.device_id === selectedDeviceId);
   /** 当前选中显示器的实际分辨率 "宽x高"，由 DisplayResolution 卡片上报；保存方案时写入 */
   const [currentResolution, setCurrentResolution] = useState<string | null>(null);
   /** 变化时让 DisplayResolution 重拉模式（托盘/快捷键/进程监听应用方案后同步） */
   const [resRefreshKey, setResRefreshKey] = useState(0);
-  const monitorRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const monitorRefs = useRef<(HTMLElement | null)[]>([]);
   const logoClicksRef = useRef({ count: 0, first: 0 });
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
 
@@ -161,7 +188,7 @@ function App() {
     if (btn) {
       setIndicator({ left: btn.offsetLeft, width: btn.offsetWidth });
     }
-  }, [selectedDeviceId, monitors]);
+  }, [selectedDeviceId, monitors, monitorNameRev, editingMonitorKey]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {
@@ -875,24 +902,67 @@ function App() {
           </div>
         </div>
 
-        {/* 显示器切换 - Segmented Control with sliding indicator */}
+        {/* 显示器切换 - Segmented Control with sliding indicator，
+            标签悬浮出现编辑图标，点击进入内联重命名（Enter/失焦保存，Esc 取消） */}
         {monitors.length > 1 && (
           <div data-name="monitor-tabs" className="relative flex items-center bg-surface-container-highest/60 rounded-lg p-[3px] h-8">
             {monitors.map((monitor, idx) => {
               const isSelected = selectedDeviceId === monitor.device_id;
+              const nameKey = monitor.pnp_id || monitor.device_id;
+              const isEditing = editingMonitorKey === nameKey;
               return (
-                <button
+                <div
                   key={monitor.device_id}
                   ref={(el) => { monitorRefs.current[idx] = el; }}
-                  onClick={() => handleMonitorChange(monitor.device_id)}
-                  className={`relative z-10 flex-1 px-md py-2 rounded-md font-label-md text-label-md transition-colors duration-200 whitespace-nowrap ${
-                    isSelected
-                      ? "text-on-surface"
-                      : "text-on-surface-variant hover:text-on-surface"
-                  }`}
+                  className="relative z-10 flex-1 min-w-0"
                 >
-                  {monitor.name}
-                </button>
+                  {isEditing ? (
+                    <input
+                      autoFocus
+                      data-name="monitor-rename-input"
+                      defaultValue={monitorNames[nameKey] || ""}
+                      placeholder={monitor.name}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={(e) => {
+                        setMonitorName(nameKey, e.target.value);
+                        setEditingMonitorKey(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          setMonitorName(nameKey, e.currentTarget.value);
+                          setEditingMonitorKey(null);
+                        } else if (e.key === "Escape") {
+                          setEditingMonitorKey(null);
+                        }
+                      }}
+                      className="w-full h-7 px-2 rounded-md bg-surface-container-high border border-primary/60 font-label-md text-label-md text-on-surface text-center outline-none"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => handleMonitorChange(monitor.device_id)}
+                      title={getMonitorDisplayName(monitor)}
+                      className={`group w-full flex items-center justify-center gap-1 px-md py-2 rounded-md font-label-md text-label-md transition-colors duration-200 whitespace-nowrap ${
+                        isSelected
+                          ? "text-on-surface"
+                          : "text-on-surface-variant hover:text-on-surface"
+                      }`}
+                    >
+                      <span className="truncate">{getMonitorDisplayName(monitor)}</span>
+                      <span
+                        role="button"
+                        data-name="monitor-rename-trigger"
+                        title="重命名显示器"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingMonitorKey(nameKey);
+                        }}
+                        className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                      >
+                        <Icon name="edit" className="text-[14px]" />
+                      </span>
+                    </button>
+                  )}
+                </div>
               );
             })}
             {/* Sliding indicator */}
@@ -1033,7 +1103,7 @@ function App() {
               rgbScaleMode={rgbScaleMode}
               selectedDeviceId={selectedDeviceId}
               monitors={monitors}
-              currentMonitorName={monitors.find(m => m.device_id === selectedDeviceId)?.name}
+              currentMonitorName={activeMonitor ? getMonitorDisplayName(activeMonitor) : undefined}
               onBrightnessChange={setBrightness}
               onContrastChange={setContrast}
               onGammaChange={setGamma}
@@ -1054,7 +1124,7 @@ function App() {
             <DisplayResolution
               showToast={showToast}
               deviceId={selectedDeviceId}
-              deviceName={monitors.find((m) => m.device_id === selectedDeviceId)?.name}
+              deviceName={activeMonitor ? getMonitorDisplayName(activeMonitor) : undefined}
               onCurrentResolution={setCurrentResolution}
               refreshKey={resRefreshKey}
             />
@@ -1101,6 +1171,9 @@ function App() {
         showToast={showToast}
         themeMode={themeMode}
         onThemeModeChange={setThemeMode}
+        monitors={monitors}
+        monitorNames={monitorNames}
+        onRenameMonitor={setMonitorName}
         onShowAbout={() => {
           setShowSettingsModal(false);
           setShowAboutModal(true);

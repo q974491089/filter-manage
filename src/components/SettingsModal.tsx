@@ -47,6 +47,13 @@ interface AppSettings {
   process_rules: ProcessRule[];       // 规则列表
 }
 
+interface DisplayMonitorInfo {
+  name: string;
+  device_id: string;
+  pnp_id: string;
+  is_primary: boolean;
+}
+
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
@@ -54,6 +61,11 @@ interface SettingsModalProps {
   showToast: (type: "success" | "error", text: string) => void;
   themeMode: "light" | "dark" | "system";
   onThemeModeChange: (mode: "light" | "dark" | "system") => void;
+  /** 当前连接的显示器列表（显示器命名编辑用） */
+  monitors: DisplayMonitorInfo[];
+  /** 自定义命名表（键 = pnp_id 优先，空则 device_id） */
+  monitorNames: Record<string, string>;
+  onRenameMonitor: (key: string, name: string) => void;
   onShowAbout: () => void;
 }
 
@@ -62,7 +74,7 @@ type SettingsTab = "general" | "shortcuts" | "display" | "process";
 const NAV_ITEMS: { id: SettingsTab; icon: string; label: string }[] = [
   { id: "general", icon: "settings", label: "常规设置" },
   { id: "shortcuts", icon: "keyboard", label: "快捷键" },
-  { id: "display", icon: "monitor", label: "显示适配" },
+  { id: "display", icon: "monitor", label: "显示设置" },
   { id: "process", icon: "terminal", label: "进程监听" },
 ];
 
@@ -123,8 +135,21 @@ function renderConfigIcon(config: { name: string; icon?: string }) {
   );
 }
 
-function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeModeChange, onShowAbout }: SettingsModalProps) {
+function SettingsModal({
+  open,
+  onClose,
+  configs,
+  showToast,
+  themeMode,
+  onThemeModeChange,
+  monitors,
+  monitorNames,
+  onRenameMonitor,
+  onShowAbout,
+}: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  /** 显示器命名的本地草稿（失焦/回车才提交到父级），键同 monitorNames */
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
   const [settings, setSettings] = useState<AppSettings>({
     close_to_tray: null,
     close_prompted: false,
@@ -423,13 +448,13 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
               <h2 className="font-headline-md text-headline-md font-bold mb-1">
                 {activeTab === "general" && "常规设置"}
                 {activeTab === "shortcuts" && "快捷键绑定"}
-                {activeTab === "display" && "显示适配"}
+                {activeTab === "display" && "显示设置"}
                 {activeTab === "process" && "进程监听"}
               </h2>
               <p className="font-body-md text-body-md text-on-surface-variant">
                 {activeTab === "general" && "管理 Filter Manage 的核心运行行为"}
                 {activeTab === "shortcuts" && "为每个颜色方案绑定全局快捷键"}
-                {activeTab === "display" && "选择在系统托盘菜单中展示的方案"}
+                {activeTab === "display" && "管理显示器命名与托盘展示的方案"}
                 {activeTab === "process" && "根据运行中的进程自动切换配色方案"}
               </p>
             </div>
@@ -670,9 +695,62 @@ function SettingsModal({ open, onClose, configs, showToast, themeMode, onThemeMo
               </div>
             )}
 
-            {/* ===== 显示适配 ===== */}
+            {/* ===== 显示设置 ===== */}
             {activeTab === "display" && (
               <div className="space-y-6">
+                {/* 显示器命名 */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Icon name="edit" className="text-primary text-[18px]" />
+                    <div className="space-y-0.5">
+                      <h4 className="font-title-sm text-title-sm">显示器命名</h4>
+                      <p className="font-label-sm text-label-sm text-on-surface-variant">
+                        为顶部切换器的显示器起个好认的名字，留空恢复默认（保存在本机）
+                      </p>
+                    </div>
+                  </div>
+                  {monitors.length === 0 ? (
+                    <p className="font-label-sm text-on-surface-variant/50 py-4 text-center">
+                      未检测到显示器
+                    </p>
+                  ) : (
+                    monitors.map((m) => {
+                      const key = m.pnp_id || m.device_id;
+                      const value = nameDrafts[key] ?? monitorNames[key] ?? "";
+                      return (
+                        <div
+                          key={key}
+                          className="flex items-center gap-3 p-4 rounded-xl bg-surface-container-high/60 border border-outline-variant/20"
+                        >
+                          <Icon name="monitor" className="text-on-surface-variant text-[20px] shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-title-sm text-title-sm truncate">
+                              {monitorNames[key] || m.name}
+                            </p>
+                            <p className="font-label-sm text-label-sm text-on-surface-variant truncate">
+                              {m.name}
+                            </p>
+                          </div>
+                          <input
+                            data-name="monitor-name-input"
+                            value={value}
+                            placeholder={m.name}
+                            onChange={(e) =>
+                              setNameDrafts((prev) => ({ ...prev, [key]: e.target.value }))
+                            }
+                            onBlur={() => onRenameMonitor(key, value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                            }}
+                            className="w-40 shrink-0 px-md py-sm rounded-lg bg-surface-container-high border border-outline-variant/30 font-label-md text-label-md text-on-surface outline-none focus:border-primary/60 transition-colors"
+                          />
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* 托盘快速方案 */}
                 <div className="flex items-center justify-between">
                   <span className="font-body-md text-on-surface-variant">已选方案</span>
                   <span className="font-label-sm text-primary">{settings.tray_presets.length}/5</span>
