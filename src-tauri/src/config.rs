@@ -19,6 +19,10 @@ pub struct ColorConfig {
     pub rgb_g: i32,
     #[serde(default)]
     pub rgb_b: i32,
+    /// 目标分辨率 "宽x高"（如 "1024x768"），应用方案时切换到该分辨率；
+    /// None = 方案不调节分辨率（旧方案兼容），但会还原本应用此前改过的分辨率
+    #[serde(default)]
+    pub resolution: Option<String>,
     pub icc_profile: Option<String>,
 }
 
