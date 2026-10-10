@@ -249,6 +249,311 @@ fn resolve_device_pnp(target: Option<String>) -> Result<String, String> {
         .ok_or("No monitors found".to_string())
 }
 
+// ---------- 显示模式（分辨率）枚举与切换 ----------
+//
+// 与 get_display_monitors 相同的动态加载模式：user32 的 EnumDisplaySettingsExW /
+// ChangeDisplaySettingsExW 不通过 windows crate 静态链接，避免引入
+// Win32_Graphics_Display feature。DEVMODEW 按 MSDN 布局手写（联合体取显示器分支：
+// POINTL + 2×DWORD 与打印机分支 8×SHORT 大小对齐一致）。
+
+const ENUM_CURRENT_SETTINGS: u32 = 0xFFFF_FFFF;
+const DM_PELSWIDTH: u32 = 0x0008_0000;
+const DM_PELSHEIGHT: u32 = 0x0010_0000;
+const DM_DISPLAYFREQUENCY: u32 = 0x0040_0000;
+const CDS_UPDATEREGISTRY: u32 = 0x0000_0001;
+const CDS_TEST: u32 = 0x0000_0002;
+const DM_SPECVERSION: u16 = 0x0400;
+
+#[repr(C)]
+#[allow(non_snake_case)]
+#[allow(clippy::upper_case_acronyms)]
+struct DEVMODEW {
+    dmDeviceName: [u16; 32],
+    dmSpecVersion: u16,
+    dmDriverVersion: u16,
+    dmSize: u16,
+    dmDriverExtra: u16,
+    dmFields: u32,
+    dmPosition: windows::Win32::Foundation::POINTL,
+    dmDisplayOrientation: u32,
+    dmDisplayFixedOutput: u32,
+    dmColor: i16,
+    dmDuplex: i16,
+    dmYResolution: i16,
+    dmTTOption: i16,
+    dmCollate: i16,
+    dmFormName: [u16; 32],
+    dmLogPixels: u16,
+    dmBitsPerPel: u32,
+    dmPelsWidth: u32,
+    dmPelsHeight: u32,
+    dmDisplayFlags: u32,
+    dmDisplayFrequency: u32,
+    dmICMMethod: u32,
+    dmICMIntent: u32,
+    dmMediaType: u32,
+    dmDitherType: u32,
+    dmReserved1: u32,
+    dmReserved2: u32,
+    dmPanningWidth: u32,
+    dmPanningHeight: u32,
+}
+
+impl Default for DEVMODEW {
+    fn default() -> Self {
+        Self {
+            dmDeviceName: [0; 32],
+            dmSpecVersion: 0,
+            dmDriverVersion: 0,
+            dmSize: std::mem::size_of::<Self>() as u16,
+            dmDriverExtra: 0,
+            dmFields: 0,
+            dmPosition: windows::Win32::Foundation::POINTL { x: 0, y: 0 },
+            dmDisplayOrientation: 0,
+            dmDisplayFixedOutput: 0,
+            dmColor: 0,
+            dmDuplex: 0,
+            dmYResolution: 0,
+            dmTTOption: 0,
+            dmCollate: 0,
+            dmFormName: [0; 32],
+            dmLogPixels: 0,
+            dmBitsPerPel: 0,
+            dmPelsWidth: 0,
+            dmPelsHeight: 0,
+            dmDisplayFlags: 0,
+            dmDisplayFrequency: 0,
+            dmICMMethod: 0,
+            dmICMIntent: 0,
+            dmMediaType: 0,
+            dmDitherType: 0,
+            dmReserved1: 0,
+            dmReserved2: 0,
+            dmPanningWidth: 0,
+            dmPanningHeight: 0,
+        }
+    }
+}
+
+type FnEnumDisplaySettingsExW = unsafe extern "system" fn(*const u16, u32, *mut DEVMODEW, u32) -> i32;
+type FnChangeDisplaySettingsExW =
+    unsafe extern "system" fn(*const u16, *mut DEVMODEW, *mut std::ffi::c_void, u32, *mut std::ffi::c_void) -> i32;
+
+/// 校验目标显示器并返回其适配器设备名（\\.\DISPLAYn）。
+/// device_id 为空时回退主显示器，与 resolve_device_pnp 的语义保持一致。
+fn resolve_display_device_name(device_id: Option<String>) -> Result<String, String> {
+    let monitors = get_display_monitors()?;
+    if let Some(id) = device_id.filter(|s| !s.is_empty()) {
+        if let Some(m) = monitors.iter().find(|m| m.device_id == id) {
+            return Ok(m.device_id.clone());
+        }
+        return Err(format!("Monitor '{}' not found", id));
+    }
+    if let Some(m) = monitors.iter().find(|m| m.is_primary) {
+        return Ok(m.device_id.clone());
+    }
+    monitors
+        .first()
+        .map(|m| m.device_id.clone())
+        .ok_or_else(|| "No monitors found".to_string())
+}
+
+fn wide_c_string(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn disp_change_error(code: i32) -> String {
+    match code {
+        -1 => "Display driver failed the specified graphics mode".to_string(),
+        -2 => "Graphics mode not supported".to_string(),
+        -3 => "Unable to write settings to registry (applied for this session)".to_string(),
+        -4 => "Invalid flags combination".to_string(),
+        -5 => "Invalid parameter".to_string(),
+        -6 => "Dual view mode not supported".to_string(),
+        1 => "Applied, but requires a computer restart".to_string(),
+        other => format!("ChangeDisplaySettingsExW failed: {}", other),
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct DisplayModeInfo {
+    pub width: u32,
+    pub height: u32,
+    /// 该分辨率下驱动提供的最高刷新率
+    pub refresh_rate: u32,
+    pub is_current: bool,
+}
+
+/// 枚举指定显示器支持的显示模式，按分辨率去重（同分辨率保留最高刷新率），
+/// 面积降序排列，标记当前正在使用的分辨率。
+#[tauri::command]
+pub fn get_display_modes(device_id: Option<String>) -> Result<Vec<DisplayModeInfo>, String> {
+    let device_name = resolve_display_device_name(device_id)?;
+    let device_wide = wide_c_string(&device_name);
+
+    unsafe {
+        let user32 = windows::Win32::System::LibraryLoader::LoadLibraryW(windows::core::w!("user32.dll"))
+            .map_err(|e| format!("Failed to load user32.dll: {}", e))?;
+        let result = (|| -> Result<Vec<DisplayModeInfo>, String> {
+            let enum_fn: FnEnumDisplaySettingsExW = std::mem::transmute(
+                windows::Win32::System::LibraryLoader::GetProcAddress(user32, windows::core::s!("EnumDisplaySettingsExW"))
+                    .ok_or("EnumDisplaySettingsExW not found")?,
+            );
+
+            let mut current: DEVMODEW = Default::default();
+            let has_current =
+                enum_fn(device_wide.as_ptr(), ENUM_CURRENT_SETTINGS, &mut current, 0) != 0;
+
+            // (宽, 高) -> 最高刷新率
+            let mut best: Vec<(u32, u32, u32)> = Vec::new();
+            for mode_num in 0..1024u32 {
+                let mut dm: DEVMODEW = Default::default();
+                if enum_fn(device_wide.as_ptr(), mode_num, &mut dm, 0) == 0 {
+                    break;
+                }
+                let (w, h, freq) = (dm.dmPelsWidth, dm.dmPelsHeight, dm.dmDisplayFrequency);
+                if w == 0 || h == 0 {
+                    continue;
+                }
+                match best.iter_mut().find(|(bw, bh, _)| *bw == w && *bh == h) {
+                    Some((_, _, bf)) => {
+                        if freq > *bf {
+                            *bf = freq;
+                        }
+                    }
+                    None => best.push((w, h, freq)),
+                }
+            }
+
+            best.sort_by_key(|(w, h, _)| std::cmp::Reverse(*w as u64 * *h as u64));
+            Ok(best
+                .into_iter()
+                .map(|(w, h, freq)| DisplayModeInfo {
+                    width: w,
+                    height: h,
+                    refresh_rate: freq,
+                    is_current: has_current && current.dmPelsWidth == w && current.dmPelsHeight == h,
+                })
+                .collect())
+        })();
+
+        let _ = windows::Win32::Foundation::FreeLibrary(user32);
+        result
+    }
+}
+
+/// 切换指定显示器分辨率。刷新率优先保持当前值（目标分辨率支持时），
+/// 否则取该分辨率下的最高刷新率；先 CDS_TEST 验证再正式应用。
+#[tauri::command]
+pub fn set_display_mode(device_id: Option<String>, width: u32, height: u32) -> Result<(), String> {
+    let device_name = resolve_display_device_name(device_id)?;
+    let device_wide = wide_c_string(&device_name);
+
+    unsafe {
+        let user32 = windows::Win32::System::LibraryLoader::LoadLibraryW(windows::core::w!("user32.dll"))
+            .map_err(|e| format!("Failed to load user32.dll: {}", e))?;
+        let result = (|| -> Result<(), String> {
+            let enum_fn: FnEnumDisplaySettingsExW = std::mem::transmute(
+                windows::Win32::System::LibraryLoader::GetProcAddress(user32, windows::core::s!("EnumDisplaySettingsExW"))
+                    .ok_or("EnumDisplaySettingsExW not found")?,
+            );
+            let change_fn: FnChangeDisplaySettingsExW = std::mem::transmute(
+                windows::Win32::System::LibraryLoader::GetProcAddress(user32, windows::core::s!("ChangeDisplaySettingsExW"))
+                    .ok_or("ChangeDisplaySettingsExW not found")?,
+            );
+
+            let mut current: DEVMODEW = Default::default();
+            let current_freq = if enum_fn(device_wide.as_ptr(), ENUM_CURRENT_SETTINGS, &mut current, 0) != 0 {
+                current.dmDisplayFrequency
+            } else {
+                0
+            };
+
+            // 在目标分辨率的可用模式里挑刷新率：优先匹配当前刷新率，退而求最高
+            let mut best_freq = 0u32;
+            let mut exact_freq = 0u32;
+            for mode_num in 0..1024u32 {
+                let mut dm: DEVMODEW = Default::default();
+                if enum_fn(device_wide.as_ptr(), mode_num, &mut dm, 0) == 0 {
+                    break;
+                }
+                if dm.dmPelsWidth != width || dm.dmPelsHeight != height {
+                    continue;
+                }
+                let freq = dm.dmDisplayFrequency;
+                if freq > best_freq {
+                    best_freq = freq;
+                }
+                if freq == current_freq {
+                    exact_freq = freq;
+                }
+            }
+            if best_freq == 0 {
+                return Err(format!("Display mode {}x{} not supported", width, height));
+            }
+            let target_freq = if exact_freq > 0 { exact_freq } else { best_freq };
+
+            let mut dm: DEVMODEW = DEVMODEW {
+                dmSpecVersion: DM_SPECVERSION,
+                dmFields: DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY,
+                dmPelsWidth: width,
+                dmPelsHeight: height,
+                dmDisplayFrequency: target_freq,
+                ..Default::default()
+            };
+
+            let test = change_fn(device_wide.as_ptr(), &mut dm, std::ptr::null_mut(), CDS_TEST, std::ptr::null_mut());
+            if test != 0 {
+                return Err(disp_change_error(test));
+            }
+
+            let applied = change_fn(
+                device_wide.as_ptr(),
+                &mut dm,
+                std::ptr::null_mut(),
+                CDS_UPDATEREGISTRY,
+                std::ptr::null_mut(),
+            );
+            match applied {
+                0 => Ok(()),
+                // -3 (DISP_CHANGE_NOTUPDATED)：模式已动态生效，仅注册表写入失败，对用户等同成功
+                -3 => Ok(()),
+                other => Err(disp_change_error(other)),
+            }
+        })();
+
+        let _ = windows::Win32::Foundation::FreeLibrary(user32);
+        result
+    }
+}
+
+/// 只读集成测试：枚举主显示器的可用模式，不改动任何系统状态。
+#[cfg(test)]
+mod display_mode_tests {
+    use super::*;
+
+    #[test]
+    fn enumerate_primary_display_modes() {
+        let modes = get_display_modes(None).expect("enumerate display modes");
+        assert!(!modes.is_empty(), "primary display should expose at least one mode");
+        assert!(
+            modes.iter().any(|m| m.is_current),
+            "the current mode should be flagged"
+        );
+        assert!(
+            modes.iter().all(|m| m.width > 0 && m.height > 0 && m.refresh_rate > 0),
+            "all modes should carry valid dimensions and refresh rate"
+        );
+        for pair in modes.windows(2) {
+            assert!(
+                pair[0].width as u64 * pair[0].height as u64
+                    >= pair[1].width as u64 * pair[1].height as u64,
+                "modes should be sorted by area, descending"
+            );
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_icc_profiles() -> Result<Vec<IccProfile>, String> {
     let color_dir = color_dir();

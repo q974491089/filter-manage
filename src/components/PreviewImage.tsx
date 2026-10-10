@@ -1,19 +1,52 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke, convertFileSrc } from "../lib/ipc";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Icon } from "./Icon";
+import Select from "./Select";
+
+/** 对应后端 icc::DisplayModeInfo */
+interface DisplayModeInfo {
+  width: number;
+  height: number;
+  refresh_rate: number;
+  is_current: boolean;
+}
 
 interface PreviewImageProps {
   showToast: (type: "success" | "error", text: string) => void;
+  /** 当前选中显示器的适配器设备名（\\.\DISPLAYn），分辨率切换作用于它 */
+  deviceId?: string;
+  /** 显示器型号名，用于分辨率控件的悬浮提示 */
+  deviceName?: string;
 }
 
-function PreviewImage({ showToast }: PreviewImageProps) {
+function PreviewImage({ showToast, deviceId, deviceName }: PreviewImageProps) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [imageName, setImageName] = useState<string>("");
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [modes, setModes] = useState<DisplayModeInfo[]>([]);
+  const [applyingRes, setApplyingRes] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const loadModes = useCallback(async () => {
+    if (!deviceId) {
+      setModes([]);
+      return;
+    }
+    try {
+      const list = await invoke<DisplayModeInfo[]>("get_display_modes", { deviceId });
+      setModes(list);
+    } catch (err) {
+      console.error("Failed to load display modes:", err);
+      setModes([]);
+    }
+  }, [deviceId]);
+
+  useEffect(() => {
+    loadModes();
+  }, [loadModes]);
 
   useEffect(() => {
     const unlisten = getCurrentWebview().onDragDropEvent((event) => {
@@ -86,18 +119,55 @@ function PreviewImage({ showToast }: PreviewImageProps) {
     setImageName("");
   };
 
+  const currentMode = modes.find((m) => m.is_current);
+  const resolutionOptions = modes.map((m) => ({
+    value: `${m.width}x${m.height}`,
+    label: `${m.width} × ${m.height}`,
+  }));
+
+  const handleResolutionChange = async (value: string) => {
+    const [width, height] = value.split("x").map(Number);
+    if (!width || !height || !deviceId) return;
+    if (currentMode && currentMode.width === width && currentMode.height === height) return;
+    setApplyingRes(true);
+    try {
+      await invoke("set_display_mode", { deviceId, width, height });
+      showToast("success", `分辨率已切换为 ${width} × ${height}`);
+    } catch (err) {
+      showToast("error", `分辨率切换失败: ${err}`);
+    } finally {
+      setApplyingRes(false);
+      loadModes();
+    }
+  };
+
   return (
     <div data-components="PreviewImage" className="flex-1 flex flex-col min-h-[140px]">
-      <div className="mb-md flex justify-between items-end shrink-0">
+      <div className="mb-md flex justify-between items-end shrink-0 gap-sm">
         <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface font-medium">效果预览</h3>
-        {imageSrc && (
-          <button
-            onClick={handleClear}
-            className="text-primary text-[12px] font-medium hover:underline"
-          >
-            清除
-          </button>
-        )}
+        <div className="flex items-center gap-sm shrink-0">
+          {resolutionOptions.length > 1 && (
+            <div
+              className={`w-[140px] ${applyingRes ? "pointer-events-none opacity-50" : ""}`}
+              title={`调整${deviceName ? ` ${deviceName}` : "当前显示器"}的屏幕分辨率`}
+            >
+              <Select
+                value={currentMode ? `${currentMode.width}x${currentMode.height}` : ""}
+                onChange={handleResolutionChange}
+                options={resolutionOptions}
+                placeholder="分辨率"
+              />
+            </div>
+          )}
+          {imageSrc && (
+            <button
+              onClick={handleClear}
+              className="text-primary text-[12px] font-medium hover:underline"
+            >
+              清除
+            </button>
+          )}
+        </div>
       </div>
 
       <div
