@@ -391,22 +391,36 @@ fn disp_change_error(code: i32) -> String {
 pub struct DisplayModeInfo {
     pub width: u32,
     pub height: u32,
-    /// 该分辨率下驱动提供的最高刷新率
-    pub refresh_rate: u32,
+    /// 该分辨率下驱动提供的全部刷新率，降序
+    pub refresh_rates: Vec<u32>,
     pub is_current: bool,
 }
 
-/// 枚举指定显示器支持的显示模式，按分辨率去重（同分辨率保留最高刷新率），
-/// 面积降序排列，标记当前正在使用的分辨率。
+#[derive(Debug, Serialize)]
+pub struct CurrentDisplayMode {
+    pub width: u32,
+    pub height: u32,
+    pub refresh_rate: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DisplayModeList {
+    pub modes: Vec<DisplayModeInfo>,
+    /// 当前正在使用的模式（枚举失败时为 null）
+    pub current: Option<CurrentDisplayMode>,
+}
+
+/// 枚举指定显示器支持的显示模式，按分辨率去重（同分辨率聚合全部刷新率），
+/// 面积降序排列，并携带当前正在使用的分辨率与刷新率。
 #[tauri::command]
-pub fn get_display_modes(device_id: Option<String>) -> Result<Vec<DisplayModeInfo>, String> {
+pub fn get_display_modes(device_id: Option<String>) -> Result<DisplayModeList, String> {
     let device_name = resolve_display_device_name(device_id)?;
     let device_wide = wide_c_string(&device_name);
 
     unsafe {
         let user32 = windows::Win32::System::LibraryLoader::LoadLibraryW(windows::core::w!("user32.dll"))
             .map_err(|e| format!("Failed to load user32.dll: {}", e))?;
-        let result = (|| -> Result<Vec<DisplayModeInfo>, String> {
+        let result = (|| -> Result<DisplayModeList, String> {
             let enum_fn: FnEnumDisplaySettingsExW = std::mem::transmute(
                 windows::Win32::System::LibraryLoader::GetProcAddress(user32, windows::core::s!("EnumDisplaySettingsExW"))
                     .ok_or("EnumDisplaySettingsExW not found")?,
@@ -416,37 +430,51 @@ pub fn get_display_modes(device_id: Option<String>) -> Result<Vec<DisplayModeInf
             let has_current =
                 enum_fn(device_wide.as_ptr(), ENUM_CURRENT_SETTINGS, &mut current, 0) != 0;
 
-            // (宽, 高) -> 最高刷新率
-            let mut best: Vec<(u32, u32, u32)> = Vec::new();
+            // (宽, 高) -> 该分辨率下全部刷新率
+            let mut best: Vec<(u32, u32, Vec<u32>)> = Vec::new();
             for mode_num in 0..1024u32 {
                 let mut dm: DEVMODEW = Default::default();
                 if enum_fn(device_wide.as_ptr(), mode_num, &mut dm, 0) == 0 {
                     break;
                 }
                 let (w, h, freq) = (dm.dmPelsWidth, dm.dmPelsHeight, dm.dmDisplayFrequency);
-                if w == 0 || h == 0 {
+                if w == 0 || h == 0 || freq == 0 {
                     continue;
                 }
                 match best.iter_mut().find(|(bw, bh, _)| *bw == w && *bh == h) {
-                    Some((_, _, bf)) => {
-                        if freq > *bf {
-                            *bf = freq;
+                    Some((_, _, rates)) => {
+                        if !rates.contains(&freq) {
+                            rates.push(freq);
                         }
                     }
-                    None => best.push((w, h, freq)),
+                    None => best.push((w, h, vec![freq])),
                 }
             }
 
             best.sort_by_key(|(w, h, _)| std::cmp::Reverse(*w as u64 * *h as u64));
-            Ok(best
+            let modes = best
                 .into_iter()
-                .map(|(w, h, freq)| DisplayModeInfo {
-                    width: w,
-                    height: h,
-                    refresh_rate: freq,
-                    is_current: has_current && current.dmPelsWidth == w && current.dmPelsHeight == h,
+                .map(|(w, h, mut rates)| {
+                    rates.sort_unstable_by(|a, b| b.cmp(a));
+                    DisplayModeInfo {
+                        width: w,
+                        height: h,
+                        refresh_rates: rates,
+                        is_current: has_current && current.dmPelsWidth == w && current.dmPelsHeight == h,
+                    }
                 })
-                .collect())
+                .collect();
+
+            let current_info = if has_current {
+                Some(CurrentDisplayMode {
+                    width: current.dmPelsWidth,
+                    height: current.dmPelsHeight,
+                    refresh_rate: current.dmDisplayFrequency,
+                })
+            } else {
+                None
+            };
+            Ok(DisplayModeList { modes, current: current_info })
         })();
 
         let _ = windows::Win32::Foundation::FreeLibrary(user32);
@@ -454,10 +482,16 @@ pub fn get_display_modes(device_id: Option<String>) -> Result<Vec<DisplayModeInf
     }
 }
 
-/// 切换指定显示器分辨率。刷新率优先保持当前值（目标分辨率支持时），
-/// 否则取该分辨率下的最高刷新率；先 CDS_TEST 验证再正式应用。
+/// 切换指定显示器分辨率。refresh_rate 传 Some(hz) 时精确指定刷新率（驱动
+/// 枚举里不存在则报错）；None 时优先保持当前值（目标分辨率支持时），
+/// 否则取该分辨率下的最高刷新率。先 CDS_TEST 验证再正式应用。
 #[tauri::command]
-pub fn set_display_mode(device_id: Option<String>, width: u32, height: u32) -> Result<(), String> {
+pub fn set_display_mode(
+    device_id: Option<String>,
+    width: u32,
+    height: u32,
+    refresh_rate: Option<u32>,
+) -> Result<(), String> {
     let device_name = resolve_display_device_name(device_id)?;
     let device_wide = wide_c_string(&device_name);
 
@@ -481,9 +515,10 @@ pub fn set_display_mode(device_id: Option<String>, width: u32, height: u32) -> R
                 0
             };
 
-            // 在目标分辨率的可用模式里挑刷新率：优先匹配当前刷新率，退而求最高
+            // 在目标分辨率的可用模式里挑刷新率：精确指定优先，其次保持当前值，退而求最高
             let mut best_freq = 0u32;
             let mut exact_freq = 0u32;
+            let mut requested_found = false;
             for mode_num in 0..1024u32 {
                 let mut dm: DEVMODEW = Default::default();
                 if enum_fn(device_wide.as_ptr(), mode_num, &mut dm, 0) == 0 {
@@ -499,11 +534,26 @@ pub fn set_display_mode(device_id: Option<String>, width: u32, height: u32) -> R
                 if freq == current_freq {
                     exact_freq = freq;
                 }
+                if Some(freq) == refresh_rate {
+                    requested_found = true;
+                }
             }
             if best_freq == 0 {
                 return Err(format!("Display mode {}x{} not supported", width, height));
             }
-            let target_freq = if exact_freq > 0 { exact_freq } else { best_freq };
+            let target_freq = if let Some(hz) = refresh_rate {
+                if !requested_found {
+                    return Err(format!(
+                        "Refresh rate {} Hz not supported at {}x{}",
+                        hz, width, height
+                    ));
+                }
+                hz
+            } else if exact_freq > 0 {
+                exact_freq
+            } else {
+                best_freq
+            };
 
             let mut dm: DEVMODEW = DEVMODEW {
                 dmSpecVersion: DM_SPECVERSION,
@@ -539,24 +589,34 @@ pub fn set_display_mode(device_id: Option<String>, width: u32, height: u32) -> R
     }
 }
 
-/// 全局唯一的「分辨率还原点」：本应用把某台显示器从原始分辨率切走时记录
-/// (设备名, 宽, 高)，只在第一次改动时记录；应用不带分辨率的方案时自动还原。
-/// Mutex 保并发安全——托盘/快捷键/进程监听/前端可能同时走应用路径。
-static RESOLUTION_UNDO: std::sync::Mutex<Option<(String, u32, u32)>> = std::sync::Mutex::new(None);
+/// 全局唯一的「分辨率还原点」：本应用把某台显示器从原始模式切走时记录
+/// (设备名, 宽, 高, 刷新率)，只在第一次改动时记录；应用不带分辨率的方案时
+/// 自动还原。Mutex 保并发安全——托盘/快捷键/进程监听/前端可能同时走应用路径。
+static RESOLUTION_UNDO: std::sync::Mutex<Option<(String, u32, u32, u32)>> = std::sync::Mutex::new(None);
 
-/// 解析方案里的 "宽x高" 字符串，容忍空格、大写 X 和 ×
-fn parse_resolution(s: &str) -> Option<(u32, u32)> {
-    let mut parts = s.split(['x', 'X', '×']).map(str::trim);
-    let w: u32 = parts.next()?.parse().ok()?;
-    let h: u32 = parts.next()?.parse().ok()?;
-    (w > 0 && h > 0).then_some((w, h))
+/// 解析方案里的 "宽x高" 或 "宽x高@刷新率" 字符串，容忍空格、大写 X 和 ×
+fn parse_resolution(s: &str) -> Option<(u32, u32, Option<u32>)> {
+    let mut parts = s.split(['x', 'X', '×']);
+    let w: u32 = parts.next()?.trim().parse().ok()?;
+    let rest = parts.next()?;
+    let (h_str, hz_str) = match rest.split_once('@') {
+        Some((h, r)) => (h, Some(r)),
+        None => (rest, None),
+    };
+    let h: u32 = h_str.trim().parse().ok()?;
+    let hz: Option<u32> = match hz_str {
+        Some(r) => Some(r.trim().parse().ok()?),
+        None => None,
+    };
+    (w > 0 && h > 0 && hz.is_none_or(|v| v > 0)).then_some((w, h, hz))
 }
 
 /// 方案应用路径的分辨率落地（前端加载方案与后端托盘/快捷键/进程监听共用）。
 ///
-/// - `Some("宽x高")`：与当前不同则首次记录还原点后切换；切换成功后若还原点
-///   恰为目标值（已归位）则清除还原点。
-/// - `None`：方案不调节分辨率，但若还原点属于该显示器且当前值已被改走，
+/// - `Some("宽x高[@Hz]")`：与当前模式不同则首次记录还原点后切换；切换成功后
+///   若还原点恰为目标模式（已归位）则清除还原点。Hz 缺省时按 set_display_mode
+///   的默认策略（优先保持当前刷新率，否则取该分辨率最高值）。
+/// - `None`：方案不调节分辨率，但若还原点属于该显示器且当前模式已被改走，
 ///   则还原到还原点并清除——托盘从 4:3 方案切回旧方案时分辨率跟着回去。
 ///
 /// 返回 Err 不应阻断方案里其余配色参数的应用，由调用方决定容错策略。
@@ -575,25 +635,25 @@ pub fn apply_resolution_state(device_id: Option<String>, resolution: Option<&str
 
     let modes = get_display_modes(Some(device_name.clone()))?;
     let current = modes
-        .iter()
-        .find(|m| m.is_current)
-        .map(|m| (m.width, m.height))
+        .current
+        .map(|c| (c.width, c.height, c.refresh_rate))
         .ok_or_else(|| "Cannot determine current display mode".to_string())?;
 
     let mut undo = RESOLUTION_UNDO.lock().unwrap();
     match target {
-        Some((w, h)) => {
-            if (w, h) == current {
-                if *undo == Some((device_name.clone(), w, h)) {
+        Some((w, h, hz)) => {
+            // 与当前模式一致（Hz 缺省视为不关心）则不动，仅在已归位时清还原点
+            if w == current.0 && h == current.1 && hz.is_none_or(|v| v == current.2) {
+                if *undo == Some((device_name.clone(), current.0, current.1, current.2)) {
                     *undo = None;
                 }
                 return Ok(());
             }
             if undo.is_none() {
-                *undo = Some((device_name.clone(), current.0, current.1));
+                *undo = Some((device_name.clone(), current.0, current.1, current.2));
             }
-            let result = set_display_mode(Some(device_name.clone()), w, h);
-            if result.is_ok() && *undo == Some((device_name, w, h)) {
+            let result = set_display_mode(Some(device_name.clone()), w, h, hz);
+            if result.is_ok() && *undo == Some((device_name, w, h, hz.unwrap_or(current.2))) {
                 *undo = None;
             }
             result
@@ -601,14 +661,16 @@ pub fn apply_resolution_state(device_id: Option<String>, resolution: Option<&str
         None => {
             let slot = undo.clone();
             match slot {
-                Some((dev, uw, uh)) if dev == device_name && (uw, uh) != current => {
-                    let result = set_display_mode(Some(device_name), uw, uh);
+                Some((dev, uw, uh, uhz))
+                    if dev == device_name && (uw, uh, uhz) != current =>
+                {
+                    let result = set_display_mode(Some(device_name), uw, uh, Some(uhz));
                     if result.is_ok() {
                         *undo = None;
                     }
                     result
                 }
-                Some((dev, _, _)) if dev == device_name => {
+                Some((dev, _, _, _)) if dev == device_name => {
                     *undo = None;
                     Ok(())
                 }
@@ -631,33 +693,66 @@ mod display_mode_tests {
 
     #[test]
     fn enumerate_primary_display_modes() {
-        let modes = get_display_modes(None).expect("enumerate display modes");
-        assert!(!modes.is_empty(), "primary display should expose at least one mode");
+        let list = get_display_modes(None).expect("enumerate display modes");
+        assert!(!list.modes.is_empty(), "primary display should expose at least one mode");
         assert!(
-            modes.iter().any(|m| m.is_current),
+            list.modes.iter().any(|m| m.is_current),
             "the current mode should be flagged"
         );
         assert!(
-            modes.iter().all(|m| m.width > 0 && m.height > 0 && m.refresh_rate > 0),
-            "all modes should carry valid dimensions and refresh rate"
+            list.modes
+                .iter()
+                .all(|m| m.width > 0 && m.height > 0 && !m.refresh_rates.is_empty()),
+            "all modes should carry valid dimensions and refresh rates"
         );
-        for pair in modes.windows(2) {
+        assert!(
+            list.modes
+                .iter()
+                .all(|m| m.refresh_rates.iter().all(|&r| r > 0)),
+            "refresh rates should be positive"
+        );
+        for pair in list.modes.windows(2) {
             assert!(
                 pair[0].width as u64 * pair[0].height as u64
                     >= pair[1].width as u64 * pair[1].height as u64,
                 "modes should be sorted by area, descending"
             );
         }
+        // 刷新率列表降序
+        for m in &list.modes {
+            for pair in m.refresh_rates.windows(2) {
+                assert!(pair[0] > pair[1], "refresh rates should be sorted descending");
+            }
+        }
+        // 当前模式信息应与标记 is_current 的条目一致
+        let current = list.current.expect("current mode should be present");
+        assert!(
+            list.modes
+                .iter()
+                .any(|m| m.is_current && m.width == current.width && m.height == current.height),
+            "current entry should match the flagged mode"
+        );
+        assert!(
+            list.modes
+                .iter()
+                .find(|m| m.is_current)
+                .map(|m| m.refresh_rates.contains(&current.refresh_rate))
+                .unwrap_or(false),
+            "current refresh rate should be among the current resolution's rates"
+        );
     }
 
     #[test]
     fn parse_resolution_formats() {
-        assert_eq!(parse_resolution("1024x768"), Some((1024, 768)));
-        assert_eq!(parse_resolution("2560X1440"), Some((2560, 1440)));
-        assert_eq!(parse_resolution(" 1920 × 1080 "), Some((1920, 1080)));
+        assert_eq!(parse_resolution("1024x768"), Some((1024, 768, None)));
+        assert_eq!(parse_resolution("2560X1440"), Some((2560, 1440, None)));
+        assert_eq!(parse_resolution(" 1920 × 1080 "), Some((1920, 1080, None)));
+        assert_eq!(parse_resolution("1024x768@60"), Some((1024, 768, Some(60))));
+        assert_eq!(parse_resolution("2560x1440@ 280"), Some((2560, 1440, Some(280))));
         assert_eq!(parse_resolution("0x1080"), None);
         assert_eq!(parse_resolution("1080"), None);
         assert_eq!(parse_resolution("axb"), None);
+        assert_eq!(parse_resolution("1024x768@0"), None);
     }
 }
 
