@@ -914,7 +914,7 @@ function App() {
                 <div
                   key={monitor.device_id}
                   ref={(el) => { monitorRefs.current[idx] = el; }}
-                  className="relative z-10 flex-1 min-w-0"
+                  className="relative z-10 min-w-0 max-w-[240px]"
                 >
                   {isEditing ? (
                     <input
@@ -935,7 +935,7 @@ function App() {
                           setEditingMonitorKey(null);
                         }
                       }}
-                      className="w-full h-7 px-2 rounded-md bg-surface-container-high border border-primary/60 font-label-md text-label-md text-on-surface text-center outline-none"
+                      className="w-32 h-7 px-2 rounded-md bg-surface-container-high border border-primary/60 font-label-md text-label-md text-on-surface text-center outline-none"
                     />
                   ) : (
                     <button
