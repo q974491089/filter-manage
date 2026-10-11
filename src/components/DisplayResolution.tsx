@@ -32,6 +32,18 @@ function classifyRatio(width: number, height: number): string {
   return hit ? hit.key : "其他";
 }
 
+/** 估算一批选项标签需要的最小宽度：中文按 12px、西文按 7px 计字宽，
+ *  加上 Select 的左右内边距/图标/间隙余量。
+ *  Select 内部 span 带 truncate，外层无法靠内容自然撑开，只能显式给宽。 */
+function estimateSelectWidth(labels: string[]): string {
+  const maxTextWidth = Math.max(
+    ...labels.map((l) =>
+      [...l].reduce((acc, ch) => acc + (ch.charCodeAt(0) > 0x2e80 ? 12 : 7), 0)
+    )
+  );
+  return `${Math.ceil(maxTextWidth) + 64}px`;
+}
+
 interface DisplayResolutionProps {
   showToast: (type: "success" | "error", text: string) => void;
   /** 当前选中显示器的适配器设备名（\\.\DISPLAYn），分辨率切换作用于它 */
@@ -165,8 +177,9 @@ function DisplayResolution({
         )}
       </div>
       <div className="flex gap-sm" title={`调整${deviceName ? ` ${deviceName}` : "当前显示器"}的屏幕分辨率与刷新率`}>
-        {/* 比例/刷新率按内容自适应宽度；空间不足时优先压缩中间的分辨率列 */}
-        <div className="shrink-0">
+        {/* 比例/刷新率按最长选项文本给定最小宽度（Select 内部 truncate 撑不开外层），
+            空间不足时优先压缩中间的分辨率列 */}
+        <div className="shrink-0" style={{ minWidth: estimateSelectWidth(ratioOptions.map((o) => o.label)) }}>
           <Select value={ratioKey} onChange={handleRatioChange} options={ratioOptions} placeholder="比例" />
         </div>
         <div className={`flex-1 min-w-0 ${applying ? "pointer-events-none opacity-50" : ""}`}>
@@ -177,7 +190,15 @@ function DisplayResolution({
             placeholder="分辨率"
           />
         </div>
-        <div className={`shrink-0 ${applying ? "pointer-events-none opacity-50" : ""}`}>
+        <div
+          className="shrink-0"
+          style={{
+            minWidth: estimateSelectWidth([
+              ...(currentMode?.refresh_rates ?? []).map((r) => `${r} Hz`),
+              "刷新率",
+            ]),
+          }}
+        >
           <Select
             value={current ? String(current.refresh_rate) : ""}
             onChange={handleRefreshRateChange}
