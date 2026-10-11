@@ -941,13 +941,14 @@ function App() {
                     <button
                       onClick={() => handleMonitorChange(monitor.device_id)}
                       title={getMonitorDisplayName(monitor)}
-                      className={`group w-full flex items-center justify-center gap-1 px-md py-2 rounded-md font-label-md text-label-md transition-colors duration-200 whitespace-nowrap ${
+                      className={`group relative w-full flex items-center justify-center px-md py-2 rounded-md font-label-md text-label-md transition-colors duration-200 whitespace-nowrap ${
                         isSelected
                           ? "text-on-surface"
                           : "text-on-surface-variant hover:text-on-surface"
                       }`}
                     >
                       <span className="truncate">{getMonitorDisplayName(monitor)}</span>
+                      {/* 编辑图标悬浮覆盖在标签右缘，不占布局宽度 */}
                       <span
                         role="button"
                         data-name="monitor-rename-trigger"
@@ -956,9 +957,9 @@ function App() {
                           e.stopPropagation();
                           setEditingMonitorKey(nameKey);
                         }}
-                        className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                        className="absolute right-0.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-surface-container shadow-sm flex items-center justify-center text-on-surface-variant opacity-0 group-hover:opacity-100 hover:!opacity-100 hover:!text-on-surface transition-opacity"
                       >
-                        <Icon name="edit" className="text-[14px]" />
+                        <Icon name="edit" className="text-[13px]" />
                       </span>
                     </button>
                   )}
