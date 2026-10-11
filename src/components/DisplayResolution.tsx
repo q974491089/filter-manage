@@ -94,7 +94,7 @@ function DisplayResolution({
     ...presentRatios.filter((k) => !RATIO_GROUPS.some((g) => g.key === k)),
   ];
   const ratioOptions = [
-    { value: "all", label: "全部比例" },
+    { value: "all", label: "全部" },
     ...orderedRatios.map((k) => ({ value: k, label: k })),
   ];
 
@@ -165,7 +165,8 @@ function DisplayResolution({
         )}
       </div>
       <div className="flex gap-sm" title={`调整${deviceName ? ` ${deviceName}` : "当前显示器"}的屏幕分辨率与刷新率`}>
-        <div className="w-[96px] shrink-0">
+        {/* 比例/刷新率按内容自适应宽度；空间不足时优先压缩中间的分辨率列 */}
+        <div className="shrink-0">
           <Select value={ratioKey} onChange={handleRatioChange} options={ratioOptions} placeholder="比例" />
         </div>
         <div className={`flex-1 min-w-0 ${applying ? "pointer-events-none opacity-50" : ""}`}>
@@ -176,7 +177,7 @@ function DisplayResolution({
             placeholder="分辨率"
           />
         </div>
-        <div className={`w-[92px] shrink-0 ${applying ? "pointer-events-none opacity-50" : ""}`}>
+        <div className={`shrink-0 ${applying ? "pointer-events-none opacity-50" : ""}`}>
           <Select
             value={current ? String(current.refresh_rate) : ""}
             onChange={handleRefreshRateChange}
