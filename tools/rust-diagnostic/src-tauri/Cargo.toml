@@ -1,0 +1,21 @@
+[package]
+name = "filter-manage-diagnostic"
+version = "0.1.0"
+description = "Filter-Manage display and fullscreen gamma diagnostic tool"
+authors = ["Filter-Manage"]
+edition = "2021"
+
+[lib]
+name = "filter_manage_diagnostic_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+filter-manage-platform = { path = "../../../crates/filter-manage-platform" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+dirs = "5"

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Filter-Manage Diagnostic",
+  "version": "0.1.0",
+  "identifier": "com.filter-manage.diagnostic",
+  "build": {
+    "beforeDevCommand": "npm --prefix ../.. run dev:diagnostic",
+    "devUrl": "http://localhost:5174",
+    "beforeBuildCommand": "npm --prefix ../.. run build:diagnostic",
+    "frontendDist": "../../../diagnostic-dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "diagnostic",
+        "title": "Filter-Manage Diagnostic",
+        "width": 1220,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 640,
+        "center": true,
+        "resizable": true
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["../../../src-tauri/icons/icon.ico"],
+    "windows": { "nsis": { "installMode": "currentUser", "displayLanguageSelector": false, "languages": ["SimpChinese", "English"] } }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for the diagnostic window",
+  "windows": ["diagnostic"],
+  "permissions": ["core:default", "opener:default"]
+}

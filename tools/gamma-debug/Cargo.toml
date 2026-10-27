@@ -1,0 +1,21 @@
+[package]
+name = "gamma-debug"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone write-capability probe for Filter-Manage (shares the app's actual code)"
+
+[[bin]]
+name = "gamma-debug"
+path = "src/main.rs"
+
+[dependencies]
+# 关键：依赖共享 crate，而不是自己重写一遍。
+# 工具里算出的曲线必须和 app 实际会写的那条**逐位相同**，否则报告没有意义。
+filter-manage-platform = { path = "../../crates/filter-manage-platform" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# v2 新增：读注册表（OS build / 显卡驱动版本）；DisplayConfig 结构体查 HDR 高级颜色状态
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows = { version = "0.58", features = ["Win32_Devices_Display", "Win32_Foundation"] }
