@@ -92,6 +92,10 @@ scripts/upload-server.py
 # ZCode：本机 skills 是 .claude/skills 的 symlink，会话数据也不入库
 .zcode/
 
+# Cloudflare Worker 网关源码已迁到私有仓库 filter-manage-api/worker/
+# （它的 HMAC 合约由 Go 的 internal/market 定义，必须同仓维护）
+worker/
+
 
 # Python 缓存（诊断脚本）
 __pycache__/
