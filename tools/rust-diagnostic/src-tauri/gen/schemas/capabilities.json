@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default permissions for the diagnostic window","local":true,"windows":["diagnostic"],"permissions":["core:default","opener:default"]}}

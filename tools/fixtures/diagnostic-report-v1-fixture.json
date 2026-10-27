@@ -1,0 +1,58 @@
+{
+  "schema_version": "diagnostic-report-v1",
+  "generated_at_ms": 1,
+  "tool": "Fixture",
+  "os": {
+    "architecture": "x86_64",
+    "windows_version": "Windows fixture"
+  },
+  "displays": [
+    {
+      "id": "\\\\.\\DISPLAY1",
+      "adapter": "Fixture adapter",
+      "pnp_id": "FIXTURE\\MONITOR",
+      "primary": true,
+      "mode": {
+        "width": 2560,
+        "height": 1440,
+        "refresh_hz": 280,
+        "bits_per_pixel": 32
+      }
+    }
+  ],
+  "display_id": "\\\\.\\DISPLAY1",
+  "process_terms": ["game"],
+  "events": [
+    {
+      "timestamp_ms": 1,
+      "kind": "MONITOR_STARTED",
+      "message": "fixture",
+      "snapshot": null
+    },
+    {
+      "timestamp_ms": 2,
+      "kind": "SNAPSHOT_INITIAL",
+      "message": "fixture",
+      "snapshot": {
+        "timestamp_ms": 2,
+        "display_id": "\\\\.\\DISPLAY1",
+        "mode": {
+          "width": 2560,
+          "height": 1440,
+          "refresh_hz": 280,
+          "bits_per_pixel": 32
+        },
+        "gamma": {
+          "available": true,
+          "shape": "identity",
+          "samples": [[0, 0, 4, 32, 128, 192, 240, 254, 255], [0, 0, 4, 32, 128, 192, 240, 254, 255], [0, 0, 4, 32, 128, 192, 240, 254, 255]],
+          "signature": [0, 1, 16, 64, 128, 192, 240, 254, 255],
+          "error": null
+        },
+        "processes": [],
+        "errors": []
+      }
+    }
+  ],
+  "probe_active": false
+}

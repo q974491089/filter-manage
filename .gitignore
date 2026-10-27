@@ -89,6 +89,15 @@ scripts/upload-server.py
 .rules/
 .skills/
 
+# ZCode：本机 skills 是 .claude/skills 的 symlink，会话数据也不入库
+.zcode/
+
 
 # Python 缓存（诊断脚本）
 __pycache__/
+
+# ── 诊断/调试构建产物：体积大、可由脚本重建，不入库 ────────────────────────
+dist-fixed/
+diagnostic-dist/
+tools/*.7z
+tools/*.zip
