@@ -16,6 +16,7 @@ import SettingsModal from "./components/SettingsModal";
 import ClosePromptModal from "./components/ClosePromptModal";
 import AnnouncementBell from "./components/AnnouncementBell";
 import AnnouncementModal from "./components/AnnouncementModal";
+import IccEffectPreviewModal from "./components/IccEffectPreviewModal";
 import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
 import { useAnnouncements } from "./hooks/useAnnouncements";
@@ -96,6 +97,10 @@ function App() {
   const dark = themeMode === "system" ? systemDark : themeMode === "dark";
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [iccEffectPreview, setIccEffectPreview] = useState<string | null>(null);
+  const [iccEffectPreviewPath, setIccEffectPreviewPath] = useState<string | null>(null);
+  const [iccEffectPreviewOpen, setIccEffectPreviewOpen] = useState(false);
+  const [capturingIccPreview, setCapturingIccPreview] = useState(false);
   const [showClosePrompt, setShowClosePrompt] = useState(false);
   const [closePromptInitialTray, setClosePromptInitialTray] = useState<boolean | null>(null);
   // 调试模式：左上角图标 15 秒内连点 10 次触发（彩蛋入口），授权后记录操作与系统响应
@@ -819,6 +824,61 @@ function App() {
     }
   };
 
+  const handleCaptureIccPreview = async () => {
+    if (capturingIccPreview) return;
+    setCapturingIccPreview(true);
+    try {
+      const pngBase64 = await invoke<string>("capture_icc_effect_preview", {
+        profileName: activeProfile === "Default" ? null : activeProfile,
+        brightness,
+        contrast,
+        gamma,
+        digitalVibrance,
+        rgbR,
+        rgbG,
+        rgbB,
+      });
+
+      const image = new Image();
+      image.src = `data:image/png;base64,${pngBase64}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("无法生成模拟效果图");
+      context.drawImage(image, 0, 0);
+      const fontSize = Math.max(14, Math.round(canvas.width / 100));
+      const label = "SIMULATED DISPLAY PREVIEW";
+      context.font = `600 ${fontSize}px Inter, sans-serif`;
+      const padding = Math.round(fontSize * 0.7);
+      const labelWidth = context.measureText(label).width;
+      context.fillStyle = "rgba(0, 0, 0, 0.72)";
+      context.fillRect(16, 16, labelWidth + padding * 2, fontSize + padding * 2);
+      context.fillStyle = "#ffffff";
+      context.fillText(label, 16 + padding, 16 + padding + fontSize * 0.82);
+      const stampedImage = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG 编码失败")), "image/png");
+      });
+      const bytes = new Uint8Array(await stampedImage.arrayBuffer());
+      let binary = "";
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      }
+      const stampedBase64 = btoa(binary);
+      const savedPath = await invoke<string>("save_icc_effect_preview", {
+        pngBase64: stampedBase64,
+      });
+      setIccEffectPreviewPath(savedPath);
+      setIccEffectPreview(stampedBase64);
+      setIccEffectPreviewOpen(true);
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCapturingIccPreview(false);
+    }
+  };
+
   return (
     <div data-components="App" className="min-h-screen bg-background text-on-surface font-body-md">
       <UpdateModal updater={updater} />
@@ -1025,6 +1085,17 @@ function App() {
 
           <div className="w-[1px] h-6 bg-outline-variant/30 mx-sm"></div>
 
+          <button
+            data-name="icc-effect-preview-button"
+            onClick={() => void handleCaptureIccPreview()}
+            disabled={capturingIccPreview}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50"
+            title={capturingIccPreview ? "正在生成模拟效果图" : "生成当前显示效果模拟图"}
+            aria-label="生成当前显示效果模拟图"
+          >
+            <Icon name="photo_camera" className="text-[20px]" />
+          </button>
+
           <AnnouncementBell
             items={ann.visibleItems}
             unreadCount={ann.unreadCount}
@@ -1090,6 +1161,7 @@ function App() {
               onProfileSelect={handleProfileChange}
               showToast={showToast}
               selectedDeviceId={selectedDeviceId}
+              iccEffectPreview={iccEffectPreview}
             />
           </div>
           <div data-name="adjuster-panel" className="col-span-5 flex flex-col min-h-0 h-full overflow-hidden">
@@ -1185,6 +1257,21 @@ function App() {
         open={showClosePrompt}
         initialCloseToTray={closePromptInitialTray}
         onSelect={handleClosePromptSelect}
+      />
+
+      <IccEffectPreviewModal
+        open={iccEffectPreviewOpen}
+        imageBase64={iccEffectPreview}
+        profileName={activeProfile}
+        savedPath={iccEffectPreviewPath}
+        onOpenFolder={async () => {
+          try {
+            await invoke("open_icc_effect_preview_directory");
+          } catch (err) {
+            showToast("error", `打开效果图目录失败：${String(err)}`);
+          }
+        }}
+        onClose={() => setIccEffectPreviewOpen(false)}
       />
     </div>
   );

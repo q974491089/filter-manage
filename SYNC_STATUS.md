@@ -39,3 +39,6 @@
 【文档已完成同步更新】2026-06-11 — ColorConfig 新增 icon: Option<String> 字段（Material Icon 名称，旧配置兼容）；docs/api/config.md、docs/README.md 已同步
 【文档已完成同步更新】2026-06-11 — list_configs 返回类型由 Vec<String> 改为 Vec<ColorConfig>（前端一次调用获取全部配置含 icon）；docs/api/config.md、docs/README.md、docs/handoff/icon-field-frontend.md 已同步
 【文档已完成同步更新】2026-06-11 — get_running_processes 新增进程图标（RunningProcess.icon，ExtractIconExW + GDI + PNG base64，同名进程去重缓存）；docs/api/process_watcher.md、docs/README.md、docs/handoff/process-watcher-frontend.md 已同步
+【文档已完成同步更新】2026-10-23 — 新增 ICC vcgt 软件模拟截图命令与投稿效果图生成入口；已同步 .docs/api/icc.md 与 .docs/README.md
+【文档已完成同步更新】2026-10-23 — ICC 效果图命令扩展当前色彩参数模拟；首屏相机入口、大图缩放预览与投稿封面复用已完成；.docs/api/icc.md 与 .docs/README.md 已同步
+【文档已完成同步更新】2026-10-23 — 模拟效果图持久化保存至应用数据目录，预览弹窗显示保存路径并可打开目录；API 文档与迭代记录已同步

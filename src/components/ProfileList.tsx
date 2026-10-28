@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "../lib/ipc";
 import { debugNote } from "../lib/debug";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Icon } from "./Icon";
+import MarketImportModal from "./MarketImportModal";
 
 interface IccProfile {
   name: string;
@@ -16,14 +17,30 @@ interface ProfileListProps {
   onProfileSelect: (profile: string) => void;
   showToast: (type: "success" | "error", text: string) => void;
   selectedDeviceId?: string;
+  iccEffectPreview: string | null;
 }
 
-function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDeviceId }: ProfileListProps) {
+function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDeviceId, iccEffectPreview }: ProfileListProps) {
   const [profiles, setProfiles] = useState<IccProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  // 点击菜单外部时收起「新增 ICC」来源选择
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!addMenuRef.current?.contains(event.target as Node)) {
+        setAddMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [addMenuOpen]);
 
   const loadData = useCallback(async () => {
     try {
@@ -205,15 +222,55 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
             <Icon name="refresh" className="text-[18px]" />
             恢复默认
           </button>
-          <button
-            data-name="import-button"
-            onClick={handleImport}
-            disabled={importing}
-            className="flex-1 py-xs px-sm rounded-md bg-surface-variant/50 text-on-surface-variant border border-outline-variant/30 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-surface-variant/80 hover:border-outline-variant/50 transition-all disabled:opacity-40 whitespace-nowrap"
-          >
-            <Icon name="upload" className="text-[18px]" />
-            {importing ? "导入中..." : "导入 ICC"}
-          </button>
+          <div className="relative flex-1" ref={addMenuRef}>
+            <button
+              data-name="import-button"
+              onClick={() => setAddMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={addMenuOpen}
+              disabled={importing}
+              className="w-full h-full py-xs px-sm rounded-md bg-surface-variant/50 text-on-surface-variant border border-outline-variant/30 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-surface-variant/80 hover:border-outline-variant/50 transition-all disabled:opacity-40 whitespace-nowrap"
+            >
+              <Icon name="add" className="text-[18px]" />
+              <span className="flex items-center gap-[2px]">
+                {importing ? "导入中..." : "新增 ICC"}
+                <Icon name="expand_more" className="text-[12px] opacity-60" />
+              </span>
+            </button>
+
+            {addMenuOpen ? (
+              <div
+                data-name="import-source-menu"
+                role="menu"
+                className="absolute top-full left-0 mt-xs z-30 w-44 rounded-lg border border-outline-variant/25 bg-surface-container-high shadow-xl overflow-hidden"
+              >
+                <button
+                  data-name="import-local-button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    void handleImport();
+                  }}
+                  className="w-full flex items-center gap-xs px-sm py-sm text-left font-label-md text-label-md text-on-surface hover:bg-primary/10 hover:text-primary transition-colors whitespace-nowrap"
+                >
+                  <Icon name="folder_open" className="text-[16px]" />
+                  从电脑导入
+                </button>
+                <button
+                  data-name="import-market-button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    setMarketOpen(true);
+                  }}
+                  className="w-full flex items-center gap-xs px-sm py-sm text-left font-label-md text-label-md text-on-surface hover:bg-primary/10 hover:text-primary transition-colors border-t border-outline-variant/15 whitespace-nowrap"
+                >
+                  <Icon name="download" className="text-[16px]" />
+                  从 ICC 市场导入
+                </button>
+              </div>
+            ) : null}
+          </div>
           <button
             data-name="open-dir-button"
             onClick={() => invoke("open_icc_directory")}
@@ -268,6 +325,14 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
           )}
         </div>
       </div>
+
+      <MarketImportModal
+        open={marketOpen}
+        onClose={() => setMarketOpen(false)}
+        onImported={loadData}
+        showToast={showToast}
+        iccEffectPreview={iccEffectPreview}
+      />
     </div>
   );
 }
