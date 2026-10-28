@@ -1,8 +1,10 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { invoke } from "./ipc";
+import { serverEnv } from "./serverEnv";
 
-const MARKET_BASE = "https://filter-manage-admin.xyls.us.kg";
+// 接口基址随接口环境走（开发构建可在设置中切预发），见 lib/serverEnv.ts；
+// 上传网关地址来自投稿令牌响应（gatewayUrl），天然跟随环境。
 
 export type SubmissionStatus = "PENDING" | "APPROVED" | "REJECTED";
 
@@ -45,7 +47,7 @@ export async function getSubmissionTokens(
   contributorId: string,
   nickname: string,
 ): Promise<SubmissionTokens> {
-  const res = await fetch(`${MARKET_BASE}/api/market/submissions/token`, {
+  const res = await fetch(`${serverEnv().marketApiBase}/api/market/submissions/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ contributorId, nickname }),
@@ -80,7 +82,7 @@ export async function uploadToGateway(
 }
 
 export async function createSubmission(payload: CreateSubmissionPayload) {
-  const res = await fetch(`${MARKET_BASE}/api/market/submissions`, {
+  const res = await fetch(`${serverEnv().marketApiBase}/api/market/submissions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -96,7 +98,7 @@ export async function getMySubmissions(
   contributorId: string,
 ): Promise<MySubmission[]> {
   const res = await fetch(
-    `${MARKET_BASE}/api/market/submissions?contributorId=${encodeURIComponent(contributorId)}`,
+    `${serverEnv().marketApiBase}/api/market/submissions?contributorId=${encodeURIComponent(contributorId)}`,
   );
   if (!res.ok) throw new Error(`加载提交记录失败（HTTP ${res.status}）`);
   const data = await res.json();

@@ -1255,6 +1255,7 @@ function App() {
           setShowSettingsModal(false);
           setShowAboutModal(true);
         }}
+        onApiEnvChanged={() => void featureFlags.refresh()}
       />
 
       <ClosePromptModal

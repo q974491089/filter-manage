@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../lib/ipc";
+import { initServerEnv, serverEnv, switchApiEnv } from "../lib/serverEnv";
+import type { ApiEnv, RuntimeEnv } from "../lib/serverEnv";
 import ShortcutInput from "./ShortcutInput";
 import Toggle from "./Toggle";
 import TextSwitch from "./TextSwitch";
@@ -67,6 +69,8 @@ interface SettingsModalProps {
   monitorNames: Record<string, string>;
   onRenameMonitor: (key: string, name: string) => void;
   onShowAbout: () => void;
+  /** 接口环境切换成功后回调（重新拉取功能开关等即环境数据） */
+  onApiEnvChanged?: () => void;
 }
 
 type SettingsTab = "general" | "shortcuts" | "display" | "process";
@@ -146,6 +150,7 @@ function SettingsModal({
   monitorNames,
   onRenameMonitor,
   onShowAbout,
+  onApiEnvChanged,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   /** 显示器命名的本地草稿（失焦/回车才提交到父级），键同 monitorNames */
@@ -167,10 +172,38 @@ function SettingsModal({
   const [newRuleProcessName, setNewRuleProcessName] = useState("");
   const [newRuleConfigName, setNewRuleConfigName] = useState("");
   const [processSearchQuery, setProcessSearchQuery] = useState("");
+  /** 接口环境（仅开发构建显示开发设置区块） */
+  const [runtimeEnv, setRuntimeEnv] = useState<RuntimeEnv>(() => serverEnv());
+  const [switchingEnv, setSwitchingEnv] = useState(false);
 
   useEffect(() => {
     if (open) loadSettings();
   }, [open]);
+
+  // 每次打开设置时刷新运行时环境（isDev / 当前接口环境 / 生效地址）
+  useEffect(() => {
+    if (open) void initServerEnv().then(setRuntimeEnv);
+  }, [open]);
+
+  const handleApiEnvChange = async (env: ApiEnv) => {
+    if (switchingEnv || env === runtimeEnv.apiEnv) return;
+    setSwitchingEnv(true);
+    try {
+      const next = await switchApiEnv(env);
+      setRuntimeEnv(next);
+      onApiEnvChanged?.();
+      showToast(
+        "success",
+        next.apiEnv === "staging"
+          ? "已切换到预发接口（功能开关与市场立即生效，公告/更新检查重启后生效）"
+          : "已切换到线上接口",
+      );
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setSwitchingEnv(false);
+    }
+  };
 
   const loadSettings = async () => {
     try {
@@ -624,6 +657,57 @@ function SettingsModal({
                     </button>
                   </div>
                 </div>
+
+                {/* ===== 开发设置（仅开发构建显示） ===== */}
+                {runtimeEnv.isDev && (
+                  <>
+                    {/* Divider */}
+                    <div className="h-px bg-outline-variant/30 w-full" />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Icon name="terminal" className="text-primary text-[18px]" />
+                        <h4 className="font-title-sm text-title-sm">开发设置</h4>
+                      </div>
+                      <div className="flex items-center justify-between gap-6">
+                        <div className="flex-1 min-w-0 space-y-1 text-left">
+                          <h4 className="font-label-md text-label-md">接口环境</h4>
+                          <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
+                            当前：{runtimeEnv.apiHosts.join(" / ") || "线上接口"}
+                            <br />
+                            功能开关与 ICC 市场立即生效，公告与更新检查重启后生效。
+                            <br />
+                            仅开发构建可用，正式版固定使用线上接口。
+                          </p>
+                        </div>
+                        <div className="flex items-center rounded-lg bg-surface-container-highest/60 p-[3px] shrink-0">
+                          <button
+                            onClick={() => void handleApiEnvChange("production")}
+                            disabled={switchingEnv}
+                            className={`px-3.5 py-1.5 rounded-md font-label-md text-label-md whitespace-nowrap transition-all duration-200 active:scale-95 disabled:opacity-40 ${
+                              runtimeEnv.apiEnv === "production"
+                                ? "bg-primary/15 text-primary"
+                                : "text-on-surface-variant hover:text-on-surface"
+                            }`}
+                          >
+                            线上
+                          </button>
+                          <button
+                            onClick={() => void handleApiEnvChange("staging")}
+                            disabled={switchingEnv}
+                            className={`px-3.5 py-1.5 rounded-md font-label-md text-label-md whitespace-nowrap transition-all duration-200 active:scale-95 disabled:opacity-40 ${
+                              runtimeEnv.apiEnv === "staging"
+                                ? "bg-primary/15 text-primary"
+                                : "text-on-surface-variant hover:text-on-surface"
+                            }`}
+                          >
+                            预发
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
 
               </div>
             )}

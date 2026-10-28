@@ -11,11 +11,6 @@ use tauri::{AppHandle, Emitter, State};
 
 const PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENEMUQ0NDVBMTMwMDhFQ0EKUldUS2pnQVRXa1Fkeld0YVdwb1N0clJybkp0OFR2cDhUdUhUSXNvZUZjOEpTdzBrSDFYQXBLcjYK";
 
-pub(crate) const UPDATE_API_HOSTS: &[&str] = &[
-    "https://filter-manage-api.xyls.us.kg",
-    "https://filter-manage-api.6ya.kdns.fr",
-];
-
 // ─── 数据结构 ────────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -75,8 +70,7 @@ pub async fn check_update(
     state: State<'_, UpdaterState>,
 ) -> Result<UpdateInfo, String> {
     let current = app.package_info().version.to_string();
-    let host_a = UPDATE_API_HOSTS[0];
-    let host_b = UPDATE_API_HOSTS[1];
+    let hosts = crate::server_env::update_api_hosts();
 
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
@@ -96,20 +90,27 @@ pub async fn check_update(
         }
     };
 
-    let mut fut_a = tokio::spawn(fetch(host_a));
-    let mut fut_b = tokio::spawn(fetch(host_b));
-
-    // 双域名竞速取「先成功者」而非「先完成者」：DNS/连接失败往往几毫秒就返回，
-    // 若让它抢先并 abort 掉健康的一方，就白白降级到 GitHub。先完成的一方失败时，改等另一方。
-    let info: Option<UpdateInfo> = tokio::select! {
-        a = &mut fut_a => match a.ok().and_then(|r| r.ok()).flatten() {
-            Some(i) => { fut_b.abort(); Some(i) }
-            None => fut_b.await.ok().and_then(|r| r.ok()).flatten(),
-        },
-        b = &mut fut_b => match b.ok().and_then(|r| r.ok()).flatten() {
-            Some(i) => { fut_a.abort(); Some(i) }
-            None => fut_a.await.ok().and_then(|r| r.ok()).flatten(),
-        },
+    // 单域名（预发）直接请求；双域名竞速取「先成功者」而非「先完成者」：
+    // DNS/连接失败往往几毫秒就返回，若让它抢先并 abort 掉健康的一方，
+    // 就白白降级到 GitHub。先完成的一方失败时，改等另一方。
+    let info: Option<UpdateInfo> = if hosts.len() < 2 {
+        match hosts.first() {
+            Some(host) => fetch(host).await.ok().flatten(),
+            None => None,
+        }
+    } else {
+        let mut fut_a = tokio::spawn(fetch(hosts[0]));
+        let mut fut_b = tokio::spawn(fetch(hosts[1]));
+        tokio::select! {
+            a = &mut fut_a => match a.ok().and_then(|r| r.ok()).flatten() {
+                Some(i) => { fut_b.abort(); Some(i) }
+                None => fut_b.await.ok().and_then(|r| r.ok()).flatten(),
+            },
+            b = &mut fut_b => match b.ok().and_then(|r| r.ok()).flatten() {
+                Some(i) => { fut_a.abort(); Some(i) }
+                None => fut_a.await.ok().and_then(|r| r.ok()).flatten(),
+            },
+        }
     };
 
     let info = match info {
