@@ -18,9 +18,11 @@ interface ProfileListProps {
   showToast: (type: "success" | "error", text: string) => void;
   selectedDeviceId?: string;
   iccEffectPreview: string | null;
+  /** 后台功能开关：ICC 市场入口。false = 服务端明确关闭；缺省视为开放。 */
+  marketEntryEnabled?: boolean;
 }
 
-function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDeviceId, iccEffectPreview }: ProfileListProps) {
+function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDeviceId, iccEffectPreview, marketEntryEnabled = true }: ProfileListProps) {
   const [profiles, setProfiles] = useState<IccProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -256,18 +258,20 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
                   <Icon name="folder_open" className="text-[16px]" />
                   从电脑导入
                 </button>
-                <button
-                  data-name="import-market-button"
-                  role="menuitem"
-                  onClick={() => {
-                    setAddMenuOpen(false);
-                    setMarketOpen(true);
-                  }}
-                  className="w-full flex items-center gap-xs px-sm py-sm text-left font-label-md text-label-md text-on-surface hover:bg-primary/10 hover:text-primary transition-colors border-t border-outline-variant/15 whitespace-nowrap"
-                >
-                  <Icon name="download" className="text-[16px]" />
-                  从 ICC 市场导入
-                </button>
+                {marketEntryEnabled ? (
+                  <button
+                    data-name="import-market-button"
+                    role="menuitem"
+                    onClick={() => {
+                      setAddMenuOpen(false);
+                      setMarketOpen(true);
+                    }}
+                    className="w-full flex items-center gap-xs px-sm py-sm text-left font-label-md text-label-md text-on-surface hover:bg-primary/10 hover:text-primary transition-colors border-t border-outline-variant/15 whitespace-nowrap"
+                  >
+                    <Icon name="download" className="text-[16px]" />
+                    从 ICC 市场导入
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>

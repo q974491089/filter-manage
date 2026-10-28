@@ -470,7 +470,7 @@ pub fn get_or_create_contributor_id() -> Result<String, String> {
 
 // ─── 工具函数 ────────────────────────────────────────────────────────────────
 
-fn get_config_dir() -> Result<PathBuf, String> {
+pub(crate) fn get_config_dir() -> Result<PathBuf, String> {
     let app_dir = dirs::config_dir()
         .ok_or_else(|| "Failed to get config directory".to_string())?
         .join("filter-manage");
