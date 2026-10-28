@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-use crate::updater::UPDATE_API_HOSTS;
+use crate::server_env;
 
 fn deserialize_id_as_string<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
@@ -62,8 +62,7 @@ pub struct Announcement {
 /// - 两者都失败 → 返回空列表（无公告不是错误，静默不打扰，无 GitHub 兜底）。
 #[tauri::command]
 pub async fn get_announcements() -> Result<Vec<Announcement>, String> {
-    let host_a = UPDATE_API_HOSTS[0];
-    let host_b = UPDATE_API_HOSTS[1];
+    let hosts = server_env::update_api_hosts();
 
     let client = match reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
@@ -87,20 +86,27 @@ pub async fn get_announcements() -> Result<Vec<Announcement>, String> {
         }
     };
 
-    let mut fut_a = tokio::spawn(fetch(host_a));
-    let mut fut_b = tokio::spawn(fetch(host_b));
-
-    let list: Option<Vec<Announcement>> = tokio::select! {
-        a = &mut fut_a => {
-            match a.ok().flatten() {
-                Some(v) => { fut_b.abort(); Some(v) }
-                None => fut_b.await.ok().flatten(),
-            }
+    // 单域名（预发）直接请求；双域名竞速：首个成功者赢，失败者等另一个。
+    let list: Option<Vec<Announcement>> = if hosts.len() < 2 {
+        match hosts.first() {
+            Some(host) => fetch(host).await,
+            None => None,
         }
-        b = &mut fut_b => {
-            match b.ok().flatten() {
-                Some(v) => { fut_a.abort(); Some(v) }
-                None => fut_a.await.ok().flatten(),
+    } else {
+        let mut fut_a = tokio::spawn(fetch(hosts[0]));
+        let mut fut_b = tokio::spawn(fetch(hosts[1]));
+        tokio::select! {
+            a = &mut fut_a => {
+                match a.ok().flatten() {
+                    Some(v) => { fut_b.abort(); Some(v) }
+                    None => fut_b.await.ok().flatten(),
+                }
+            }
+            b = &mut fut_b => {
+                match b.ok().flatten() {
+                    Some(v) => { fut_a.abort(); Some(v) }
+                    None => fut_a.await.ok().flatten(),
+                }
             }
         }
     };

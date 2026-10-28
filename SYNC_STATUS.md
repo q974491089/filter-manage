@@ -43,3 +43,4 @@
 【文档已完成同步更新】2026-10-23 — ICC 效果图命令扩展当前色彩参数模拟；首屏相机入口、大图缩放预览与投稿封面复用已完成；.docs/api/icc.md 与 .docs/README.md 已同步
 【文档已完成同步更新】2026-10-23 — 模拟效果图持久化保存至应用数据目录，预览弹窗显示保存路径并可打开目录；API 文档与迭代记录已同步
 【文档已完成同步更新】2026-10-29 — 远程功能开关（feature flags）三端联动：服务端 filter-manage-api 新增 internal/features 模块（公开 GET /api/feature-flags + 管理端 CRUD），后台 filter-manage-admin 新增仪表盘首页管控开关，客户端新增 get_feature_flags 命令（双域名竞速 + 本地缓存 + fail-open 降级）并在 ProfileList gate「从 ICC 市场导入」入口；.docs/api/feature-flags.md 与 .docs/README.md 已同步
+【文档已完成同步更新】2026-10-29 — 新增接口环境切换（server_env 模块）：cfg!(debug_assertions) 判定开发构建，设置页新增「开发设置」区块可动态切换线上/预发（AppSettings.api_env 持久化，正式版强制忽略）；update_api_hosts()/market_api_base() 统一供 updater/announcements/features/icc 使用，前端 serverEnv.ts + market.ts/submissions.ts 跟随；get_runtime_env/set_api_env 两命令；.docs/api/config.md、.docs/README.md 已同步

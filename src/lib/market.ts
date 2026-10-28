@@ -3,8 +3,10 @@
  *
  * 市场接口是公开只读的（只返回 PUBLISHED），无需登录，CORS 为 *。
  * 下载由 Rust 命令 import_market_icc 完成，前端只负责列表和触发。
+ * 接口基址随接口环境走（开发构建可在设置中切预发），见 lib/serverEnv.ts。
  */
-const MARKET_BASE = "https://filter-manage-admin.xyls.us.kg";
+import { serverEnv } from "./serverEnv";
+
 export const MARKET_PUBLIC_BASE = "https://filter-manage-download.xyls.us.kg";
 
 export interface MarketProfile {
@@ -47,7 +49,7 @@ export async function fetchMarketProfiles(params: {
   search.set("limit", String(params.limit ?? 30));
   search.set("offset", String(params.offset ?? 0));
 
-  const response = await fetch(`${MARKET_BASE}/api/market/icc?${search}`, {
+  const response = await fetch(`${serverEnv().marketApiBase}/api/market/icc?${search}`, {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {

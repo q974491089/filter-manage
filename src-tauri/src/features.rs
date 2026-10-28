@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::config::get_config_dir;
-use crate::updater::UPDATE_API_HOSTS;
+use crate::server_env;
 
 /// 远程功能开关（feature flags）。
 ///
@@ -61,8 +61,7 @@ fn write_cache(payload: &FeatureFlagsPayload) {
 /// 双域名竞速拉取开关（语义同 get_announcements）：
 /// 首个成功者赢、失败者等另一个；两者都失败返回 None。
 async fn fetch_remote() -> Option<FeatureFlagsPayload> {
-    let host_a = UPDATE_API_HOSTS[0];
-    let host_b = UPDATE_API_HOSTS[1];
+    let hosts = server_env::update_api_hosts();
 
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
@@ -82,8 +81,16 @@ async fn fetch_remote() -> Option<FeatureFlagsPayload> {
         }
     };
 
-    let mut fut_a = tokio::spawn(fetch(host_a));
-    let mut fut_b = tokio::spawn(fetch(host_b));
+    // 单域名（预发）直接请求；双域名竞速：首个成功者赢，失败者等另一个。
+    if hosts.len() < 2 {
+        return match hosts.first() {
+            Some(host) => fetch(host).await,
+            None => None,
+        };
+    }
+
+    let mut fut_a = tokio::spawn(fetch(hosts[0]));
+    let mut fut_b = tokio::spawn(fetch(hosts[1]));
 
     tokio::select! {
         a = &mut fut_a => {

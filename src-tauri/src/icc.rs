@@ -1146,7 +1146,7 @@ pub fn import_icc_profile(src_path: String) -> Result<String, String> {
 /// 目录；同名且内容一致视为已导入，同名但内容不同则自动加序号。
 #[tauri::command]
 pub async fn import_market_icc(id: String, title: String) -> Result<String, String> {
-    const MARKET_API: &str = "https://filter-manage-admin.xyls.us.kg";
+    let market_api = crate::server_env::market_api_base();
     const MAX_BYTES: usize = 2 * 1024 * 1024;
 
     if id.is_empty()
@@ -1158,7 +1158,7 @@ pub async fn import_market_icc(id: String, title: String) -> Result<String, Stri
         return Err("无效的市场配置 ID".to_string());
     }
 
-    let url = format!("{MARKET_API}/api/market/icc/{id}/download");
+    let url = format!("{market_api}/api/market/icc/{id}/download");
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(30))

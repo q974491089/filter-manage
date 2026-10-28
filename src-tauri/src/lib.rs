@@ -5,6 +5,7 @@ mod features;
 mod icc;
 mod nvidia;
 mod process_watcher;
+mod server_env;
 mod shortcut;
 mod tray;
 mod updater;
@@ -197,6 +198,9 @@ pub fn run() {
             announcements::get_announcements,
             // Feature flags（客户端功能开关，后台下发）
             features::get_feature_flags,
+            // 接口环境（线上/预发，仅开发构建可切换）
+            server_env::get_runtime_env,
+            server_env::set_api_env,
             // Debug recorder（左上角图标连点 10 次 → 授权 → 记录 → 桌面报告）
             debug_recorder::debug_start,
             debug_recorder::debug_stop,

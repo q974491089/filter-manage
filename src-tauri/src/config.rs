@@ -77,6 +77,10 @@ pub struct AppSettings {
     /// 匿名投稿标识；首次投稿时生成，后续登录可绑定到账号
     #[serde(default)]
     pub contributor_id: String,
+    /// 接口环境覆盖（仅开发构建生效）："" = 线上，"staging" = 预发。
+    /// 正式版在 server_env 中强制忽略此值，见 src/server_env.rs。
+    #[serde(default)]
+    pub api_env: String,
 }
 
 fn default_true() -> bool { true }
@@ -95,12 +99,13 @@ impl Default for AppSettings {
             process_notification: true,
             process_rules: Vec::new(),
             contributor_id: String::new(),
+            api_env: String::new(),
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct AppStore {
+pub(crate) struct AppStore {
     /// 格式版本，当前为 1
     version: u32,
     /// 默认预设名称
@@ -111,7 +116,7 @@ struct AppStore {
     presets: Vec<ColorConfig>,
     /// 应用设置
     #[serde(default)]
-    settings: AppSettings,
+    pub(crate) settings: AppSettings,
 }
 
 impl Default for AppStore {
@@ -130,7 +135,7 @@ const DEFAULT_CONFIG_NAME: &str = "__default__";
 
 // ─── AppStore 读写 ───────────────────────────────────────────────────────────
 
-fn read_store() -> Result<AppStore, String> {
+pub(crate) fn read_store() -> Result<AppStore, String> {
     let path = app_path()?;
     if !path.exists() {
         return Ok(AppStore::default());
@@ -156,7 +161,7 @@ fn read_store() -> Result<AppStore, String> {
     }
 }
 
-fn write_store(store: &AppStore) -> Result<(), String> {
+pub(crate) fn write_store(store: &AppStore) -> Result<(), String> {
     let path = app_path()?;
     let json = serde_json::to_string_pretty(store)
         .map_err(|e| format!("Failed to serialize app store: {}", e))?;
@@ -444,9 +449,12 @@ pub fn get_app_settings() -> Result<AppSettings, String> {
 #[tauri::command]
 pub fn save_app_settings(mut settings: AppSettings) -> Result<(), String> {
     let mut store = read_store()?;
-    // 前端设置表单不感知 contributor_id；整包保存时不能把它清空。
+    // 前端设置表单不感知 contributor_id / api_env；整包保存时不能把它们清空。
     if settings.contributor_id.trim().is_empty() {
         settings.contributor_id = store.settings.contributor_id.clone();
+    }
+    if settings.api_env.trim().is_empty() && !store.settings.api_env.is_empty() {
+        settings.api_env = store.settings.api_env.clone();
     }
     let old = store.settings.clone();
     store.settings = settings;
