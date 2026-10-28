@@ -1139,6 +1139,112 @@ pub fn import_icc_profile(src_path: String) -> Result<String, String> {
     Ok(file_name)
 }
 
+/// 从 ICC 市场下载并安装一份配置。
+///
+/// 只接受市场服务自己的配置 id（不接收任意 URL），下载地址由后端拼接，
+/// 避免这个命令变成通用的“任意地址下载器”。文件名取自标题，写入系统 ICC
+/// 目录；同名且内容一致视为已导入，同名但内容不同则自动加序号。
+#[tauri::command]
+pub async fn import_market_icc(id: String, title: String) -> Result<String, String> {
+    const MARKET_API: &str = "https://filter-manage-admin.xyls.us.kg";
+    const MAX_BYTES: usize = 2 * 1024 * 1024;
+
+    if id.is_empty()
+        || id.len() > 64
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '-')
+    {
+        return Err("无效的市场配置 ID".to_string());
+    }
+
+    let url = format!("{MARKET_API}/api/market/icc/{id}/download");
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("下载客户端初始化失败: {}", e))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("下载失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("下载失败: HTTP {}", resp.status()));
+    }
+    if let Some(len) = resp.content_length() {
+        if len as usize > MAX_BYTES {
+            return Err("配置文件超过 2 MB".to_string());
+        }
+    }
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("读取配置失败: {}", e))?;
+    if bytes.len() < 128 || bytes.len() > MAX_BYTES {
+        return Err("配置文件大小异常".to_string());
+    }
+    if bytes.get(36..40) != Some(b"acsp".as_slice()) {
+        return Err("不是有效的 ICC 配置文件".to_string());
+    }
+    let declared = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    if declared != bytes.len() {
+        return Err("ICC 头部长度与文件不一致".to_string());
+    }
+
+    let stem = sanitize_icc_file_stem(&title, &id);
+    let color_dir = color_dir();
+    let mut file_name = format!("{}.icc", stem);
+    let mut suffix = 2;
+
+    loop {
+        let dest = color_dir.join(&file_name);
+        if !dest.exists() {
+            fs::write(&dest, &bytes).map_err(|e| format!("写入 ICC 失败: {}", e))?;
+            eprintln!(
+                "ICC: Imported market profile '{}' -> '{}'",
+                id,
+                dest.display()
+            );
+            return Ok(file_name);
+        }
+        if let Ok(existing) = fs::read(&dest) {
+            if existing.as_slice() == bytes.as_ref() {
+                return Ok(file_name);
+            }
+        }
+        if suffix > 50 {
+            return Err("同名配置文件过多，请先整理 ICC 目录".to_string());
+        }
+        file_name = format!("{}-{}.icc", stem, suffix);
+        suffix += 1;
+    }
+}
+
+/// 把市场标题转成安全的 Windows 文件名（不含扩展名）。
+fn sanitize_icc_file_stem(title: &str, id: &str) -> String {
+    let mut out = String::new();
+    let mut count = 0;
+    for ch in title.chars() {
+        if count >= 80 {
+            break;
+        }
+        if ch.is_control() || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+            continue;
+        }
+        out.push(ch);
+        count += 1;
+    }
+    let trimmed = out.trim().trim_matches('.').trim();
+    if trimmed.is_empty() {
+        format!("market-{}", &id[..id.len().min(8)])
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// 导出 ICC 文件到指定目录
 /// profile_name: ICC 文件名（不含路径），dest_dir: 目标目录路径
 #[tauri::command]
@@ -1177,4 +1283,254 @@ pub fn set_preview_image(image_path: String) -> Result<String, String> {
         return Err("Unsupported image format".to_string());
     }
     Ok(image_path)
+}
+
+#[tauri::command]
+pub async fn capture_icc_effect_preview(
+    app: tauri::AppHandle,
+    profile_name: Option<String>,
+    brightness: i32,
+    contrast: i32,
+    gamma: f64,
+    digital_vibrance: i32,
+    rgb_r: i32,
+    rgb_g: i32,
+    rgb_b: i32,
+) -> Result<String, String> {
+    let ramp = if let Some(name) = profile_name {
+        let path = PathBuf::from(&name);
+        if path.file_name().and_then(|value| value.to_str()) != Some(name.as_str())
+            || !is_icc_ext(&path)
+        {
+            return Err("ICC 配置文件名称无效".to_string());
+        }
+        let profile_path = color_dir().join(path);
+        let bytes = fs::read(&profile_path)
+            .map_err(|error| format!("读取 ICC 配置文件失败：{error}"))?;
+        parse_vcgt(&bytes)
+    } else {
+        None
+    };
+    let settings = PreviewColorSettings {
+        brightness,
+        contrast,
+        gamma,
+        digital_vibrance,
+        rgb_r,
+        rgb_g,
+        rgb_b,
+    };
+    let window = app.get_webview_window("main");
+
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(window) = &window {
+            window.hide().map_err(|e| format!("隐藏主窗口失败：{e}"))?;
+            std::thread::sleep(std::time::Duration::from_millis(350));
+        }
+
+        let result = capture_primary_display_with_ramp(ramp.as_ref(), settings);
+
+        if let Some(window) = window {
+            if let Err(error) = window.show() {
+                eprintln!("ICC: 恢复主窗口显示失败：{error}");
+            }
+            if let Err(error) = window.set_focus() {
+                eprintln!("ICC: 恢复主窗口焦点失败：{error}");
+            }
+        }
+
+        result
+    })
+    .await
+    .map_err(|e| format!("截图任务失败：{e}"))?
+}
+
+#[tauri::command]
+pub fn save_icc_effect_preview(
+    app: tauri::AppHandle,
+    png_base64: String,
+) -> Result<String, String> {
+    use base64::Engine;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(png_base64)
+        .map_err(|_| "效果图编码无效".to_string())?;
+    if bytes.len() < 8 || !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("效果图不是有效的 PNG 文件".to_string());
+    }
+
+    let directory = app.path().app_local_data_dir()
+        .map_err(|error| format!("获取效果图保存目录失败：{error}"))?
+        .join("icc-effect-previews");
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("创建效果图目录失败：{error}"))?;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("读取系统时间失败：{error}"))?
+        .as_millis();
+    let path = directory.join(format!("icc-effect-{timestamp}.png"));
+    fs::write(&path, bytes).map_err(|error| format!("保存效果图失败：{error}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn open_icc_effect_preview_directory(app: tauri::AppHandle) -> Result<(), String> {
+    let directory = app.path().app_local_data_dir()
+        .map_err(|error| format!("获取效果图保存目录失败：{error}"))?
+        .join("icc-effect-previews");
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("创建效果图目录失败：{error}"))?;
+    std::process::Command::new("explorer")
+        .arg(directory)
+        .spawn()
+        .map_err(|error| format!("打开效果图目录失败：{error}"))?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct PreviewColorSettings {
+    brightness: i32,
+    contrast: i32,
+    gamma: f64,
+    digital_vibrance: i32,
+    rgb_r: i32,
+    rgb_g: i32,
+    rgb_b: i32,
+}
+
+fn capture_primary_display_with_ramp(
+    icc_ramp: Option<&[[u16; 256]; 3]>,
+    settings: PreviewColorSettings,
+) -> Result<String, String> {
+    use base64::Engine;
+    use std::ffi::c_void;
+    use windows::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
+        GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS,
+        HGDIOBJ, SRCCOPY,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+    let width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    if width <= 0 || height <= 0 {
+        return Err("无法读取主显示器尺寸".to_string());
+    }
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .filter(|count| *count <= 100_000_000)
+        .ok_or_else(|| "主显示器分辨率超出截图限制".to_string())?;
+
+    unsafe {
+        let screen_dc = GetDC(None);
+        if screen_dc.is_invalid() {
+            return Err("无法访问桌面画面".to_string());
+        }
+        let memory_dc = CreateCompatibleDC(screen_dc);
+        if memory_dc.is_invalid() {
+            ReleaseDC(None, screen_dc);
+            return Err("无法创建截图缓冲区".to_string());
+        }
+        let bitmap = CreateCompatibleBitmap(screen_dc, width, height);
+        if bitmap.is_invalid() {
+            let _ = DeleteDC(memory_dc);
+            ReleaseDC(None, screen_dc);
+            return Err("无法分配截图图像".to_string());
+        }
+
+        let previous = SelectObject(memory_dc, HGDIOBJ(bitmap.0));
+        let capture_result = (|| {
+            BitBlt(
+                memory_dc,
+                0,
+                0,
+                width,
+                height,
+                screen_dc,
+                0,
+                0,
+                SRCCOPY | CAPTUREBLT,
+            )
+            .map_err(|e| format!("读取桌面画面失败：{e}"))?;
+
+            SelectObject(memory_dc, previous);
+            let mut info: BITMAPINFO = std::mem::zeroed();
+            info.bmiHeader.biSize = std::mem::size_of_val(&info.bmiHeader) as u32;
+            info.bmiHeader.biWidth = width;
+            info.bmiHeader.biHeight = -height;
+            info.bmiHeader.biPlanes = 1;
+            info.bmiHeader.biBitCount = 32;
+            info.bmiHeader.biCompression = BI_RGB.0;
+            let mut bgra = vec![0u8; pixel_count * 4];
+            let lines = GetDIBits(
+                screen_dc,
+                bitmap,
+                0,
+                height as u32,
+                Some(bgra.as_mut_ptr().cast::<c_void>()),
+                &mut info,
+                DIB_RGB_COLORS,
+            );
+            if lines != height {
+                return Err("读取截图像素失败".to_string());
+            }
+
+            let brightness = (settings.brightness.clamp(-125, 125) as f64 + 125.0) / 250.0;
+            let contrast = (settings.contrast.clamp(-82, 82) as f64 + 82.0) / 164.0;
+            let gamma = settings.gamma.clamp(0.4, 2.8);
+            let contrast = (contrast - 0.5) * 2.0;
+            let brightness = (brightness - 0.5) * 2.0;
+            let offset = if contrast > 0.0 { contrast * -25.4 } else { contrast * -32.0 };
+            let range = 255.0 + offset * 2.0;
+            let offset = offset + brightness * (range / 5.0);
+            let gains = [settings.rgb_r, settings.rgb_g, settings.rgb_b]
+                .map(|gain| 1.0 + (gain.clamp(-100, 100) as f64 / 100.0) * 0.48);
+            let saturation = settings.digital_vibrance.clamp(0, 100) as f64 / 50.0;
+            let mut rgb = Vec::with_capacity(pixel_count * 3);
+            for pixel in bgra.chunks_exact(4) {
+                let input = [pixel[2], pixel[1], pixel[0]];
+                let mut output = [0.0; 3];
+                for channel in 0..3 {
+                    let linear = ((input[channel] as f64 + offset) / range).clamp(0.0, 1.0);
+                    let adjusted = if (gamma - 1.0).abs() < 1e-6 {
+                        linear
+                    } else {
+                        linear.powf(1.0 / gamma)
+                    };
+                    let lut_value = (adjusted * 65535.0).round() as u16;
+                    let index = (lut_value as usize * 255 / 65535).min(255);
+                    let base = icc_ramp
+                        .map(|ramp| ramp[channel][index])
+                        .unwrap_or(lut_value);
+                    output[channel] = (base as f64 / 257.0 * gains[channel]).clamp(0.0, 255.0);
+                }
+                let luminance = output[0] * 0.2126 + output[1] * 0.7152 + output[2] * 0.0722;
+                for channel in 0..3 {
+                    rgb.push((luminance + (output[channel] - luminance) * saturation)
+                        .round()
+                        .clamp(0.0, 255.0) as u8);
+                }
+            }
+
+            let mut png_data = Vec::new();
+            {
+                let mut encoder = png::Encoder::new(&mut png_data, width as u32, height as u32);
+                encoder.set_color(png::ColorType::Rgb);
+                encoder.set_depth(png::BitDepth::Eight);
+                let mut writer = encoder
+                    .write_header()
+                    .map_err(|e| format!("创建 PNG 失败：{e}"))?;
+                writer
+                    .write_image_data(&rgb)
+                    .map_err(|e| format!("编码 PNG 失败：{e}"))?;
+            }
+            Ok(base64::engine::general_purpose::STANDARD.encode(png_data))
+        })();
+
+        SelectObject(memory_dc, previous);
+        let _ = DeleteObject(HGDIOBJ(bitmap.0));
+        let _ = DeleteDC(memory_dc);
+        ReleaseDC(None, screen_dc);
+        capture_result
+    }
 }

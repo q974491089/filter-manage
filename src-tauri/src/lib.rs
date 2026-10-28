@@ -134,9 +134,13 @@ pub fn run() {
             icc::apply_config_resolution,
             icc::restore_default_icc_profile,
             icc::import_icc_profile,
+            icc::import_market_icc,
             icc::export_icc_profile,
             icc::search_icc_profiles,
             icc::set_preview_image,
+            icc::capture_icc_effect_preview,
+            icc::save_icc_effect_preview,
+            icc::open_icc_effect_preview_directory,
             icc::open_icc_directory,
             icc::install_builtin_icc_profiles,
             // NVIDIA
@@ -160,6 +164,7 @@ pub fn run() {
             config::overwrite_default_config,
             config::get_app_settings,
             config::save_app_settings,
+            config::get_or_create_contributor_id,
             // Tray
             tray::refresh_tray_menu,
             // Shortcuts

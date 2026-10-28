@@ -74,6 +74,9 @@ pub struct AppSettings {
     pub process_notification: bool,
     #[serde(default)]
     pub process_rules: Vec<ProcessRule>,
+    /// 匿名投稿标识；首次投稿时生成，后续登录可绑定到账号
+    #[serde(default)]
+    pub contributor_id: String,
 }
 
 fn default_true() -> bool { true }
@@ -91,6 +94,7 @@ impl Default for AppSettings {
             process_watcher_enabled: true,
             process_notification: true,
             process_rules: Vec::new(),
+            contributor_id: String::new(),
         }
     }
 }
@@ -438,14 +442,30 @@ pub fn get_app_settings() -> Result<AppSettings, String> {
 }
 
 #[tauri::command]
-pub fn save_app_settings(settings: AppSettings) -> Result<(), String> {
+pub fn save_app_settings(mut settings: AppSettings) -> Result<(), String> {
     let mut store = read_store()?;
+    // 前端设置表单不感知 contributor_id；整包保存时不能把它清空。
+    if settings.contributor_id.trim().is_empty() {
+        settings.contributor_id = store.settings.contributor_id.clone();
+    }
     let old = store.settings.clone();
     store.settings = settings;
     write_store(&store)?;
     // ConfigManager 等经整包 settings 改 process_rules 时也要重订 WMI
     crate::process_watcher::resubscribe_if_process_settings_changed(&old, &store.settings);
     Ok(())
+}
+
+/// 返回本地匿名投稿 UUID；不存在时生成并写回设置。
+/// 用随机 UUID 而不是 MAC/MachineGuid：不采集硬件标识，后续登录可直接绑定账号。
+#[tauri::command]
+pub fn get_or_create_contributor_id() -> Result<String, String> {
+    let mut store = read_store()?;
+    if store.settings.contributor_id.trim().is_empty() {
+        store.settings.contributor_id = uuid::Uuid::new_v4().to_string();
+        write_store(&store)?;
+    }
+    Ok(store.settings.contributor_id.clone())
 }
 
 // ─── 工具函数 ────────────────────────────────────────────────────────────────
