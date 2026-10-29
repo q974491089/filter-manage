@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../lib/ipc";
 import { debugNote } from "../lib/debug";
 import { prepareCover } from "../lib/imageCompression";
@@ -32,7 +32,16 @@ interface SharePlanModalProps {
   onCaptureEffect: () => Promise<string | null>;
 }
 
-type IccState = "none" | "checking" | "in-library" | "missing" | "no-file";
+type IccState =
+  | "none" // 方案本来就不含 ICC
+  | "checking" // 读取/哈希/询问服务端
+  | "in-library" // 已在库，可直接创建
+  | "uploading" // 自动上传中
+  | "failed" // 自动上传失败：重试 或 放弃 ICC 仅分享参数
+  | "params-only"; // 无法附带 ICC（本机没有/文件异常/用户跳过），iccNote 说明原因
+
+/** 客户端「未选择 ICC」的哨兵值：方案保存时会把当前选中的 profile 名写进去 */
+const NO_ICC_SENTINELS = new Set(["Default", "Default.icc"]);
 
 export default function SharePlanModal({
   open,
@@ -48,16 +57,17 @@ export default function SharePlanModal({
   const [cover, setCover] = useState<File | null>(null);
   const [coverPreviewUrl, setCoverPreviewUrl] = useState("");
   const [iccState, setIccState] = useState<IccState>("none");
+  const [iccNote, setIccNote] = useState("");
   const [iccBytes, setIccBytes] = useState<{ base64: string; sha256: string; size: number } | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [stage, setStage] = useState("");
   const [link, setLink] = useState("");
   const coverInputRef = useRef<HTMLInputElement>(null);
   const modalRef = useModalAccessibility(open, onClose, true, !submitting);
 
-  const iccName = config?.icc_profile ?? "";
-  const hasIcc = Boolean(iccName);
+  const rawIccName = config?.icc_profile ?? "";
+  const iccName = NO_ICC_SENTINELS.has(rawIccName) ? "" : rawIccName;
+  const hasIcc = iccName !== "";
 
   // 打开时重置并开始检测 ICC 是否已在库里
   useEffect(() => {
@@ -67,10 +77,10 @@ export default function SharePlanModal({
     setNickname("");
     setCover(null);
     setIccState(hasIcc ? "checking" : "none");
+    setIccNote("");
     setIccBytes(null);
     setLink("");
     setStage("");
-    setUploading(false);
     setSubmitting(false);
   }, [open, config, hasIcc]);
 
@@ -95,7 +105,46 @@ export default function SharePlanModal({
     return () => URL.revokeObjectURL(url);
   }, [cover]);
 
-  // ICC 检测：读本地字节 → 算 sha → 问服务端在不在库
+  const nicknameRef = useRef("");
+  nicknameRef.current = nickname;
+
+  /**
+   * 把 ICC 字节传到内容寻址网关。稳定引用（nickname 走 ref），
+   * 检测流程和手动重试共用，避免依赖变化触发重新检测。
+   */
+  const runIccUpload = useCallback(
+    async (bytes: { base64: string; sha256: string }): Promise<boolean> => {
+      setIccState("uploading");
+      setStage("自动上传 ICC 文件到库");
+      try {
+        const contributorId = await getContributorId();
+        const tokens = await getSubmissionTokens(contributorId, nicknameRef.current.trim());
+        const binary = atob(bytes.base64);
+        const buffer = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) buffer[i] = binary.charCodeAt(i);
+        await uploadToGateway(
+          `${tokens.gatewayUrl}/v1/icc`,
+          tokens.iccToken,
+          bytes.sha256,
+          buffer.buffer,
+          "application/vnd.iccprofile",
+        );
+        setIccState("in-library");
+        debugNote("分享上传 ICC 完成");
+        return true;
+      } catch (err) {
+        setIccNote(err instanceof Error ? err.message : String(err));
+        setIccState("failed");
+        return false;
+      } finally {
+        setStage("");
+      }
+    },
+    [],
+  );
+
+  // ICC 检测：读本地字节 → 算 sha → 问服务端；不在库就**自动上传**，
+  // 失败才停下来给用户选择（重试 / 仅分享参数）。
   useEffect(() => {
     if (!open || !hasIcc) return;
     let cancelled = false;
@@ -114,11 +163,21 @@ export default function SharePlanModal({
         if (cancelled) return;
         setIccBytes({ base64: file.base64, sha256: sha, size: file.sizeBytes });
         const exists = await checkShareIcc(sha);
-        if (!cancelled) setIccState(exists ? "in-library" : "missing");
+        if (cancelled) return;
+        if (exists) {
+          setIccState("in-library");
+          return;
+        }
+        // 库里没有：自动上传，不等用户点
+        await runIccUpload({ base64: file.base64, sha256: sha });
       } catch (err) {
         if (cancelled) return;
-        debugNote(`分享检测 ICC 失败：${String(err)}`);
-        setIccState("no-file");
+        const msg = err instanceof Error ? err.message : String(err);
+        debugNote(`分享检测 ICC 失败：${msg}`);
+        // 如实展示失败原因（文件不存在 / 校验失败 / 客户端过旧），
+        // 不再笼统说「本机找不到」；方案仍可只分享参数
+        setIccNote(msg.includes("not found") ? `客户端版本过旧，请重启后再试（${msg}）` : msg);
+        setIccState("params-only");
       } finally {
         if (!cancelled) setStage("");
       }
@@ -126,7 +185,7 @@ export default function SharePlanModal({
     return () => {
       cancelled = true;
     };
-  }, [open, hasIcc, iccName]);
+  }, [open, hasIcc, iccName, runIccUpload]);
 
   const color = useMemo<ShareColor>(
     () => ({
@@ -143,39 +202,9 @@ export default function SharePlanModal({
 
   if (!open || !config) return null;
 
-  const canCreate =
-    !submitting &&
-    !uploading &&
-    title.trim().length > 0 &&
-    (iccState === "none" || iccState === "in-library" || iccState === "no-file");
-
-  async function uploadIcc() {
-    if (!iccBytes) return;
-    setUploading(true);
-    try {
-      setStage("上传 ICC 文件");
-      const contributorId = await getContributorId();
-      const tokens = await getSubmissionTokens(contributorId, nickname.trim());
-      const binary = atob(iccBytes.base64);
-      const buffer = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i += 1) buffer[i] = binary.charCodeAt(i);
-      await uploadToGateway(
-        `${tokens.gatewayUrl}/v1/icc`,
-        tokens.iccToken,
-        iccBytes.sha256,
-        buffer.buffer,
-        "application/vnd.iccprofile",
-      );
-      setIccState("in-library");
-      showToast("success", "ICC 文件已上传到库");
-      debugNote(`分享上传 ICC「${iccName}」`);
-    } catch (err) {
-      showToast("error", err instanceof Error ? err.message : String(err));
-    } finally {
-      setUploading(false);
-      setStage("");
-    }
-  }
+  const iccAttached = iccState === "in-library" && iccBytes !== null;
+  const busy = submitting || iccState === "checking" || iccState === "uploading";
+  const canCreate = !busy && title.trim().length > 0;
 
   async function submit() {
     if (!canCreate) return;
@@ -209,14 +238,13 @@ export default function SharePlanModal({
       }
 
       setStage("创建分享链接");
-      const usableIcc = iccState === "in-library" && iccBytes;
       const result = await createShare({
         title: title.trim(),
         description: description.trim(),
         color,
         resolution: config?.resolution ?? "",
-        iccSha256: usableIcc ? iccBytes.sha256 : "",
-        iccName: usableIcc ? iccName : "",
+        iccSha256: iccAttached ? iccBytes!.sha256 : "",
+        iccName: iccAttached ? iccName : "",
         coverKey,
         thumbKey,
         contributorId,
@@ -244,15 +272,24 @@ export default function SharePlanModal({
       case "checking":
         return stage || "正在检查 ICC 文件…";
       case "in-library":
-        return "文件已在库中，无需重复上传";
-      case "missing":
-        return "文件还不在库中，需要先上传";
-      case "no-file":
-        return "本机找不到这个 ICC 文件，只能分享参数";
+        return "文件已在库中，导入方会自动下载";
+      case "uploading":
+        return stage || "正在自动上传 ICC 文件…";
+      case "failed":
+        return `自动上传失败：${iccNote}`;
+      case "params-only":
+        return iccNote || "无法附带这个 ICC 文件，只能分享色彩参数";
       default:
         return "这条方案不包含 ICC 文件，只分享色彩参数与分辨率";
     }
   })();
+
+  const iccIconName =
+    iccState === "in-library"
+      ? "check_circle"
+      : iccState === "failed"
+        ? "error"
+        : "info";
 
   return (
     <div
@@ -414,8 +451,15 @@ export default function SharePlanModal({
               <div className="px-md py-sm rounded-lg border border-outline-variant/25 bg-surface-container-high/40">
                 <div className="flex items-center gap-xs font-label-md text-label-md">
                   <Icon
-                    name={iccState === "in-library" ? "check_circle" : "info"}
-                    className={iccState === "in-library" ? "text-primary" : "text-on-surface-variant"}
+                    name={iccIconName}
+                    filled={iccState === "in-library"}
+                    className={
+                      iccState === "in-library"
+                        ? "text-primary"
+                        : iccState === "failed"
+                          ? "text-error"
+                          : "text-on-surface-variant"
+                    }
                   />
                   ICC 文件
                 </div>
@@ -423,14 +467,31 @@ export default function SharePlanModal({
                 {hasIcc ? (
                   <p className="mt-1 text-[11px] text-on-surface-variant/70 break-all">{iccName}</p>
                 ) : null}
-                {iccState === "missing" && iccBytes ? (
-                  <button
-                    onClick={() => void uploadIcc()}
-                    disabled={uploading}
-                    className="mt-sm w-full py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition disabled:opacity-50"
-                  >
-                    {uploading ? stage || "上传中…" : "上传到文件库"}
-                  </button>
+                {iccState === "failed" ? (
+                  <div className="mt-sm flex gap-sm">
+                    <button
+                      onClick={() => {
+                        if (iccBytes) {
+                          void runIccUpload({
+                            base64: iccBytes.base64,
+                            sha256: iccBytes.sha256,
+                          });
+                        }
+                      }}
+                      className="flex-1 py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition"
+                    >
+                      重试上传
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIccNote("上传失败，已按你的选择只分享参数");
+                        setIccState("params-only");
+                      }}
+                      className="flex-1 py-sm rounded-md bg-surface-variant/60 text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition"
+                    >
+                      不传 ICC，仅分享参数
+                    </button>
+                  </div>
                 ) : null}
               </div>
 
