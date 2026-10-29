@@ -44,7 +44,9 @@ type IccState =
 const NO_ICC_SENTINELS = new Set(["Default", "Default.icc"]);
 
 const inputClass =
-  "w-full px-sm py-sm rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-on-surface transition-colors";
+  "w-full h-8 px-sm rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-body-sm text-on-surface transition-colors";
+const textareaClass =
+  "w-full px-sm py-xs rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-body-sm text-on-surface transition-colors resize-none";
 
 export default function SharePlanModal({
   open,
@@ -298,14 +300,14 @@ export default function SharePlanModal({
 
   const iccTone =
     iccState === "in-library"
-      ? { box: "bg-tertiary/10", icon: "text-tertiary", name: "check_circle" }
+      ? { box: "bg-tertiary/10" }
       : iccState === "failed"
-        ? { box: "bg-error/10", icon: "text-error", name: "error" }
-        : iccState === "uploading" || iccState === "checking"
-          ? { box: "bg-primary/10", icon: "text-primary", name: "info" }
-          : { box: "bg-surface-container-high/50", icon: "text-on-surface-variant", name: "info" };
-
-  const pending = iccState === "checking" || iccState === "uploading";
+        ? { box: "bg-error/10" }
+        : iccState === "uploading"
+          ? { box: "bg-amber-400/10" }
+          : iccState === "checking"
+            ? { box: "bg-primary/10" }
+            : { box: "bg-surface-container-high/50" };
 
   return (
     <div
@@ -379,7 +381,7 @@ export default function SharePlanModal({
             <div className="px-lg py-md space-y-lg">
               {/* 效果图：视觉锚点，16:9 横幅 */}
               <div>
-                <label className="block font-label-md text-label-md text-on-surface-variant mb-xs">
+                <label className="block font-label-md text-label-md text-on-surface-variant mb-1.5">
                   效果图 <span className="text-on-surface-variant/60">（可选）</span>
                 </label>
                 {cover ? (
@@ -448,7 +450,7 @@ export default function SharePlanModal({
                 <div>
                   <label
                     htmlFor="share-plan-title-input"
-                    className="block font-label-md text-label-md text-on-surface-variant mb-xs"
+                    className="block font-label-md text-label-md text-on-surface-variant mb-1.5"
                   >
                     标题 <span className="text-error">*</span>
                   </label>
@@ -457,13 +459,13 @@ export default function SharePlanModal({
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     maxLength={200}
-                    className={`${inputClass} text-body-lg`}
+                    className={inputClass}
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="share-plan-nickname"
-                    className="block font-label-md text-label-md text-on-surface-variant mb-xs"
+                    className="block font-label-md text-label-md text-on-surface-variant mb-1.5"
                   >
                     昵称
                   </label>
@@ -482,7 +484,7 @@ export default function SharePlanModal({
               <div>
                 <label
                   htmlFor="share-plan-description"
-                  className="block font-label-md text-label-md text-on-surface-variant mb-xs"
+                  className="block font-label-md text-label-md text-on-surface-variant mb-1.5"
                 >
                   说明 <span className="text-on-surface-variant/60">（可选）</span>
                 </label>
@@ -493,13 +495,13 @@ export default function SharePlanModal({
                   maxLength={2000}
                   rows={2}
                   placeholder="这套参数适合什么场景、什么显示器"
-                  className={`${inputClass} resize-none`}
+                  className={textareaClass}
                 />
               </div>
 
               {/* 参数摘要：只读，紧凑单容器 */}
               <div>
-                <label className="block font-label-md text-label-md text-on-surface-variant mb-xs">
+                <label className="block font-label-md text-label-md text-on-surface-variant mb-1.5">
                   将分享的参数
                 </label>
                 <div className="grid grid-flow-dense grid-cols-3 gap-x-md gap-y-1.5 rounded-md bg-surface-container-high/50 px-md py-sm">
@@ -514,34 +516,40 @@ export default function SharePlanModal({
                 </div>
               </div>
 
-              {/* ICC 状态：tonal 状态条 */}
+              {/* ICC 状态：tonal 状态条；图标紧跟标题，状态说明退为次级小字 */}
               <div
                 data-name="share-icc-status"
                 className={`rounded-md px-md py-sm transition-colors duration-200 ${iccTone.box}`}
               >
-                <div className="flex items-center gap-xs font-label-md text-label-md">
-                  <Icon
-                    name={iccTone.icon}
-                    filled={iccState === "in-library"}
-                    className={iccTone.icon}
-                  />
-                  <span className={iccState === "in-library" ? "text-on-surface" : ""}>ICC 文件</span>
-                  {pending ? (
-                    <span
-                      className="h-2 w-2 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
+                <div className="flex items-center gap-xs min-w-0">
+                  <span className="font-label-md text-label-md text-on-surface">ICC 文件</span>
+                  {iccState === "uploading" || iccState === "checking" ? (
+                    <svg
+                      className="h-3.5 w-3.5 animate-spin text-amber-400 motion-reduce:animate-none"
+                      viewBox="0 0 24 24"
+                      fill="none"
                       aria-hidden
-                    />
+                    >
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : iccState === "in-library" ? (
+                    <Icon name="check_circle" filled className="text-[15px] text-tertiary" />
+                  ) : iccState === "failed" ? (
+                    <Icon name="error" filled className="text-[15px] text-error" />
+                  ) : null}
+                  {hasIcc ? (
+                    <span
+                      className="ml-auto truncate font-mono text-[11px] text-on-surface-variant/70"
+                      title={iccName}
+                    >
+                      {iccName}
+                    </span>
                   ) : null}
                 </div>
-                <p className="mt-xs text-body-sm text-on-surface-variant">{iccStatusText}</p>
-                {hasIcc ? (
-                  <p
-                    className="mt-1 truncate font-mono text-[11px] text-on-surface-variant/70"
-                    title={iccName}
-                  >
-                    {iccName}
-                  </p>
-                ) : null}
+                <p className="mt-1 text-[11px] leading-relaxed text-on-surface-variant">
+                  {iccStatusText}
+                </p>
                 {iccState === "failed" ? (
                   <div className="mt-sm flex gap-sm">
                     <button
