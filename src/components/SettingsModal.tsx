@@ -73,13 +73,15 @@ interface SettingsModalProps {
   onApiEnvChanged?: () => void;
 }
 
-type SettingsTab = "general" | "shortcuts" | "display" | "process";
+type SettingsTab = "general" | "shortcuts" | "display" | "process" | "dev";
 
 const NAV_ITEMS: { id: SettingsTab; icon: string; label: string }[] = [
   { id: "general", icon: "settings", label: "常规设置" },
   { id: "shortcuts", icon: "keyboard", label: "快捷键" },
   { id: "display", icon: "monitor", label: "显示设置" },
   { id: "process", icon: "terminal", label: "进程监听" },
+  // 开发设置只在开发构建渲染（见侧栏过滤），正式版不出现
+  { id: "dev", icon: "code", label: "开发设置" },
 ];
 
 const PRESET_ICONS: Record<string, string> = {
@@ -445,7 +447,7 @@ function SettingsModal({
       >
         {/* Sidebar */}
         <div className="w-64 bg-surface-container-low/50 border-r border-outline-variant/20 flex flex-col gap-2 p-6">
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.filter((item) => item.id !== "dev" || runtimeEnv.isDev).map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
@@ -483,12 +485,14 @@ function SettingsModal({
                 {activeTab === "shortcuts" && "快捷键绑定"}
                 {activeTab === "display" && "显示设置"}
                 {activeTab === "process" && "进程监听"}
+                {activeTab === "dev" && "开发设置"}
               </h2>
               <p className="font-body-md text-body-md text-on-surface-variant">
                 {activeTab === "general" && "管理 Filter Manage 的核心运行行为"}
                 {activeTab === "shortcuts" && "为每个颜色方案绑定全局快捷键"}
                 {activeTab === "display" && "管理显示器命名与托盘展示的方案"}
                 {activeTab === "process" && "根据运行中的进程自动切换配色方案"}
+                {activeTab === "dev" && "接口环境等开发者选项，仅开发构建可见"}
               </p>
             </div>
             <button
@@ -657,57 +661,6 @@ function SettingsModal({
                     </button>
                   </div>
                 </div>
-
-                {/* ===== 开发设置（仅开发构建显示） ===== */}
-                {runtimeEnv.isDev && (
-                  <>
-                    {/* Divider */}
-                    <div className="h-px bg-outline-variant/30 w-full" />
-
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Icon name="terminal" className="text-primary text-[18px]" />
-                        <h4 className="font-title-sm text-title-sm">开发设置</h4>
-                      </div>
-                      <div className="flex items-center justify-between gap-6">
-                        <div className="flex-1 min-w-0 space-y-1 text-left">
-                          <h4 className="font-label-md text-label-md">接口环境</h4>
-                          <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
-                            当前：{runtimeEnv.apiHosts.join(" / ") || "线上接口"}
-                            <br />
-                            功能开关与 ICC 市场立即生效，公告与更新检查重启后生效。
-                            <br />
-                            仅开发构建可用，正式版固定使用线上接口。
-                          </p>
-                        </div>
-                        <div className="flex items-center rounded-lg bg-surface-container-highest/60 p-[3px] shrink-0">
-                          <button
-                            onClick={() => void handleApiEnvChange("production")}
-                            disabled={switchingEnv}
-                            className={`px-3.5 py-1.5 rounded-md font-label-md text-label-md whitespace-nowrap transition-all duration-200 active:scale-95 disabled:opacity-40 ${
-                              runtimeEnv.apiEnv === "production"
-                                ? "bg-primary/15 text-primary"
-                                : "text-on-surface-variant hover:text-on-surface"
-                            }`}
-                          >
-                            线上
-                          </button>
-                          <button
-                            onClick={() => void handleApiEnvChange("staging")}
-                            disabled={switchingEnv}
-                            className={`px-3.5 py-1.5 rounded-md font-label-md text-label-md whitespace-nowrap transition-all duration-200 active:scale-95 disabled:opacity-40 ${
-                              runtimeEnv.apiEnv === "staging"
-                                ? "bg-primary/15 text-primary"
-                                : "text-on-surface-variant hover:text-on-surface"
-                            }`}
-                          >
-                            预发
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
 
               </div>
             )}
@@ -1036,6 +989,48 @@ function SettingsModal({
                     </div>
                   )}
 
+                </div>
+              </div>
+            )}
+
+            {/* ===== 开发设置（仅开发构建显示此页签） ===== */}
+            {activeTab === "dev" && runtimeEnv.isDev && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between gap-6 p-5 bg-surface-container-high/60 rounded-xl border border-outline-variant/20 transition-all duration-300 hover:bg-surface-container-high/80">
+                  <div className="flex-1 min-w-0 space-y-1 text-left">
+                    <h4 className="font-title-sm text-title-sm">接口环境</h4>
+                    <p className="font-label-sm text-label-sm leading-normal text-on-surface-variant">
+                      当前：{runtimeEnv.apiHosts.join(" / ") || "线上接口"}
+                      <br />
+                      功能开关与方案分享立即生效，公告与更新检查重启后生效。
+                      <br />
+                      仅开发构建可用，正式版固定使用线上接口。
+                    </p>
+                  </div>
+                  <div className="flex items-center rounded-lg bg-surface-container-highest/60 p-[3px] shrink-0">
+                    <button
+                      onClick={() => void handleApiEnvChange("production")}
+                      disabled={switchingEnv}
+                      className={`px-3.5 py-1.5 rounded-md font-label-md text-label-md whitespace-nowrap transition-all duration-200 active:scale-95 disabled:opacity-40 ${
+                        runtimeEnv.apiEnv === "production"
+                          ? "bg-primary/15 text-primary"
+                          : "text-on-surface-variant hover:text-on-surface"
+                      }`}
+                    >
+                      线上
+                    </button>
+                    <button
+                      onClick={() => void handleApiEnvChange("staging")}
+                      disabled={switchingEnv}
+                      className={`px-3.5 py-1.5 rounded-md font-label-md text-label-md whitespace-nowrap transition-all duration-200 active:scale-95 disabled:opacity-40 ${
+                        runtimeEnv.apiEnv === "staging"
+                          ? "bg-primary/15 text-primary"
+                          : "text-on-surface-variant hover:text-on-surface"
+                      }`}
+                    >
+                      预发
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
