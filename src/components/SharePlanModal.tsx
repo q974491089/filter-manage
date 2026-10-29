@@ -319,10 +319,19 @@ export default function SharePlanModal({
         aria-labelledby="share-plan-title"
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="bg-surface-container rounded-xl shadow-2xl border border-outline-variant/25 w-[560px] max-w-[94vw] max-h-[90vh] flex flex-col overflow-hidden"
+        className="relative bg-surface-container rounded-xl shadow-2xl border border-outline-variant/25 w-[560px] max-w-[94vw] max-h-[90vh] flex flex-col overflow-hidden animate-[slide-fade-up_0.28s_cubic-bezier(0.16,1,0.3,1)_forwards] motion-reduce:animate-none"
       >
+        {/* 环境景深：头部一枚极淡的品牌色径向洗染（随主题 token 走） */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-28"
+          style={{
+            backgroundImage:
+              "radial-gradient(120% 120% at 50% 0%, rgb(var(--color-primary) / 0.07), transparent 62%)",
+          }}
+        />
         {/* Header */}
-        <div className="flex items-start justify-between gap-md px-lg pt-lg pb-md shrink-0 border-b border-outline-variant/15">
+        <div className="relative flex items-start justify-between gap-md px-lg pt-lg pb-md shrink-0 border-b border-outline-variant/15">
           <div>
             <h2 id="share-plan-title" className="font-headline-sm text-headline-sm text-on-surface">
               分享方案
@@ -341,14 +350,14 @@ export default function SharePlanModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="relative flex-1 min-h-0 overflow-y-auto custom-scrollbar">
           {link ? (
             <div className="px-lg py-lg space-y-md">
               <div className="flex items-center gap-sm rounded-md bg-tertiary/10 px-md py-sm text-tertiary font-label-md text-label-md">
                 <Icon name="check_circle" filled className="text-[18px]" />
                 分享链接已生成，已复制到剪贴板
               </div>
-              <div className="rounded-md border border-outline-variant/25 bg-surface-container-high px-md py-sm break-all font-body-sm text-body-sm text-on-surface select-all">
+              <div className="rounded-md border border-outline-variant/25 bg-surface-container-high px-md py-sm break-all font-mono text-[13px] leading-relaxed text-on-surface select-all">
                 {link}
               </div>
               <div className="flex gap-sm">
@@ -374,12 +383,12 @@ export default function SharePlanModal({
                   效果图 <span className="text-on-surface-variant/60">（可选）</span>
                 </label>
                 {cover ? (
-                  <div className="overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high">
-                    <div className="relative aspect-[16/9] max-h-44">
+                  <div className="group overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high">
+                    <div className="relative aspect-[16/9] max-h-44 overflow-hidden">
                       <img
                         src={coverPreviewUrl}
                         alt="效果图预览"
-                        className="h-full w-full object-cover"
+                        className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
                       />
                       <button
                         onClick={() => setCover(null)}
@@ -448,7 +457,7 @@ export default function SharePlanModal({
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     maxLength={200}
-                    className={inputClass}
+                    className={`${inputClass} text-body-lg`}
                   />
                 </div>
                 <div>
@@ -493,11 +502,11 @@ export default function SharePlanModal({
                 <label className="block font-label-md text-label-md text-on-surface-variant mb-xs">
                   将分享的参数
                 </label>
-                <div className="grid grid-cols-3 gap-x-md gap-y-1.5 rounded-md bg-surface-container-high/50 px-md py-sm">
+                <div className="grid grid-flow-dense grid-cols-3 gap-x-md gap-y-1.5 rounded-md bg-surface-container-high/50 px-md py-sm">
                   {summaryPairs.map(([k, v]) => (
                     <div key={k} className="flex items-baseline justify-between gap-sm min-w-0">
                       <span className="shrink-0 text-[11px] text-on-surface-variant">{k}</span>
-                      <span className="truncate font-label-md text-label-md text-on-surface tabular-nums">
+                      <span className="truncate font-label-md text-label-md font-medium text-on-surface tabular-nums">
                         {v}
                       </span>
                     </div>
@@ -566,7 +575,7 @@ export default function SharePlanModal({
 
         {/* Footer */}
         {link ? null : (
-          <div className="shrink-0 flex items-center justify-between gap-sm border-t border-outline-variant/15 bg-surface-container px-lg py-md">
+          <div className="relative shrink-0 flex items-center justify-between gap-sm border-t border-outline-variant/15 bg-surface-container px-lg py-md">
             <span className="mr-auto text-[11px] text-on-surface-variant">
               链接生成后可随时在后台撤销
             </span>
