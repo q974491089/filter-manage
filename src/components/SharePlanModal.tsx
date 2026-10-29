@@ -43,6 +43,9 @@ type IccState =
 /** 客户端「未选择 ICC」的哨兵值：方案保存时会把当前选中的 profile 名写进去 */
 const NO_ICC_SENTINELS = new Set(["Default", "Default.icc"]);
 
+const inputClass =
+  "w-full px-sm py-sm rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-on-surface transition-colors";
+
 export default function SharePlanModal({
   open,
   config,
@@ -200,6 +203,15 @@ export default function SharePlanModal({
     [config],
   );
 
+  const summaryPairs: Array<[string, string]> = [
+    ["亮度", String(color.brightness)],
+    ["对比度", String(color.contrast)],
+    ["Gamma", String(color.gamma)],
+    ["数字振动", String(color.digitalVibrance)],
+    ["RGB", `${color.rgbR} / ${color.rgbG} / ${color.rgbB}`],
+    ["分辨率", config?.resolution || "不调整"],
+  ];
+
   if (!open || !config) return null;
 
   const iccAttached = iccState === "in-library" && iccBytes !== null;
@@ -272,7 +284,7 @@ export default function SharePlanModal({
       case "checking":
         return stage || "正在检查 ICC 文件…";
       case "in-library":
-        return "文件已在库中，导入方会自动下载";
+        return "已在库中，导入方会自动下载";
       case "uploading":
         return stage || "正在自动上传 ICC 文件…";
       case "failed":
@@ -284,12 +296,16 @@ export default function SharePlanModal({
     }
   })();
 
-  const iccIconName =
+  const iccTone =
     iccState === "in-library"
-      ? "check_circle"
+      ? { box: "bg-tertiary/10", icon: "text-tertiary", name: "check_circle" }
       : iccState === "failed"
-        ? "error"
-        : "info";
+        ? { box: "bg-error/10", icon: "text-error", name: "error" }
+        : iccState === "uploading" || iccState === "checking"
+          ? { box: "bg-primary/10", icon: "text-primary", name: "info" }
+          : { box: "bg-surface-container-high/50", icon: "text-on-surface-variant", name: "info" };
+
+  const pending = iccState === "checking" || iccState === "uploading";
 
   return (
     <div
@@ -305,6 +321,7 @@ export default function SharePlanModal({
         onClick={(e) => e.stopPropagation()}
         className="bg-surface-container rounded-xl shadow-2xl border border-outline-variant/25 w-[560px] max-w-[94vw] max-h-[90vh] flex flex-col overflow-hidden"
       >
+        {/* Header */}
         <div className="flex items-start justify-between gap-md px-lg pt-lg pb-md shrink-0 border-b border-outline-variant/15">
           <div>
             <h2 id="share-plan-title" className="font-headline-sm text-headline-sm text-on-surface">
@@ -323,149 +340,198 @@ export default function SharePlanModal({
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-lg py-md space-y-md">
+        {/* Body */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {link ? (
-            <div className="space-y-md">
-              <div className="flex items-center gap-sm text-primary font-label-md">
+            <div className="px-lg py-lg space-y-md">
+              <div className="flex items-center gap-sm rounded-md bg-tertiary/10 px-md py-sm text-tertiary font-label-md text-label-md">
                 <Icon name="check_circle" filled className="text-[18px]" />
-                分享链接已生成
+                分享链接已生成，已复制到剪贴板
               </div>
-              <div className="px-md py-sm rounded-lg bg-surface-container-high border border-outline-variant/25 break-all font-label-md text-label-md">
+              <div className="rounded-md border border-outline-variant/25 bg-surface-container-high px-md py-sm break-all font-body-sm text-body-sm text-on-surface select-all">
                 {link}
               </div>
               <div className="flex gap-sm">
                 <button
                   onClick={() => void invoke("copy_text", { text: link })}
-                  className="flex-1 py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition"
+                  className="min-h-10 flex-1 rounded-md bg-primary/12 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 >
-                  再次复制
+                  复制链接
                 </button>
                 <button
                   onClick={onClose}
-                  className="flex-1 py-sm rounded-md bg-surface-variant/60 text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition"
+                  className="min-h-10 flex-1 rounded-md border border-outline-variant/30 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 >
                   完成
                 </button>
               </div>
             </div>
           ) : (
-            <>
+            <div className="px-lg py-md space-y-lg">
+              {/* 效果图：视觉锚点，16:9 横幅 */}
               <div>
-                <label className="font-label-md text-label-md text-on-surface-variant">标题</label>
-                <input
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  maxLength={200}
-                  className="mt-xs w-full px-md h-10 rounded-lg bg-surface-container-high border border-outline-variant/25 focus:border-primary/60 outline-none font-body-md text-body-md"
-                />
-              </div>
-
-              <div>
-                <label className="font-label-md text-label-md text-on-surface-variant">
-                  说明（可选）
+                <label className="block font-label-md text-label-md text-on-surface-variant mb-xs">
+                  效果图 <span className="text-on-surface-variant/60">（可选）</span>
                 </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  maxLength={2000}
-                  rows={2}
-                  placeholder="这套参数适合什么场景、什么显示器"
-                  className="mt-xs w-full px-md py-sm rounded-lg bg-surface-container-high border border-outline-variant/25 focus:border-primary/60 outline-none font-body-sm text-body-sm resize-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-sm">
-                {[
-                  ["亮度", color.brightness],
-                  ["对比度", color.contrast],
-                  ["Gamma", color.gamma],
-                  ["数字振动", color.digitalVibrance],
-                  ["RGB", `${color.rgbR}/${color.rgbG}/${color.rgbB}`],
-                  ["分辨率", config?.resolution || "不调整"],
-                ].map(([k, v]) => (
-                  <div key={String(k)} className="px-sm py-2 rounded-lg bg-surface-container-high/60">
-                    <div className="text-[11px] text-on-surface-variant">{k}</div>
-                    <div className="font-label-md text-label-md text-on-surface">{v}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div>
-                <label className="font-label-md text-label-md text-on-surface-variant">
-                  效果图（可选）
-                </label>
-                <div className="mt-xs flex items-center gap-sm">
-                  {coverPreviewUrl ? (
-                    <img
-                      src={coverPreviewUrl}
-                      alt="效果图预览"
-                      className="w-24 h-16 object-cover rounded-md border border-outline-variant/25"
-                    />
-                  ) : (
-                    <div className="w-24 h-16 grid place-items-center rounded-md bg-surface-container-high text-on-surface-variant/50">
-                      <Icon name="image" className="text-[20px]" />
+                {cover ? (
+                  <div className="overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high">
+                    <div className="relative aspect-[16/9] max-h-44">
+                      <img
+                        src={coverPreviewUrl}
+                        alt="效果图预览"
+                        className="h-full w-full object-cover"
+                      />
+                      <button
+                        onClick={() => setCover(null)}
+                        aria-label="移除效果图"
+                        className="absolute right-sm top-sm grid h-8 w-8 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                      >
+                        <Icon name="close" className="text-[18px]" />
+                      </button>
                     </div>
-                  )}
-                  <div className="flex flex-col gap-1">
-                    <button
-                      onClick={() => coverInputRef.current?.click()}
-                      className="px-sm py-1 rounded-md text-primary font-label-sm text-label-sm hover:bg-primary/10 transition"
-                    >
-                      选择图片
-                    </button>
+                    <p className="truncate px-sm py-xs text-xs text-on-surface-variant" title={cover.name}>
+                      {cover.name}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-sm rounded-md border border-dashed border-outline-variant/30 bg-surface-container-high/40 px-md py-sm">
+                    <Icon name="image" className="text-[20px] text-on-surface-variant/60" />
+                    <p className="mr-auto text-body-sm text-on-surface-variant">
+                      给接收方看调校后的效果
+                    </p>
                     <button
                       onClick={() => {
                         void onCaptureEffect().then((data) => {
                           if (!data) return;
                           void fetch(`data:image/png;base64,${data}`)
                             .then((r) => r.blob())
-                            .then((b) => setCover(new File([b], "effect-preview.png", { type: "image/png" })));
+                            .then((b) =>
+                              setCover(new File([b], "effect-preview.png", { type: "image/png" })),
+                            );
                         });
                       }}
-                      className="px-sm py-1 rounded-md text-on-surface-variant font-label-sm text-label-sm hover:bg-surface-variant/50 transition"
+                      className="min-h-9 rounded-md bg-primary/12 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
                       用当前参数生成
                     </button>
-                    {cover ? (
-                      <button
-                        onClick={() => setCover(null)}
-                        className="px-sm py-1 rounded-md text-error font-label-sm text-label-sm hover:bg-error/10 transition"
-                      >
-                        移除
-                      </button>
-                    ) : null}
+                    <button
+                      onClick={() => coverInputRef.current?.click()}
+                      className="min-h-9 rounded-md border border-outline-variant/30 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                    >
+                      选择图片
+                    </button>
+                    <input
+                      ref={coverInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) setCover(file);
+                      }}
+                    />
                   </div>
+                )}
+              </div>
+
+              {/* 标题 + 昵称 */}
+              <div className="grid grid-cols-[1fr_150px] gap-sm">
+                <div>
+                  <label
+                    htmlFor="share-plan-title-input"
+                    className="block font-label-md text-label-md text-on-surface-variant mb-xs"
+                  >
+                    标题 <span className="text-error">*</span>
+                  </label>
                   <input
-                    ref={coverInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) setCover(file);
-                    }}
+                    id="share-plan-title-input"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    maxLength={200}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="share-plan-nickname"
+                    className="block font-label-md text-label-md text-on-surface-variant mb-xs"
+                  >
+                    昵称
+                  </label>
+                  <input
+                    id="share-plan-nickname"
+                    value={nickname}
+                    onChange={(e) => setNickname(e.target.value)}
+                    maxLength={50}
+                    placeholder="匿名"
+                    className={inputClass}
                   />
                 </div>
               </div>
 
-              <div className="px-md py-sm rounded-lg border border-outline-variant/25 bg-surface-container-high/40">
+              {/* 说明 */}
+              <div>
+                <label
+                  htmlFor="share-plan-description"
+                  className="block font-label-md text-label-md text-on-surface-variant mb-xs"
+                >
+                  说明 <span className="text-on-surface-variant/60">（可选）</span>
+                </label>
+                <textarea
+                  id="share-plan-description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  maxLength={2000}
+                  rows={2}
+                  placeholder="这套参数适合什么场景、什么显示器"
+                  className={`${inputClass} resize-none`}
+                />
+              </div>
+
+              {/* 参数摘要：只读，紧凑单容器 */}
+              <div>
+                <label className="block font-label-md text-label-md text-on-surface-variant mb-xs">
+                  将分享的参数
+                </label>
+                <div className="grid grid-cols-3 gap-x-md gap-y-1.5 rounded-md bg-surface-container-high/50 px-md py-sm">
+                  {summaryPairs.map(([k, v]) => (
+                    <div key={k} className="flex items-baseline justify-between gap-sm min-w-0">
+                      <span className="shrink-0 text-[11px] text-on-surface-variant">{k}</span>
+                      <span className="truncate font-label-md text-label-md text-on-surface tabular-nums">
+                        {v}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ICC 状态：tonal 状态条 */}
+              <div
+                data-name="share-icc-status"
+                className={`rounded-md px-md py-sm transition-colors duration-200 ${iccTone.box}`}
+              >
                 <div className="flex items-center gap-xs font-label-md text-label-md">
                   <Icon
-                    name={iccIconName}
+                    name={iccTone.icon}
                     filled={iccState === "in-library"}
-                    className={
-                      iccState === "in-library"
-                        ? "text-primary"
-                        : iccState === "failed"
-                          ? "text-error"
-                          : "text-on-surface-variant"
-                    }
+                    className={iccTone.icon}
                   />
-                  ICC 文件
+                  <span className={iccState === "in-library" ? "text-on-surface" : ""}>ICC 文件</span>
+                  {pending ? (
+                    <span
+                      className="h-2 w-2 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
+                      aria-hidden
+                    />
+                  ) : null}
                 </div>
                 <p className="mt-xs text-body-sm text-on-surface-variant">{iccStatusText}</p>
                 {hasIcc ? (
-                  <p className="mt-1 text-[11px] text-on-surface-variant/70 break-all">{iccName}</p>
+                  <p
+                    className="mt-1 truncate font-mono text-[11px] text-on-surface-variant/70"
+                    title={iccName}
+                  >
+                    {iccName}
+                  </p>
                 ) : null}
                 {iccState === "failed" ? (
                   <div className="mt-sm flex gap-sm">
@@ -478,7 +544,7 @@ export default function SharePlanModal({
                           });
                         }
                       }}
-                      className="flex-1 py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition"
+                      className="min-h-9 flex-1 rounded-md bg-primary/12 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
                       重试上传
                     </button>
@@ -487,46 +553,34 @@ export default function SharePlanModal({
                         setIccNote("上传失败，已按你的选择只分享参数");
                         setIccState("params-only");
                       }}
-                      className="flex-1 py-sm rounded-md bg-surface-variant/60 text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition"
+                      className="min-h-9 flex-1 rounded-md border border-outline-variant/30 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
                       不传 ICC，仅分享参数
                     </button>
                   </div>
                 ) : null}
               </div>
-
-              <div>
-                <label className="font-label-md text-label-md text-on-surface-variant">
-                  昵称（可选，显示在分享页）
-                </label>
-                <input
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  maxLength={50}
-                  placeholder="匿名"
-                  className="mt-xs w-full px-md h-10 rounded-lg bg-surface-container-high border border-outline-variant/25 focus:border-primary/60 outline-none font-body-md text-body-md"
-                />
-              </div>
-            </>
+            </div>
           )}
         </div>
 
+        {/* Footer */}
         {link ? null : (
-          <div className="shrink-0 px-lg py-md border-t border-outline-variant/15 flex items-center justify-between gap-sm">
-            <span className="text-[11px] text-on-surface-variant">
-              {stage || "链接生成后可随时在后台撤销"}
+          <div className="shrink-0 flex items-center justify-between gap-sm border-t border-outline-variant/15 bg-surface-container px-lg py-md">
+            <span className="mr-auto text-[11px] text-on-surface-variant">
+              链接生成后可随时在后台撤销
             </span>
             <div className="flex gap-sm">
               <button
                 onClick={onClose}
-                className="px-md py-sm rounded-md text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition"
+                className="min-h-10 px-md py-sm rounded-md text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
               >
                 取消
               </button>
               <button
                 onClick={() => void submit()}
                 disabled={!canCreate}
-                className="px-md py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition disabled:opacity-40"
+                className="min-h-10 px-lg py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition-[filter] duration-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               >
                 {submitting ? stage || "生成中…" : "生成分享链接"}
               </button>

@@ -32,6 +32,9 @@ interface ColorConfig {
   icc_profile: string | null;
 }
 
+const inputClass =
+  "w-full min-h-10 px-sm py-sm rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-on-surface transition-colors";
+
 export default function ImportShareModal({
   open,
   onClose,
@@ -160,6 +163,17 @@ export default function ImportShareModal({
       ? shareAssetUrl(share.thumbKey || share.coverKey)
       : "";
 
+  const summaryPairs: Array<[string, string]> = share
+    ? [
+        ["亮度", String(share.color.brightness)],
+        ["对比度", String(share.color.contrast)],
+        ["Gamma", String(share.color.gamma)],
+        ["数字振动", String(share.color.digitalVibrance)],
+        ["RGB", `${share.color.rgbR} / ${share.color.rgbG} / ${share.color.rgbB}`],
+        ["分辨率", share.resolution || "不调整"],
+      ]
+    : [];
+
   return (
     <div
       className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-3 backdrop-blur-[2px] sm:p-5"
@@ -174,6 +188,7 @@ export default function ImportShareModal({
         onClick={(e) => e.stopPropagation()}
         className="bg-surface-container rounded-xl shadow-2xl border border-outline-variant/25 w-[520px] max-w-[94vw] max-h-[90vh] flex flex-col overflow-hidden"
       >
+        {/* Header */}
         <div className="flex items-start justify-between gap-md px-lg pt-lg pb-md shrink-0 border-b border-outline-variant/15">
           <div>
             <h2 id="import-share-title" className="font-headline-sm text-headline-sm text-on-surface">
@@ -192,6 +207,7 @@ export default function ImportShareModal({
           </button>
         </div>
 
+        {/* Body */}
         <div className="flex-1 min-h-0 overflow-y-auto px-lg py-md space-y-md">
           <div className="flex gap-sm">
             <input
@@ -201,83 +217,84 @@ export default function ImportShareModal({
                 if (e.key === "Enter") void lookup();
               }}
               placeholder="https://.../s/xxxxxxxx"
-              className="flex-1 px-md h-10 rounded-lg bg-surface-container-high border border-outline-variant/25 focus:border-primary/60 outline-none font-body-sm text-body-sm"
+              aria-label="分享链接"
+              className={inputClass}
             />
             <button
               onClick={() => void lookup()}
               disabled={loading || !input.trim()}
-              className="px-md rounded-lg bg-primary/12 text-primary font-label-md text-label-md hover:bg-primary/20 transition disabled:opacity-40"
+              className="min-h-10 shrink-0 px-lg rounded-md bg-primary/12 text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             >
               {loading ? "查询中" : "查询"}
             </button>
           </div>
 
           {error ? (
-            <div className="px-md py-sm rounded-lg bg-error/10 text-error font-body-sm text-body-sm">
-              {error}
-            </div>
+            <div className="rounded-md bg-error/10 px-md py-sm text-body-sm text-error">{error}</div>
           ) : null}
 
           {share ? (
-            <div className="rounded-lg border border-outline-variant/25 overflow-hidden">
+            <div className="overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high/40">
               {coverUrl && !imageFailed ? (
-                <img
-                  src={coverUrl}
-                  alt={share.title}
-                  className="w-full h-40 object-cover bg-surface-container-high"
-                  onError={() => setImageFailed(true)}
-                />
+                <div className="aspect-[16/9] max-h-44 bg-surface-container-high">
+                  <img
+                    src={coverUrl}
+                    alt={share.title}
+                    className="h-full w-full object-cover"
+                    onError={() => setImageFailed(true)}
+                  />
+                </div>
               ) : null}
               <div className="p-md space-y-sm">
-                <div className="font-title-sm text-title-sm text-on-surface">{share.title}</div>
-                <div className="text-[11px] text-on-surface-variant">
-                  {share.contributorName ? `由 ${share.contributorName} 分享 · ` : ""}
-                  {share.importCount} 次导入
+                <div>
+                  <div className="font-title-sm text-title-sm text-on-surface">{share.title}</div>
+                  <div className="mt-1 text-[11px] text-on-surface-variant">
+                    {share.contributorName ? `由 ${share.contributorName} 分享 · ` : ""}
+                    {share.importCount} 次导入
+                  </div>
                 </div>
                 {share.description ? (
                   <p className="text-body-sm text-on-surface-variant whitespace-pre-wrap">
                     {share.description}
                   </p>
                 ) : null}
-                <div className="grid grid-cols-3 gap-sm">
-                  {[
-                    ["亮度", share.color.brightness],
-                    ["对比度", share.color.contrast],
-                    ["Gamma", share.color.gamma],
-                    ["数字振动", share.color.digitalVibrance],
-                    ["RGB", `${share.color.rgbR}/${share.color.rgbG}/${share.color.rgbB}`],
-                    ["分辨率", share.resolution || "不调整"],
-                  ].map(([k, v]) => (
-                    <div key={String(k)} className="px-sm py-2 rounded-lg bg-surface-container-high/60">
-                      <div className="text-[11px] text-on-surface-variant">{k}</div>
-                      <div className="font-label-md text-label-md text-on-surface">{v}</div>
+                <div className="grid grid-cols-3 gap-x-md gap-y-1.5 rounded-md bg-surface-container-high/50 px-md py-sm">
+                  {summaryPairs.map(([k, v]) => (
+                    <div key={k} className="flex items-baseline justify-between gap-sm min-w-0">
+                      <span className="shrink-0 text-[11px] text-on-surface-variant">{k}</span>
+                      <span className="truncate font-label-md text-label-md text-on-surface tabular-nums">
+                        {v}
+                      </span>
                     </div>
                   ))}
                 </div>
                 <div className="flex items-center gap-xs text-[11px] text-on-surface-variant">
                   <Icon name={share.iccName ? "download" : "info"} className="text-[14px]" />
-                  {share.iccName ? `含 ICC：${share.iccName}` : "只含色彩参数，不含 ICC 文件"}
+                  {share.iccName
+                    ? `含 ICC：${share.iccName}`
+                    : "只含色彩参数，不含 ICC 文件"}
                 </div>
               </div>
             </div>
           ) : null}
         </div>
 
-        <div className="shrink-0 px-lg py-md border-t border-outline-variant/15 flex items-center justify-between gap-sm">
-          <span className="text-[11px] text-on-surface-variant">
+        {/* Footer */}
+        <div className="shrink-0 flex items-center justify-between gap-sm border-t border-outline-variant/15 bg-surface-container px-lg py-md">
+          <span className="mr-auto text-[11px] text-on-surface-variant">
             {stage || "导入不会覆盖你已有的同名方案"}
           </span>
           <div className="flex gap-sm">
             <button
               onClick={onClose}
-              className="px-md py-sm rounded-md text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition"
+              className="min-h-10 px-md py-sm rounded-md text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             >
               取消
             </button>
             <button
               onClick={() => void doImport()}
               disabled={!share || importing}
-              className="px-md py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition disabled:opacity-40"
+              className="min-h-10 px-lg py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition-[filter] duration-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               {importing ? stage || "导入中…" : "导入这条方案"}
             </button>
