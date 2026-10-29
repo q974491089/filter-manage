@@ -212,8 +212,8 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
               disabled={importing}
               className="w-full h-full py-xs px-sm rounded-md bg-surface-variant/50 text-on-surface-variant border border-outline-variant/30 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-surface-variant/80 hover:border-outline-variant/50 transition-all disabled:opacity-40 whitespace-nowrap"
             >
-              <Icon name="add" className="text-[18px]" />
-              <span>{importing ? "导入中..." : "新增 ICC"}</span>
+              <Icon name="upload" className="text-[18px]" />
+              <span>{importing ? "导入中..." : "导入 ICC"}</span>
             </button>
           </div>
           <button
