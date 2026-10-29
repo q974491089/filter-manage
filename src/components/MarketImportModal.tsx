@@ -23,6 +23,8 @@ interface MarketImportModalProps {
   onImported: () => void | Promise<void>;
   showToast: ToastFn;
   iccEffectPreview: string | null;
+  /** 后台功能开关：市场投稿。false 时隐藏「我要提供」与「我的提交」。 */
+  uploadEnabled?: boolean;
 }
 
 const PAGE_SIZE = 30;
@@ -39,6 +41,7 @@ function MarketImportModal({
   onImported,
   showToast,
   iccEffectPreview,
+  uploadEnabled = true,
 }: MarketImportModalProps) {
   const [items, setItems] = useState<MarketProfile[]>([]);
   const [total, setTotal] = useState(0);
@@ -87,7 +90,7 @@ function MarketImportModal({
     void load(0, false);
   }, [open, load]);
 
-  // 每次重新打开都从干净的搜索状态开始
+  // 每次重新打开都从干净的搜索状态开始；投稿被关闭时不允许停在「我的提交」
   useEffect(() => {
     if (!open) return;
     setInput("");
@@ -95,6 +98,11 @@ function MarketImportModal({
     setError(null);
     setTab("market");
   }, [open]);
+
+  // 运行中开关被关掉（例如启动配置晚到）也要退回「市场」页签
+  useEffect(() => {
+    if (!uploadEnabled && tab === "mine") setTab("market");
+  }, [uploadEnabled, tab]);
 
   const loadMine = useCallback(async () => {
     setMineLoading(true);
@@ -162,58 +170,62 @@ function MarketImportModal({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-sm">
-            <div role="tablist" aria-label="ICC 市场内容" className="flex items-center gap-1 rounded-lg bg-surface-container-high p-1">
+            {uploadEnabled ? (
+              <div role="tablist" aria-label="ICC 市场内容" className="flex items-center gap-1 rounded-lg bg-surface-container-high p-1">
+                <button
+                  id="icc-market-tab"
+                  role="tab"
+                  aria-selected={tab === "market"}
+                  aria-controls="icc-market-panel"
+                  tabIndex={tab === "market" ? 0 : -1}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                      event.preventDefault();
+                      setTab("mine");
+                    }
+                  }}
+                  onClick={() => setTab("market")}
+                  className={`px-md py-sm rounded-md font-label-md text-label-md transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${
+                    tab === "market"
+                      ? "bg-primary/12 text-primary"
+                      : "text-on-surface-variant hover:bg-surface-variant/50"
+                  }`}
+                >
+                  市场
+                </button>
+                <button
+                  id="icc-submissions-tab"
+                  role="tab"
+                  aria-selected={tab === "mine"}
+                  aria-controls="icc-submissions-panel"
+                  tabIndex={tab === "mine" ? 0 : -1}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setTab("market");
+                    }
+                  }}
+                  onClick={() => setTab("mine")}
+                  className={`px-md py-sm rounded-md font-label-md text-label-md transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${
+                    tab === "mine"
+                      ? "bg-primary/12 text-primary"
+                      : "text-on-surface-variant hover:bg-surface-variant/50"
+                  }`}
+                >
+                  我的提交
+                </button>
+              </div>
+            ) : null}
+            {uploadEnabled ? (
               <button
-                id="icc-market-tab"
-                role="tab"
-                aria-selected={tab === "market"}
-                aria-controls="icc-market-panel"
-                tabIndex={tab === "market" ? 0 : -1}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-                    event.preventDefault();
-                    setTab("mine");
-                  }
-                }}
-                onClick={() => setTab("market")}
-                className={`px-md py-sm rounded-md font-label-md text-label-md transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${
-                  tab === "market"
-                    ? "bg-primary/12 text-primary"
-                    : "text-on-surface-variant hover:bg-surface-variant/50"
-                }`}
+                data-name="submit-icc-button"
+                onClick={() => setSubmitOpen(true)}
+                className="flex items-center gap-xs px-md py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               >
-                市场
+                <Icon name="add" className="text-[16px]" />
+                我要提供
               </button>
-              <button
-                id="icc-submissions-tab"
-                role="tab"
-                aria-selected={tab === "mine"}
-                aria-controls="icc-submissions-panel"
-                tabIndex={tab === "mine" ? 0 : -1}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-                    event.preventDefault();
-                    setTab("market");
-                  }
-                }}
-                onClick={() => setTab("mine")}
-                className={`px-md py-sm rounded-md font-label-md text-label-md transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${
-                  tab === "mine"
-                    ? "bg-primary/12 text-primary"
-                    : "text-on-surface-variant hover:bg-surface-variant/50"
-                }`}
-              >
-                我的提交
-              </button>
-            </div>
-            <button
-              data-name="submit-icc-button"
-              onClick={() => setSubmitOpen(true)}
-              className="flex items-center gap-xs px-md py-sm rounded-md bg-primary text-on-primary font-label-md text-label-md hover:brightness-110 transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            >
-              <Icon name="add" className="text-[16px]" />
-              我要提供
-            </button>
+            ) : null}
             <button
               data-name="close-button"
               onClick={onClose}

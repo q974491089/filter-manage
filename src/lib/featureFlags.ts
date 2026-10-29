@@ -7,8 +7,15 @@
  * 判断规则统一为 `flags[key] !== false`：缺省、未知 key、拉取失败一律视为
  * 开放（fail-open），服务端故障不会把入口藏掉。新增受控入口时：在 Rust
  * builtin_defaults 补默认值 + 在这里加 key 常量 + 在对应组件接 isEnabled。
+ *
+ * 子项（如 icc_market_upload）由服务端做父级级联：父项关闭时下发值已是
+ * false，客户端无需关心层级，仍按扁平 key 判断。
  */
 export const FEATURE_ICC_MARKET = "icc_market";
+/** 子项：市场投稿（客户端「我要提供」/「我的提交」+ 后台审核列表） */
+export const FEATURE_ICC_MARKET_UPLOAD = "icc_market_upload";
+/** 子项：管理端投稿审核列表 */
+export const FEATURE_ICC_MARKET_REVIEW = "icc_market_review";
 
 export interface FeatureFlagsState {
   version: number;
