@@ -137,6 +137,8 @@ pub fn run() {
             icc::restore_default_icc_profile,
             icc::import_icc_profile,
             icc::import_market_icc,
+            icc::read_icc_file,
+            icc::import_shared_icc,
             icc::export_icc_profile,
             icc::search_icc_profiles,
             icc::set_preview_image,
@@ -207,6 +209,8 @@ pub fn run() {
             debug_recorder::debug_status,
             debug_recorder::debug_note,
             debug_recorder::debug_copy_report_text,
+            // 通用剪贴板（分享链接）
+            debug_recorder::copy_text,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

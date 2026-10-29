@@ -511,6 +511,12 @@ pub(crate) fn copy_report_text(text: &str) -> Result<(), String> {
     set_clipboard_bytes(CF_UNICODETEXT, &bytes)
 }
 
+/// 通用文本剪贴板（分享链接复制等场景）。复用报告文案的实现，
+/// 免得为「复制一段文本」再引一个插件。
+pub(crate) fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
+    copy_report_text(text)
+}
+
 // ─── Tauri 命令 ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -652,6 +658,21 @@ pub fn debug_status() -> bool {
 #[tauri::command]
 pub fn debug_note(source: String, event: String) {
     log(&source, event);
+}
+
+/// 复制任意文本到系统剪贴板（分享链接等）。
+///
+/// 不用 navigator.clipboard：WebView2 在部分环境下需要 secure context 与
+/// 用户手势，跨版本行为不一致；Win32 原生实现代码已经存在，直接复用。
+#[tauri::command]
+pub fn copy_text(text: String) -> Result<(), String> {
+    if text.is_empty() {
+        return Err("没有可复制的内容".to_string());
+    }
+    if text.len() > 8192 {
+        return Err("文本过长，无法复制".to_string());
+    }
+    copy_text_to_clipboard(&text)
 }
 
 #[cfg(test)]

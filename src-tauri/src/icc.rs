@@ -1,9 +1,14 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 use winreg::enums::*;
 use winreg::RegKey;
+
+/// ICC 单文件上限：与上传网关（Worker）和投稿链路保持一致，避免出现
+/// 「客户端能选、服务端拒收」的错位。
+const MAX_ICC_BYTES: usize = 2 * 1024 * 1024;
 
 /// 系统 ICC 配置文件目录。Windows 通常在 C 盘，但系统可能装在其它盘符，
 /// 用 %SystemRoot%（找不到时回退 C:\Windows）拼出真实路径。
@@ -1139,6 +1144,55 @@ pub fn import_icc_profile(src_path: String) -> Result<String, String> {
     Ok(file_name)
 }
 
+/// 校验 ICC 字节：大小区间、`acsp` 魔数、头部声明长度与文件长度一致。
+/// 市场下载、分享下载、本地读取共用这一份判断，避免各处宽严不一。
+fn validate_icc_bytes(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() < 128 || bytes.len() > MAX_ICC_BYTES {
+        return Err("配置文件大小异常".to_string());
+    }
+    if bytes.get(36..40) != Some(b"acsp".as_slice()) {
+        return Err("不是有效的 ICC 配置文件".to_string());
+    }
+    let declared = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    if declared != bytes.len() {
+        return Err("ICC 头部长度与文件不一致".to_string());
+    }
+    Ok(())
+}
+
+/// 把 ICC 字节写入系统 ICC 目录，返回最终文件名。
+///
+/// 同名且内容一致 → 直接复用（不重复写盘）；同名但内容不同 → 自动加序号。
+/// `tag` 只用于日志定位来源（market / share）。
+fn install_icc_bytes(bytes: &[u8], stem: &str, tag: &str) -> Result<String, String> {
+    let color_dir = color_dir();
+    let mut file_name = format!("{}.icc", stem);
+    let mut suffix = 2;
+
+    loop {
+        let dest = color_dir.join(&file_name);
+        if !dest.exists() {
+            fs::write(&dest, bytes).map_err(|e| format!("写入 ICC 失败: {}", e))?;
+            eprintln!(
+                "ICC: Imported {} profile -> '{}'",
+                tag,
+                dest.display()
+            );
+            return Ok(file_name);
+        }
+        if let Ok(existing) = fs::read(&dest) {
+            if existing.as_slice() == bytes {
+                return Ok(file_name);
+            }
+        }
+        if suffix > 50 {
+            return Err("同名配置文件过多，请先整理 ICC 目录".to_string());
+        }
+        file_name = format!("{}-{}.icc", stem, suffix);
+        suffix += 1;
+    }
+}
+
 /// 从 ICC 市场下载并安装一份配置。
 ///
 /// 只接受市场服务自己的配置 id（不接收任意 URL），下载地址由后端拼接，
@@ -1147,7 +1201,6 @@ pub fn import_icc_profile(src_path: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn import_market_icc(id: String, title: String) -> Result<String, String> {
     let market_api = crate::server_env::market_api_base();
-    const MAX_BYTES: usize = 2 * 1024 * 1024;
 
     if id.is_empty()
         || id.len() > 64
@@ -1174,7 +1227,7 @@ pub async fn import_market_icc(id: String, title: String) -> Result<String, Stri
         return Err(format!("下载失败: HTTP {}", resp.status()));
     }
     if let Some(len) = resp.content_length() {
-        if len as usize > MAX_BYTES {
+        if len as usize > MAX_ICC_BYTES {
             return Err("配置文件超过 2 MB".to_string());
         }
     }
@@ -1183,44 +1236,119 @@ pub async fn import_market_icc(id: String, title: String) -> Result<String, Stri
         .bytes()
         .await
         .map_err(|e| format!("读取配置失败: {}", e))?;
-    if bytes.len() < 128 || bytes.len() > MAX_BYTES {
-        return Err("配置文件大小异常".to_string());
-    }
-    if bytes.get(36..40) != Some(b"acsp".as_slice()) {
-        return Err("不是有效的 ICC 配置文件".to_string());
-    }
-    let declared = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
-    if declared != bytes.len() {
-        return Err("ICC 头部长度与文件不一致".to_string());
-    }
+    validate_icc_bytes(&bytes)?;
 
     let stem = sanitize_icc_file_stem(&title, &id);
-    let color_dir = color_dir();
-    let mut file_name = format!("{}.icc", stem);
-    let mut suffix = 2;
+    install_icc_bytes(&bytes, &stem, "market")
+}
 
-    loop {
-        let dest = color_dir.join(&file_name);
-        if !dest.exists() {
-            fs::write(&dest, &bytes).map_err(|e| format!("写入 ICC 失败: {}", e))?;
-            eprintln!(
-                "ICC: Imported market profile '{}' -> '{}'",
-                id,
-                dest.display()
-            );
-            return Ok(file_name);
-        }
-        if let Ok(existing) = fs::read(&dest) {
-            if existing.as_slice() == bytes.as_ref() {
-                return Ok(file_name);
-            }
-        }
-        if suffix > 50 {
-            return Err("同名配置文件过多，请先整理 ICC 目录".to_string());
-        }
-        file_name = format!("{}-{}.icc", stem, suffix);
-        suffix += 1;
+/// 读取系统 ICC 目录里的一份配置，供分享流程计算 sha256 并上传。
+///
+/// 只接受纯文件名：分享 payload 来自本地方案，但仍是外部输入，拒绝任何
+/// 路径分隔符以免变成任意文件读取器。返回 base64（前端已有 sha256 与上传
+/// 实现，无需在 Rust 侧再引一个哈希依赖）。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IccFileContent {
+    pub name: String,
+    pub size_bytes: usize,
+    pub base64: String,
+}
+
+#[tauri::command]
+pub fn read_icc_file(name: String) -> Result<IccFileContent, String> {
+    if name.is_empty()
+        || name.len() > 255
+        || name.contains('/')
+        || name.contains('\\')
+        || name == "."
+        || name == ".."
+    {
+        return Err("无效的 ICC 文件名".to_string());
     }
+
+    let path = color_dir().join(&name);
+    if !path.exists() {
+        return Err(format!("ICC 文件不存在: {}", name));
+    }
+    let meta = fs::metadata(&path).map_err(|e| format!("读取 ICC 信息失败: {}", e))?;
+    if meta.len() as usize > MAX_ICC_BYTES {
+        return Err("配置文件超过 2 MB".to_string());
+    }
+    let bytes = fs::read(&path).map_err(|e| format!("读取 ICC 失败: {}", e))?;
+    // 分享前就校验一次：坏文件不该被上传到库里
+    validate_icc_bytes(&bytes)?;
+
+    Ok(IccFileContent {
+        name,
+        size_bytes: bytes.len(),
+        base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+    })
+}
+
+/// 按分享 slug 下载并安装 ICC。
+///
+/// 与服务端的分享接口对齐：只接受 slug（不含路径），下载地址由后端拼接。
+/// 服务端会 302 到 R2 公网地址，reqwest 默认跟随重定向。
+#[tauri::command]
+pub async fn import_shared_icc(
+    slug: String,
+    file_name: String,
+    title: String,
+) -> Result<String, String> {
+    let market_api = crate::server_env::market_api_base();
+
+    if slug.is_empty()
+        || slug.len() > 64
+        || !slug
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("无效的分享标识".to_string());
+    }
+
+    let url = format!("{market_api}/api/market/shares/{slug}/icc");
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("下载客户端初始化失败: {}", e))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("下载失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("下载失败: HTTP {}", resp.status()));
+    }
+    if let Some(len) = resp.content_length() {
+        if len as usize > MAX_ICC_BYTES {
+            return Err("配置文件超过 2 MB".to_string());
+        }
+    }
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("读取配置失败: {}", e))?;
+    validate_icc_bytes(&bytes)?;
+
+    // 文件名优先用分享里记录的 ICC 原名（去掉 .icc/.icm 后缀），
+    // 缺失或清洗后为空才退回标题。
+    let stem_source = if file_name.trim().is_empty() {
+        title
+    } else {
+        let lower = file_name.to_ascii_lowercase();
+        let stripped = lower
+            .strip_suffix(".icc")
+            .or_else(|| lower.strip_suffix(".icm"))
+            .map(|_| &file_name[..file_name.len() - 4])
+            .unwrap_or(&file_name);
+        stripped.to_string()
+    };
+    let stem = sanitize_icc_file_stem(&stem_source, &slug);
+    install_icc_bytes(&bytes, &stem, "share")
 }
 
 /// 把市场标题转成安全的 Windows 文件名（不含扩展名）。
