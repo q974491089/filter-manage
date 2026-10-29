@@ -42,6 +42,7 @@ fn builtin_defaults() -> HashMap<String, bool> {
         ("icc_market".to_string(), true),
         ("icc_market_upload".to_string(), true),
         ("icc_market_review".to_string(), true),
+        ("plan_share".to_string(), true),
     ])
 }
 

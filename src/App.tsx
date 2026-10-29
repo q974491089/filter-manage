@@ -16,12 +16,18 @@ import SettingsModal from "./components/SettingsModal";
 import ClosePromptModal from "./components/ClosePromptModal";
 import AnnouncementBell from "./components/AnnouncementBell";
 import AnnouncementModal from "./components/AnnouncementModal";
+import SharePlanModal from "./components/SharePlanModal";
+import ImportShareModal from "./components/ImportShareModal";
 import IccEffectPreviewModal from "./components/IccEffectPreviewModal";
 import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
 import { useAnnouncements } from "./hooks/useAnnouncements";
 import { useFeatureFlags } from "./hooks/useFeatureFlags";
-import { FEATURE_ICC_MARKET, FEATURE_ICC_MARKET_UPLOAD } from "./lib/featureFlags";
+import {
+  FEATURE_ICC_MARKET,
+  FEATURE_ICC_MARKET_UPLOAD,
+  FEATURE_PLAN_SHARE,
+} from "./lib/featureFlags";
 import { debugNote, setDebugRecording } from "./lib/debug";
 import type { RgbScaleMode } from "./lib/rgbScale";
 
@@ -110,6 +116,10 @@ function App() {
   const [debugActive, setDebugActive] = useState(false);
   const [debugLogPath, setDebugLogPath] = useState<string | null>(null);
   const [lastReportPath, setLastReportPath] = useState<string | null>(null);
+  /** 分享：待分享的方案名（null = 关闭）；importShareOpen 控制导入弹窗 */
+  const [shareConfigName, setShareConfigName] = useState<string | null>(null);
+  const [shareConfig, setShareConfig] = useState<ColorConfig | null>(null);
+  const [importShareOpen, setImportShareOpen] = useState(false);
   const updater = useUpdater();
   const ann = useAnnouncements();
   const featureFlags = useFeatureFlags();
@@ -827,6 +837,28 @@ function App() {
     }
   };
 
+  /** 分享前把方案完整读出：ConfigManager 的本地类型缺 rgb/resolution 字段 */
+  useEffect(() => {
+    if (!shareConfigName) {
+      setShareConfig(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const cfg = await invoke<ColorConfig>("load_config", { name: shareConfigName });
+        if (!cancelled) setShareConfig(cfg);
+      } catch (err) {
+        if (cancelled) return;
+        setShareConfigName(null);
+        showToast("error", err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shareConfigName, showToast]);
+
   const handleCaptureIccPreview = async () => {
     if (capturingIccPreview) return;
     setCapturingIccPreview(true);
@@ -1212,6 +1244,9 @@ function App() {
               onConfigLoad={handleConfigLoad}
               onConfigsChange={refreshConfigs}
               showToast={showToast}
+              shareEnabled={featureFlags.isEnabled(FEATURE_PLAN_SHARE)}
+              onImportShare={() => setImportShareOpen(true)}
+              onShareConfig={(name) => setShareConfigName(name)}
             />
           </div>
         </div>
@@ -1257,6 +1292,29 @@ function App() {
           setShowAboutModal(true);
         }}
         onApiEnvChanged={() => void featureFlags.refresh()}
+      />
+
+      <SharePlanModal
+        open={shareConfigName !== null}
+        config={shareConfig}
+        onClose={() => setShareConfigName(null)}
+        showToast={showToast}
+        iccEffectPreview={iccEffectPreview}
+        onCaptureEffect={async () => {
+          // 复用顶栏相机入口：生成 → 打标 → 保存，返回 base64 供弹窗当封面
+          await handleCaptureIccPreview();
+          return iccEffectPreview;
+        }}
+      />
+
+      <ImportShareModal
+        open={importShareOpen}
+        onClose={() => setImportShareOpen(false)}
+        showToast={showToast}
+        onImported={(name) => {
+          void refreshConfigs();
+          setSelectedConfig(name);
+        }}
       />
 
       <ClosePromptModal

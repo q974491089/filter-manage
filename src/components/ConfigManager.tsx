@@ -48,6 +48,12 @@ interface ConfigManagerProps {
   onConfigLoad: (config: ColorConfig) => void;
   onConfigsChange: () => void;
   showToast: (type: "success" | "error", text: string) => void;
+  /** 分享某条方案（按钮只在方案卡片上） */
+  onShareConfig?: (name: string) => void;
+  /** 打开「导入分享链接」弹窗 */
+  onImportShare?: () => void;
+  /** 功能开关：分享入口是否可用 */
+  shareEnabled?: boolean;
 }
 
 const PRESET_ICONS = [
@@ -69,6 +75,9 @@ function ConfigManager({
   onConfigLoad,
   onConfigsChange,
   showToast,
+  onShareConfig,
+  onImportShare,
+  shareEnabled = true,
 }: ConfigManagerProps) {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingConfig, setEditingConfig] = useState<string | null>(null);
@@ -324,8 +333,18 @@ function ConfigManager({
 
   return (
     <div data-components="ConfigManager" className="flex-[1.5] flex flex-col min-h-0 overflow-hidden">
-      <div className="mb-md shrink-0">
+      <div className="mb-md shrink-0 flex items-center justify-between gap-sm">
         <h3 data-name="title" className="font-headline-sm text-headline-sm text-on-surface">快速方案</h3>
+        {shareEnabled && onImportShare ? (
+          <button
+            data-name="import-share-button"
+            onClick={onImportShare}
+            className="flex items-center gap-xs px-sm py-1 rounded-md text-primary font-label-sm text-label-sm hover:bg-primary/10 transition-colors"
+          >
+            <Icon name="link" className="text-[16px]" />
+            导入分享链接
+          </button>
+        ) : null}
       </div>
 
       <div data-name="config-list" className="flex-1 min-h-0 bg-surface-container rounded-lg border border-outline-variant/20 p-md overflow-y-auto">
@@ -359,6 +378,19 @@ function ConfigManager({
                     )}
                   </div>
                   <div className="flex items-center gap-1 transition-all">
+                    {shareEnabled && onShareConfig ? (
+                      <button
+                        data-name="share-config-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onShareConfig(name);
+                        }}
+                        className="p-xs rounded hover:bg-primary-container/30 transition-all flex items-center"
+                        title="分享这套方案"
+                      >
+                        <Icon name="link" className="text-[18px] text-primary" />
+                      </button>
+                    ) : null}
                     <button
                       onClick={(e) => handleEdit(e, name)}
                       className="p-xs rounded hover:bg-primary-container/30 transition-all flex items-center"

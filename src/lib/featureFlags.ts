@@ -16,6 +16,8 @@ export const FEATURE_ICC_MARKET = "icc_market";
 export const FEATURE_ICC_MARKET_UPLOAD = "icc_market_upload";
 /** 子项：管理端投稿审核列表 */
 export const FEATURE_ICC_MARKET_REVIEW = "icc_market_review";
+/** 方案分享：客户端「分享」按钮与「导入分享链接」入口 */
+export const FEATURE_PLAN_SHARE = "plan_share";
 
 export interface FeatureFlagsState {
   version: number;
