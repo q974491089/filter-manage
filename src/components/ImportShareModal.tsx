@@ -33,7 +33,7 @@ interface ColorConfig {
 }
 
 const inputClass =
-  "w-full min-h-10 px-sm py-sm rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-on-surface transition-colors";
+  "w-full h-9 px-sm rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-body-sm text-on-surface transition-colors";
 
 export default function ImportShareModal({
   open,
@@ -233,7 +233,7 @@ export default function ImportShareModal({
             <button
               onClick={() => void lookup()}
               disabled={loading || !input.trim()}
-              className="min-h-10 shrink-0 px-lg rounded-md bg-primary/12 text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+              className="min-h-9 shrink-0 px-lg rounded-md bg-primary/12 text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             >
               {loading ? "查询中" : "查询"}
             </button>
