@@ -20,9 +20,11 @@ interface ProfileListProps {
   iccEffectPreview: string | null;
   /** 后台功能开关：ICC 市场入口。false = 服务端明确关闭；缺省视为开放。 */
   marketEntryEnabled?: boolean;
+  /** 后台功能开关：市场投稿（用户上传 + 我的提交）。父项关闭时服务端已下发 false。 */
+  marketUploadEnabled?: boolean;
 }
 
-function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDeviceId, iccEffectPreview, marketEntryEnabled = true }: ProfileListProps) {
+function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDeviceId, iccEffectPreview, marketEntryEnabled = true, marketUploadEnabled = true }: ProfileListProps) {
   const [profiles, setProfiles] = useState<IccProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -336,6 +338,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
         onImported={loadData}
         showToast={showToast}
         iccEffectPreview={iccEffectPreview}
+        uploadEnabled={marketUploadEnabled}
       />
     </div>
   );

@@ -38,7 +38,11 @@ const CACHE_FILE: &str = "feature-flags.json";
 
 fn builtin_defaults() -> HashMap<String, bool> {
     // 与服务端 seed 保持一致的已知开关；新增受控入口时在这里补默认值。
-    HashMap::from([("icc_market".to_string(), true)])
+    HashMap::from([
+        ("icc_market".to_string(), true),
+        ("icc_market_upload".to_string(), true),
+        ("icc_market_review".to_string(), true),
+    ])
 }
 
 fn read_cache() -> Option<FeatureFlagsPayload> {

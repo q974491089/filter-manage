@@ -21,7 +21,7 @@ import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
 import { useAnnouncements } from "./hooks/useAnnouncements";
 import { useFeatureFlags } from "./hooks/useFeatureFlags";
-import { FEATURE_ICC_MARKET } from "./lib/featureFlags";
+import { FEATURE_ICC_MARKET, FEATURE_ICC_MARKET_UPLOAD } from "./lib/featureFlags";
 import { debugNote, setDebugRecording } from "./lib/debug";
 import type { RgbScaleMode } from "./lib/rgbScale";
 
@@ -1166,6 +1166,7 @@ function App() {
               selectedDeviceId={selectedDeviceId}
               iccEffectPreview={iccEffectPreview}
               marketEntryEnabled={featureFlags.isEnabled(FEATURE_ICC_MARKET)}
+              marketUploadEnabled={featureFlags.isEnabled(FEATURE_ICC_MARKET_UPLOAD)}
             />
           </div>
           <div data-name="adjuster-panel" className="col-span-5 flex flex-col min-h-0 h-full overflow-hidden">
