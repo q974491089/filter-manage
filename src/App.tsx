@@ -855,12 +855,71 @@ function App() {
     };
   }, [shareConfigName, showToast]);
 
+  /**
+   * 按给定参数生成模拟效果图并打上 SIMULATED 标识，返回 base64。
+   *
+   * 不读写任何 UI 状态：分享弹窗要的是「被分享方案」的画面，而不是当前
+   * 屏幕正在用的参数；顶栏相机入口再自己决定保存/打开预览。
+   */
+  const renderSimulatedPreview = async (params: {
+    iccProfile: string | null;
+    brightness: number;
+    contrast: number;
+    gamma: number;
+    digitalVibrance: number;
+    rgbR: number;
+    rgbG: number;
+    rgbB: number;
+  }): Promise<string> => {
+    const pngBase64 = await invoke<string>("capture_icc_effect_preview", {
+      profileName:
+        !params.iccProfile || params.iccProfile === "Default"
+          ? null
+          : params.iccProfile,
+      brightness: params.brightness,
+      contrast: params.contrast,
+      gamma: params.gamma,
+      digitalVibrance: params.digitalVibrance,
+      rgbR: params.rgbR,
+      rgbG: params.rgbG,
+      rgbB: params.rgbB,
+    });
+
+    const image = new Image();
+    image.src = `data:image/png;base64,${pngBase64}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("无法生成模拟效果图");
+    context.drawImage(image, 0, 0);
+    const fontSize = Math.max(14, Math.round(canvas.width / 100));
+    const label = "SIMULATED DISPLAY PREVIEW";
+    context.font = `600 ${fontSize}px Inter, sans-serif`;
+    const padding = Math.round(fontSize * 0.7);
+    const labelWidth = context.measureText(label).width;
+    context.fillStyle = "rgba(0, 0, 0, 0.72)";
+    context.fillRect(16, 16, labelWidth + padding * 2, fontSize + padding * 2);
+    context.fillStyle = "#ffffff";
+    context.fillText(label, 16 + padding, 16 + padding + fontSize * 0.82);
+    const stampedImage = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG 编码失败")), "image/png");
+    });
+    const bytes = new Uint8Array(await stampedImage.arrayBuffer());
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    return btoa(binary);
+  };
+
   const handleCaptureIccPreview = async () => {
     if (capturingIccPreview) return;
     setCapturingIccPreview(true);
     try {
-      const pngBase64 = await invoke<string>("capture_icc_effect_preview", {
-        profileName: activeProfile === "Default" ? null : activeProfile,
+      const stampedBase64 = await renderSimulatedPreview({
+        iccProfile: activeProfile,
         brightness,
         contrast,
         gamma,
@@ -869,34 +928,6 @@ function App() {
         rgbG,
         rgbB,
       });
-
-      const image = new Image();
-      image.src = `data:image/png;base64,${pngBase64}`;
-      await image.decode();
-      const canvas = document.createElement("canvas");
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("无法生成模拟效果图");
-      context.drawImage(image, 0, 0);
-      const fontSize = Math.max(14, Math.round(canvas.width / 100));
-      const label = "SIMULATED DISPLAY PREVIEW";
-      context.font = `600 ${fontSize}px Inter, sans-serif`;
-      const padding = Math.round(fontSize * 0.7);
-      const labelWidth = context.measureText(label).width;
-      context.fillStyle = "rgba(0, 0, 0, 0.72)";
-      context.fillRect(16, 16, labelWidth + padding * 2, fontSize + padding * 2);
-      context.fillStyle = "#ffffff";
-      context.fillText(label, 16 + padding, 16 + padding + fontSize * 0.82);
-      const stampedImage = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG 编码失败")), "image/png");
-      });
-      const bytes = new Uint8Array(await stampedImage.arrayBuffer());
-      let binary = "";
-      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-      }
-      const stampedBase64 = btoa(binary);
       const savedPath = await invoke<string>("save_icc_effect_preview", {
         pngBase64: stampedBase64,
       });
@@ -1292,11 +1323,24 @@ function App() {
         config={shareConfig}
         onClose={() => setShareConfigName(null)}
         showToast={showToast}
-        iccEffectPreview={iccEffectPreview}
-        onCaptureEffect={async () => {
-          // 复用顶栏相机入口：生成 → 打标 → 保存，返回 base64 供弹窗当封面
-          await handleCaptureIccPreview();
-          return iccEffectPreview;
+        onCaptureEffect={async (config) => {
+          // 用**被分享方案**的参数渲染，而不是当前屏幕正在用的参数；
+          // 分享时不应该顺带改动顶栏预览状态或磁盘上的预览图。
+          try {
+            return await renderSimulatedPreview({
+              iccProfile: config.icc_profile ?? null,
+              brightness: config.brightness,
+              contrast: config.contrast,
+              gamma: config.gamma,
+              digitalVibrance: config.digital_vibrance,
+              rgbR: config.rgb_r ?? 0,
+              rgbG: config.rgb_g ?? 0,
+              rgbB: config.rgb_b ?? 0,
+            });
+          } catch (err) {
+            showToast("error", err instanceof Error ? err.message : String(err));
+            return null;
+          }
         }}
       />
 

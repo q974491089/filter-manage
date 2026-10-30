@@ -26,10 +26,8 @@ interface SharePlanModalProps {
   config: ColorConfig | null;
   onClose: () => void;
   showToast: (type: "success" | "error", text: string) => void;
-  /** 当前是否已有可用的模拟效果图（data:image/png;base64,...） */
-  iccEffectPreview: string | null;
-  /** 生成模拟效果图（复用顶栏相机入口的实现） */
-  onCaptureEffect: () => Promise<string | null>;
+  /** 生成模拟效果图（用**被分享方案**的参数，不是当前屏幕参数） */
+  onCaptureEffect: (config: ColorConfig) => Promise<string | null>;
 }
 
 type IccState =
@@ -53,7 +51,6 @@ export default function SharePlanModal({
   config,
   onClose,
   showToast,
-  iccEffectPreview,
   onCaptureEffect,
 }: SharePlanModalProps) {
   const [title, setTitle] = useState("");
@@ -89,16 +86,10 @@ export default function SharePlanModal({
     setSubmitting(false);
   }, [open, config, hasIcc]);
 
-  // 自动带入模拟效果图作为封面（与投稿弹窗同一策略）
-  useEffect(() => {
-    if (!open || !iccEffectPreview) return;
-    void fetch(`data:image/png;base64,${iccEffectPreview}`)
-      .then((r) => r.blob())
-      .then((blob) => setCover(new File([blob], "effect-preview.png", { type: "image/png" })))
-      .catch(() => {
-        /* 封面只是可选内容，失败静默 */
-      });
-  }, [open, iccEffectPreview]);
+  // 注意：不在打开时自动塞入效果图。顶栏那张模拟图是按「当前屏幕参数」生成的，
+  // 与被分享的方案可能不同；效果图必须由用户点「用这套参数生成」显式产生，
+  // 避免把无关画面当成这套方案的预览发出去。
+
 
   useEffect(() => {
     if (!cover) {
@@ -385,23 +376,30 @@ export default function SharePlanModal({
                   效果图 <span className="text-on-surface-variant/60">（可选）</span>
                 </label>
                 {cover ? (
-                  <div className="group overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high">
-                    <div className="relative aspect-[16/9] max-h-44 overflow-hidden">
+                  <div className="overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high">
+                    {/* 固定高度 + object-cover：避免 aspect-ratio 与 max-h 互相压制，
+                        导致图片不铺满、右上角按钮看着"飘"在画面中间 */}
+                    <div className="group relative h-44 w-full overflow-hidden bg-surface-container-highest">
                       <img
                         src={coverPreviewUrl}
                         alt="效果图预览"
                         className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
                       />
+                      <div
+                        aria-hidden
+                        className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/50 to-transparent"
+                      />
                       <button
                         onClick={() => setCover(null)}
                         aria-label="移除效果图"
-                        className="absolute right-sm top-sm grid h-8 w-8 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                        title="移除效果图"
+                        className="absolute right-2 top-2 z-10 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white ring-1 ring-white/25 transition-colors hover:bg-black/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
                       >
-                        <Icon name="close" className="text-[18px]" />
+                        <Icon name="close" className="text-[16px]" />
                       </button>
                     </div>
                     <p className="truncate px-sm py-xs text-xs text-on-surface-variant" title={cover.name}>
-                      {cover.name}
+                      {cover.name === "effect-preview.png" ? "按这套方案模拟生成的效果图" : cover.name}
                     </p>
                   </div>
                 ) : (
@@ -412,7 +410,7 @@ export default function SharePlanModal({
                     </p>
                     <button
                       onClick={() => {
-                        void onCaptureEffect().then((data) => {
+                        void onCaptureEffect(config).then((data) => {
                           if (!data) return;
                           void fetch(`data:image/png;base64,${data}`)
                             .then((r) => r.blob())
@@ -423,7 +421,7 @@ export default function SharePlanModal({
                       }}
                       className="min-h-9 rounded-md bg-primary/12 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
-                      用当前参数生成
+                      用这套参数生成
                     </button>
                     <button
                       onClick={() => coverInputRef.current?.click()}
