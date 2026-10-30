@@ -356,13 +356,14 @@ export default function SharePlanModal({
               <div className="flex gap-sm">
                 <button
                   onClick={() => void invoke("copy_text", { text: link })}
-                  className="min-h-10 flex-1 rounded-md bg-primary/12 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                  className="inline-flex items-center justify-center gap-1 min-h-10 flex-1 rounded-md border border-primary/35 bg-primary/15 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/25 hover:border-primary/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 >
+                  <Icon name="content_copy" className="text-[15px]" />
                   复制链接
                 </button>
                 <button
                   onClick={onClose}
-                  className="min-h-10 flex-1 rounded-md border border-outline-variant/30 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                  className="min-h-10 flex-1 rounded-md border border-outline-variant/45 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 hover:border-outline-variant/70 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 >
                   完成
                 </button>
@@ -419,14 +420,16 @@ export default function SharePlanModal({
                             );
                         });
                       }}
-                      className="min-h-9 rounded-md bg-primary/12 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      className="inline-flex items-center gap-1 min-h-9 rounded-md border border-primary/35 bg-primary/15 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/25 hover:border-primary/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
+                      <Icon name="photo_camera" className="text-[15px]" />
                       用这套参数生成
                     </button>
                     <button
                       onClick={() => coverInputRef.current?.click()}
-                      className="min-h-9 rounded-md border border-outline-variant/30 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      className="inline-flex items-center gap-1 min-h-9 rounded-md border border-outline-variant/45 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 hover:border-outline-variant/70 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
+                      <Icon name="image" className="text-[15px]" />
                       选择图片
                     </button>
                     <input
@@ -559,7 +562,7 @@ export default function SharePlanModal({
                           });
                         }
                       }}
-                      className="min-h-9 flex-1 rounded-md bg-primary/12 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      className="min-h-9 flex-1 rounded-md border border-primary/35 bg-primary/15 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/25 hover:border-primary/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
                       重试上传
                     </button>
@@ -568,7 +571,7 @@ export default function SharePlanModal({
                         setIccNote("上传失败，已按你的选择只分享参数");
                         setIccState("params-only");
                       }}
-                      className="min-h-9 flex-1 rounded-md border border-outline-variant/30 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      className="min-h-9 flex-1 rounded-md border border-outline-variant/45 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 hover:border-outline-variant/70 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
                       不传 ICC，仅分享参数
                     </button>
