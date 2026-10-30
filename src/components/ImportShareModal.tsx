@@ -233,7 +233,7 @@ export default function ImportShareModal({
             <button
               onClick={() => void lookup()}
               disabled={loading || !input.trim()}
-              className="min-h-9 shrink-0 px-lg rounded-md border border-primary/35 bg-primary/15 text-primary font-label-md text-label-md hover:bg-primary/25 hover:border-primary/50 transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+              className="min-h-9 shrink-0 px-lg rounded-md border border-primary/40 text-primary font-label-md text-label-md hover:border-primary/60 transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             >
               {loading ? "查询中" : "查询"}
             </button>
