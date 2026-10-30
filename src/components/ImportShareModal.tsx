@@ -210,7 +210,7 @@ export default function ImportShareModal({
           <button
             onClick={onClose}
             aria-label="关闭"
-            className="p-xs rounded-md text-on-surface-variant hover:text-on-surface transition-colors"
+            className="p-xs rounded-md text-on-surface-variant hover:bg-surface-variant/60 hover:text-on-surface transition-colors"
           >
             <Icon name="close" className="text-[20px]" />
           </button>
@@ -233,7 +233,7 @@ export default function ImportShareModal({
             <button
               onClick={() => void lookup()}
               disabled={loading || !input.trim()}
-              className="min-h-9 shrink-0 px-lg rounded-md border border-primary/40 text-primary font-label-md text-label-md hover:brightness-125 transition-[filter] disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+              className="min-h-9 shrink-0 px-lg rounded-md border border-primary/40 text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             >
               {loading ? "查询中" : "查询"}
             </button>
@@ -298,7 +298,7 @@ export default function ImportShareModal({
           <div className="flex gap-sm">
             <button
               onClick={onClose}
-              className="min-h-10 px-md py-sm rounded-md text-on-surface-variant font-label-md text-label-md hover:text-on-surface transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+              className="min-h-10 px-md py-sm rounded-md text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             >
               取消
             </button>
