@@ -218,7 +218,7 @@ export default function ImportShareModal({
 
         {/* Body */}
         <div className="relative flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-          <div className="px-lg py-md space-y-md">
+          <div className="px-lg py-lg space-y-lg">
           <div className="flex gap-sm">
             <input
               value={input}
