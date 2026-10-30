@@ -356,7 +356,7 @@ export default function SharePlanModal({
               <div className="flex gap-sm">
                 <button
                   onClick={() => void invoke("copy_text", { text: link })}
-                  className="inline-flex items-center justify-center gap-1 min-h-10 flex-1 rounded-md border border-primary/35 bg-primary/15 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/25 hover:border-primary/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                  className="inline-flex items-center justify-center gap-1 min-h-10 flex-1 rounded-md border border-primary/40 px-md py-sm text-primary font-label-md text-label-md hover:border-primary/60 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 >
                   <Icon name="content_copy" className="text-[15px]" />
                   复制链接
@@ -420,7 +420,7 @@ export default function SharePlanModal({
                             );
                         });
                       }}
-                      className="inline-flex items-center gap-1 min-h-9 rounded-md border border-primary/35 bg-primary/15 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/25 hover:border-primary/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      className="inline-flex items-center gap-1 min-h-9 rounded-md border border-primary/40 px-md py-sm text-primary font-label-md text-label-md hover:border-primary/60 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
                       <Icon name="photo_camera" className="text-[15px]" />
                       用这套参数生成
@@ -562,7 +562,7 @@ export default function SharePlanModal({
                           });
                         }
                       }}
-                      className="min-h-9 flex-1 rounded-md border border-primary/35 bg-primary/15 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/25 hover:border-primary/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      className="min-h-9 flex-1 rounded-md border border-primary/40 px-md py-sm text-primary font-label-md text-label-md hover:border-primary/60 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
                       重试上传
                     </button>
