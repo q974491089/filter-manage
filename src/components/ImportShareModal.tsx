@@ -292,9 +292,7 @@ export default function ImportShareModal({
 
         {/* Footer */}
         <div className="relative shrink-0 flex items-center justify-between gap-sm border-t border-outline-variant/15 bg-surface-container px-lg py-md">
-          <span className="mr-auto text-[11px] text-on-surface-variant">
-            {stage || "导入不会覆盖你已有的同名方案"}
-          </span>
+          <span className="mr-auto text-[11px] text-on-surface-variant">{stage}</span>
           <div className="flex gap-sm">
             <button
               onClick={onClose}

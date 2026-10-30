@@ -111,7 +111,7 @@ export default function SharePlanModal({
   const runIccUpload = useCallback(
     async (bytes: { base64: string; sha256: string }): Promise<boolean> => {
       setIccState("uploading");
-      setStage("自动上传 ICC 文件到库");
+      setStage("正在准备配置文件");
       try {
         const contributorId = await getContributorId();
         const tokens = await getSubmissionTokens(contributorId, nicknameRef.current.trim());
@@ -146,7 +146,7 @@ export default function SharePlanModal({
     let cancelled = false;
     void (async () => {
       try {
-        setStage("检查 ICC 文件");
+        setStage("正在准备配置文件");
         const file = await invoke<{ name: string; sizeBytes: number; base64: string }>(
           "read_icc_file",
           { name: iccName },
@@ -275,17 +275,17 @@ export default function SharePlanModal({
   const iccStatusText = (() => {
     switch (iccState) {
       case "checking":
-        return stage || "正在检查 ICC 文件…";
+        return "正在准备配置文件…";
       case "in-library":
-        return "已在库中，导入方会自动下载";
+        return "会随这条分享一起提供";
       case "uploading":
-        return stage || "正在自动上传 ICC 文件…";
+        return stage || "正在上传配置文件…";
       case "failed":
-        return `自动上传失败：${iccNote}`;
+        return `上传失败：${iccNote}`;
       case "params-only":
-        return iccNote || "无法附带这个 ICC 文件，只能分享色彩参数";
+        return iccNote || "这个文件无法附带，收到的方案只调整色彩参数";
       default:
-        return "这条方案不包含 ICC 文件，只分享色彩参数与分辨率";
+        return "这条方案不含配置文件，只分享色彩参数与分辨率";
     }
   })();
 
@@ -586,7 +586,7 @@ export default function SharePlanModal({
         {link ? null : (
           <div className="relative shrink-0 flex items-center justify-between gap-sm border-t border-outline-variant/15 bg-surface-container px-lg py-md">
             <span className="mr-auto text-[11px] text-on-surface-variant">
-              链接生成后可随时在后台撤销
+              {stage || ""}
             </span>
             <div className="flex gap-sm">
               <button
