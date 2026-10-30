@@ -46,7 +46,7 @@ const NO_ICC_SENTINELS = new Set(["Default", "Default.icc"]);
 const inputClass =
   "w-full h-8 px-sm rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-body-sm text-on-surface transition-colors";
 const textareaClass =
-  "w-full px-sm py-xs rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-body-sm text-on-surface transition-colors resize-none";
+  "w-full px-sm py-sm rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-body-sm text-on-surface transition-colors resize-none";
 
 export default function SharePlanModal({
   open,
@@ -378,10 +378,10 @@ export default function SharePlanModal({
               </div>
             </div>
           ) : (
-            <div className="px-lg py-md space-y-lg">
+            <div className="px-lg py-lg space-y-xl">
               {/* 效果图：视觉锚点，16:9 横幅 */}
               <div>
-                <label className="block font-label-md text-label-md text-on-surface-variant mb-1.5">
+                <label className="block font-label-md text-label-md text-on-surface-variant mb-2.5">
                   效果图 <span className="text-on-surface-variant/60">（可选）</span>
                 </label>
                 {cover ? (
@@ -450,7 +450,7 @@ export default function SharePlanModal({
                 <div>
                   <label
                     htmlFor="share-plan-title-input"
-                    className="block font-label-md text-label-md text-on-surface-variant mb-1.5"
+                    className="block font-label-md text-label-md text-on-surface-variant mb-2.5"
                   >
                     标题 <span className="text-error">*</span>
                   </label>
@@ -465,7 +465,7 @@ export default function SharePlanModal({
                 <div>
                   <label
                     htmlFor="share-plan-nickname"
-                    className="block font-label-md text-label-md text-on-surface-variant mb-1.5"
+                    className="block font-label-md text-label-md text-on-surface-variant mb-2.5"
                   >
                     昵称
                   </label>
@@ -484,7 +484,7 @@ export default function SharePlanModal({
               <div>
                 <label
                   htmlFor="share-plan-description"
-                  className="block font-label-md text-label-md text-on-surface-variant mb-1.5"
+                  className="block font-label-md text-label-md text-on-surface-variant mb-2.5"
                 >
                   说明 <span className="text-on-surface-variant/60">（可选）</span>
                 </label>
@@ -501,7 +501,7 @@ export default function SharePlanModal({
 
               {/* 参数摘要：只读，紧凑单容器 */}
               <div>
-                <label className="block font-label-md text-label-md text-on-surface-variant mb-1.5">
+                <label className="block font-label-md text-label-md text-on-surface-variant mb-2.5">
                   将分享的参数
                 </label>
                 <div className="grid grid-flow-dense grid-cols-3 gap-x-md gap-y-1.5 rounded-md bg-surface-container-high/50 px-md py-sm">
