@@ -341,7 +341,7 @@ function ConfigManager({
             onClick={onImportShare}
             className="flex items-center gap-xs px-sm py-1 rounded-md text-primary font-label-sm text-label-sm hover:bg-primary/10 transition-colors"
           >
-            <Icon name="share" className="text-[16px]" />
+            <Icon name="input" className="text-[16px]" />
             导入分享链接
           </button>
         ) : null}
