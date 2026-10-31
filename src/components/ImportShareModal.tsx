@@ -53,6 +53,7 @@ export default function ImportShareModal({
   const [importing, setImporting] = useState(false);
   const [stage, setStage] = useState("");
   const [imageFailed, setImageFailed] = useState(false);
+  const [zoomOpen, setZoomOpen] = useState(false);
   const modalRef = useModalAccessibility(open, onClose, true, !importing);
 
   useEffect(() => {
@@ -276,11 +277,13 @@ export default function ImportShareModal({
           {share ? (
             <div className="group overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high/40">
               {coverUrl && !imageFailed ? (
-                <div className="aspect-[16/9] max-h-44 overflow-hidden bg-surface-container-high">
+                <div className="flex justify-center bg-surface-container-highest">
                   <img
                     src={coverUrl}
                     alt={share.title}
-                    className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+                    title="点击放大查看"
+                    className="max-h-56 max-w-full cursor-zoom-in object-contain transition-transform duration-500 ease-out group-hover:scale-[1.02] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+                    onClick={() => setZoomOpen(true)}
                     onError={() => setImageFailed(true)}
                   />
                 </div>
@@ -340,6 +343,22 @@ export default function ImportShareModal({
           </div>
         </div>
       </div>
+
+      {/* 图片放大查看：全屏遮罩，点任意处关闭 */}
+      {zoomOpen && coverUrl ? (
+        <div
+          className="fixed inset-0 z-[400] flex items-center justify-center bg-black/90 p-6 cursor-zoom-out animate-[slide-fade-up_0.2s_cubic-bezier(0.16,1,0.3,1)_forwards] motion-reduce:animate-none"
+          onClick={() => setZoomOpen(false)}
+          role="dialog"
+          aria-label="效果图放大查看"
+        >
+          <img
+            src={coverUrl}
+            alt={share?.title ?? "效果图"}
+            className="max-h-[88vh] max-w-[94vw] rounded-md object-contain shadow-2xl"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
