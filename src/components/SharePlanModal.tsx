@@ -518,8 +518,8 @@ export default function SharePlanModal({
                 data-name="share-icc-status"
                 className={`rounded-md px-md py-sm transition-colors duration-200 ${iccTone.box}`}
               >
-                <div className="flex items-center gap-xs min-w-0">
-                  <span className="font-label-md text-label-md text-on-surface">ICC 文件</span>
+                <div className="flex items-start gap-xs min-w-0">
+                  <span className="shrink-0 font-label-md text-label-md text-on-surface">ICC 文件</span>
                   {iccState === "uploading" || iccState === "checking" ? (
                     <svg
                       className="h-3.5 w-3.5 animate-spin text-amber-400 motion-reduce:animate-none"
@@ -537,14 +537,14 @@ export default function SharePlanModal({
                   ) : null}
                   {hasIcc ? (
                     <span
-                      className="ml-auto truncate font-mono text-[11px] text-on-surface-variant/70"
+                      className="ml-auto line-clamp-2 break-all text-right font-mono text-[11px] leading-relaxed text-on-surface-variant/70"
                       title={iccName}
                     >
                       {iccName}
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-1 text-[11px] leading-relaxed text-on-surface-variant">
+                <p className="mt-1 text-[11px] leading-relaxed text-on-surface-variant line-clamp-2">
                   {iccStatusText}
                 </p>
                 {iccState === "failed" ? (
