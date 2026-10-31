@@ -367,17 +367,19 @@ function ConfigManager({
                       : "bg-primary/8 hover:bg-primary/15 border-primary/10 hover:border-primary/30"
                   }`}
                 >
-                  <div className="flex items-center gap-md">
-                    {renderIcon(config)}
-                    <span className="font-label-md text-label-md text-on-surface font-medium">{name}</span>
+                  <div className="flex items-center gap-md min-w-0 flex-1">
+                    <div className="shrink-0">{renderIcon(config)}</div>
+                    <span className="min-w-0 flex-1 font-label-md text-label-md text-on-surface font-medium line-clamp-2">
+                      {name}
+                    </span>
                     {isActive && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 bg-primary/20 text-primary rounded-full text-[10px] font-medium">
+                      <span className="shrink-0 flex items-center gap-1 px-2 py-0.5 bg-primary/20 text-primary rounded-full text-[10px] font-medium">
                         <Icon name="check_circle" className="text-[12px]" />
                         正在应用
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1 transition-all">
+                  <div className="flex items-center gap-1 transition-all shrink-0">
                     {shareEnabled && onShareConfig ? (
                       <button
                         data-name="share-config-button"
