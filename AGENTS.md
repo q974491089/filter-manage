@@ -97,6 +97,7 @@
 | **子Agent分工** | `.rules/subagent-dispatch.md` | 跨端任务的能力自适应分工（多 CLI 通用） |
 | **归档规则** | `.rules/archive.md` | 历史产物归档到 `.docs/archive/` |
 | **AI 编码规范** | `.rules/coding.md` | 零警告交付、Rust/前端质量底线、完成前验证 |
+| **环境规则** | `.rules/environments.md` | 预发/线上双环境对照、分享链接环境作用域、**新增接口必过的环境检查清单** |
 
 ---
 
