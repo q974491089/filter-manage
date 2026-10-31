@@ -517,6 +517,40 @@ pub(crate) fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
     copy_report_text(text)
 }
 
+/// 读取剪贴板中的纯文本（CF_UNICODETEXT）。
+///
+/// 启动时检测分享链接用。只读不写、不改动剪贴板内容；剪贴板里放的是
+/// 文件等其他格式（CF_HDROP 等）时返回 Err，由调用方按「无文本」处理。
+/// GlobalSize 限定读取上界，避免越界读。
+pub(crate) fn get_clipboard_text() -> Result<String, String> {
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+
+    unsafe {
+        OpenClipboard(None).map_err(|_| "剪贴板打开失败（可能被其他程序占用，稍后重试）".to_string())?;
+        let result = (|| -> Result<String, String> {
+            let handle =
+                GetClipboardData(CF_UNICODETEXT).map_err(|_| "剪贴板中没有文本".to_string())?;
+            if handle.0.is_null() {
+                return Err("剪贴板中没有文本".into());
+            }
+            // GetClipboardData 返回 HANDLE，文本内容的实际类型是 HGLOBAL
+            let ptr = GlobalLock(HGLOBAL(handle.0));
+            if ptr.is_null() {
+                return Err("剪贴板读取失败".into());
+            }
+            let byte_len = GlobalSize(HGLOBAL(handle.0)) as usize;
+            let wide = std::slice::from_raw_parts(ptr as *const u16, byte_len / 2);
+            let len = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
+            let _ = GlobalUnlock(HGLOBAL(handle.0));
+            Ok(String::from_utf16_lossy(&wide[..len]))
+        })();
+        let _ = CloseClipboard();
+        result
+    }
+}
+
 // ─── Tauri 命令 ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -673,6 +707,21 @@ pub fn copy_text(text: String) -> Result<(), String> {
         return Err("文本过长，无法复制".to_string());
     }
     copy_text_to_clipboard(&text)
+}
+
+/// 读取剪贴板文本（启动时检测分享链接）。
+/// 只在文本非空时返回；放的是文件等其他格式时报错，由前端静默处理。
+#[tauri::command]
+pub fn read_clipboard_text() -> Result<String, String> {
+    let text = get_clipboard_text()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("剪贴板为空".into());
+    }
+    if text.len() > 64 * 1024 {
+        return Err("剪贴板内容过长".into());
+    }
+    Ok(trimmed.to_string())
 }
 
 #[cfg(test)]

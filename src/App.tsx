@@ -24,6 +24,7 @@ import { useUpdater } from "./hooks/useUpdater";
 import { useAnnouncements } from "./hooks/useAnnouncements";
 import { useFeatureFlags } from "./hooks/useFeatureFlags";
 import { FEATURE_PLAN_SHARE } from "./lib/featureFlags";
+import { parseShareSlug } from "./lib/share";
 import { debugNote, setDebugRecording } from "./lib/debug";
 import type { RgbScaleMode } from "./lib/rgbScale";
 
@@ -116,9 +117,54 @@ function App() {
   const [shareConfigName, setShareConfigName] = useState<string | null>(null);
   const [shareConfig, setShareConfig] = useState<ColorConfig | null>(null);
   const [importShareOpen, setImportShareOpen] = useState(false);
+  /** 启动时从剪贴板检测到的分享 slug（null = 手动打开入口） */
+  const [importShareSlug, setImportShareSlug] = useState<string | null>(null);
+  const importedFromShareRef = useRef(false);
   const updater = useUpdater();
   const ann = useAnnouncements();
   const featureFlags = useFeatureFlags();
+  const featureFlagsRef = useRef(featureFlags);
+  featureFlagsRef.current = featureFlags;
+
+  /** 手动打开导入弹窗：不带预填 slug */
+  const openImportShare = useCallback(() => {
+    importedFromShareRef.current = false;
+    setImportShareSlug(null);
+    setImportShareOpen(true);
+  }, []);
+
+  // 启动时读一次剪贴板：里面正好是一条分享链接就直接弹导入窗。
+  // 每次会话只检测一次；用户忽略过的链接记在 localStorage，不再重复弹。
+  const clipboardCheckedRef = useRef(false);
+  useEffect(() => {
+    if (clipboardCheckedRef.current) return;
+    clipboardCheckedRef.current = true;
+    const timer = window.setTimeout(() => {
+      if (importShareOpen) return;
+      if (!featureFlagsRef.current.isEnabled(FEATURE_PLAN_SHARE)) return;
+      void (async () => {
+        try {
+          const text = await invoke<string>("read_clipboard_text");
+          const slug = parseShareSlug(text);
+          if (!slug) return;
+          let ignored: string | null = null;
+          try {
+            ignored = localStorage.getItem("lastIgnoredShareSlug");
+          } catch {
+            /* localStorage 不可用就算了 */
+          }
+          if (ignored === slug) return;
+          debugNote(`启动检测到剪贴板分享链接 ${slug}`);
+          setImportShareSlug(slug);
+          setImportShareOpen(true);
+        } catch {
+          // 剪贴板没有文本或放的是文件等其他格式：静默
+        }
+      })();
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [importShareOpen]);
+
   const [baseline, setBaseline] = useState({
     brightness: 0,
     contrast: 0,
@@ -1269,8 +1315,8 @@ function App() {
               onConfigsChange={refreshConfigs}
               showToast={showToast}
               shareEnabled={featureFlags.isEnabled(FEATURE_PLAN_SHARE)}
-              onImportShare={() => setImportShareOpen(true)}
               onShareConfig={(name) => setShareConfigName(name)}
+              onImportShare={() => openImportShare()}
             />
           </div>
         </div>
@@ -1346,9 +1392,27 @@ function App() {
 
       <ImportShareModal
         open={importShareOpen}
-        onClose={() => setImportShareOpen(false)}
+        initialSlug={importShareSlug}
+        onClose={() => {
+          // 关闭时没导入（取消/×/Esc）：记下这个链接，下次启动不再为它弹窗
+          if (importShareSlug && !importedFromShareRef.current) {
+            try {
+              localStorage.setItem("lastIgnoredShareSlug", importShareSlug);
+            } catch {
+              /* localStorage 不可用就算了 */
+            }
+          }
+          importedFromShareRef.current = false;
+          setImportShareOpen(false);
+        }}
         showToast={showToast}
         onImported={(name) => {
+          importedFromShareRef.current = true;
+          try {
+            localStorage.setItem("lastIgnoredShareSlug", importShareSlug ?? "");
+          } catch {
+            /* 同上 */
+          }
           void refreshConfigs();
           setSelectedConfig(name);
         }}
