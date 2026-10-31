@@ -372,12 +372,16 @@ function ConfigManager({
                     <span className="min-w-0 flex-1 font-label-md text-label-md text-on-surface font-medium line-clamp-2">
                       {name}
                     </span>
-                    {isActive && (
-                      <span className="shrink-0 flex items-center gap-1 px-2 py-0.5 bg-primary/20 text-primary rounded-full text-[10px] font-medium">
-                        <Icon name="check_circle" className="text-[12px]" />
-                        正在应用
-                      </span>
-                    )}
+                    {/* 常驻占位：应用与否名称可用宽度一致，点击后不会突然折行 */}
+                    <span
+                      aria-hidden={!isActive}
+                      className={`shrink-0 flex items-center gap-1 px-2 py-0.5 bg-primary/20 text-primary rounded-full text-[10px] font-medium ${
+                        isActive ? "" : "invisible"
+                      }`}
+                    >
+                      <Icon name="check_circle" className="text-[12px]" />
+                      正在应用
+                    </span>
                   </div>
                   <div className="flex items-center gap-1 transition-all shrink-0">
                     {shareEnabled && onShareConfig ? (
