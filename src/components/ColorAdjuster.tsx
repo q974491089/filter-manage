@@ -209,7 +209,7 @@ function ColorAdjuster({
             <SliderControl
               label="伽马值 (Gamma)"
               description="调整中间色调的亮度曲线"
-              icon="Camera"
+              icon="exposure"
               value={gamma}
               min={0.1}
               max={3.0}
