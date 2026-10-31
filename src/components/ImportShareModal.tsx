@@ -189,10 +189,8 @@ export default function ImportShareModal({
     }
   }
 
-  const coverUrl =
-    share && (share.thumbKey || share.coverKey)
-      ? shareAssetUrl(share.thumbKey || share.coverKey)
-      : "";
+  // 大横幅用 1600px 原图（thumb 只有 480px，拉伸到 banner 宽度会糊）
+  const coverUrl = share ? shareAssetUrl(share.coverKey || share.thumbKey) : "";
 
   const summaryPairs: Array<[string, string]> = share
     ? [
