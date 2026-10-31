@@ -211,6 +211,7 @@ pub fn run() {
             debug_recorder::debug_copy_report_text,
             // 通用剪贴板（分享链接）
             debug_recorder::copy_text,
+            debug_recorder::read_clipboard_text,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

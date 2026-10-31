@@ -18,6 +18,8 @@ interface ImportShareModalProps {
   showToast: (type: "success" | "error", text: string) => void;
   /** 导入成功后通知上层刷新方案列表 */
   onImported: (name: string) => void;
+  /** 启动检测到剪贴板里的分享链接时预填，并自动查询 */
+  initialSlug?: string | null;
 }
 
 interface ColorConfig {
@@ -41,6 +43,7 @@ export default function ImportShareModal({
   onClose,
   showToast,
   onImported,
+  initialSlug,
 }: ImportShareModalProps) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -53,17 +56,17 @@ export default function ImportShareModal({
 
   useEffect(() => {
     if (!open) return;
-    setInput("");
+    setInput(initialSlug ?? "");
     setShare(null);
     setError(null);
     setStage("");
     setImageFailed(false);
-  }, [open]);
+  }, [open, initialSlug]);
 
   if (!open) return null;
 
-  async function lookup() {
-    const slug = parseShareSlug(input);
+  async function lookup(raw: string) {
+    const slug = parseShareSlug(raw);
     if (!slug) {
       setError("这不像一条分享链接，请粘贴完整地址或分享码");
       return;
@@ -85,6 +88,12 @@ export default function ImportShareModal({
       setLoading(false);
     }
   }
+
+  // 带着剪贴板 slug 打开时自动查询一次，用户只需确认导入
+  useEffect(() => {
+    if (open && initialSlug) void lookup(initialSlug);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialSlug]);
 
   /** 方案名冲突时加后缀，绝不覆盖用户已有方案。 */
   async function uniqueName(base: string): Promise<string> {
@@ -242,14 +251,14 @@ export default function ImportShareModal({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void lookup();
+                if (e.key === "Enter") void lookup(input);
               }}
               placeholder="https://.../s/xxxxxxxx"
               aria-label="分享链接"
               className={inputClass}
             />
             <button
-              onClick={() => void lookup()}
+              onClick={() => void lookup(input)}
               disabled={loading || !input.trim()}
               className="min-h-9 shrink-0 px-lg rounded-md border border-primary/40 text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             >
