@@ -8,21 +8,28 @@ use crate::server_env;
 
 /// 远程功能开关（feature flags）。
 ///
-/// 后台在 feature_flags 表里维护开关，客户端启动时拉一次
-/// GET /api/feature-flags，决定显示哪些入口（如 ICC 市场导入）。
+/// 后台在 feature_flags 表里维护开关，客户端拉 GET /api/feature-flags
+/// 决定显示哪些入口（分享按钮、ICC 市场等）。
 ///
-/// 降级语义（fail-open，服务端故障不把用户锁在门外）：
-/// 1. 拉取成功 → 覆盖本地缓存 feature-flags.json 并生效；
-/// 2. 拉取失败或响应结构可疑（flags 为空）→ 用上次缓存；
-/// 3. 从未成功过（新装机且服务不可达）→ 内置默认值：全部开放。
+/// 加载与降级语义（fail-closed，服务不可达时受控入口一律隐藏）：
+/// 1. 先读本地缓存 feature-flags.json 立即渲染（不发起网络，首屏快）；
+/// 2. 再请求接口：成功 → 覆盖缓存并按最新配置重渲染；
+/// 3. 请求失败 → 前端清空 flags：受控入口全部隐藏。单服务端部署，
+///    开关接口挂了其他接口大概率也挂了，藏起不可用的入口是对的，
+///    即使缓存里是 true 也隐藏。
+///
+/// 缓存按接口环境隔离（记录 env 字段）：预发/线上的开关互不串用。
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct FeatureFlagsPayload {
     #[serde(default)]
     pub version: i64,
-    /// key → enabled。未知 key 由前端按「缺省即开放」处理，向前兼容。
+    /// key → enabled。前端判断规则为「仅显式 true 才展示」（缺省/未知 key = 隐藏）。
     #[serde(default)]
     pub flags: HashMap<String, bool>,
+    /// 写缓存时记录来源环境；读取时不匹配视为无缓存（预发/线上互不覆盖）。
+    #[serde(default)]
+    pub env: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -30,36 +37,36 @@ pub struct FeatureFlagsPayload {
 pub struct FeatureFlagsResult {
     pub version: i64,
     pub flags: HashMap<String, bool>,
-    /// remote | cache | default，便于调试日志定位数据来源
-    pub source: &'static str,
+    /// remote | cache | none | unavailable，便于调试日志定位数据来源
+    pub source: String,
 }
 
 const CACHE_FILE: &str = "feature-flags.json";
 
-fn builtin_defaults() -> HashMap<String, bool> {
-    // 与服务端 seed 保持一致的已知开关；新增受控入口时在这里补默认值。
-    HashMap::from([
-        ("icc_market".to_string(), true),
-        ("icc_market_upload".to_string(), true),
-        ("icc_market_review".to_string(), true),
-        ("plan_share".to_string(), true),
-    ])
+fn current_env() -> String {
+    server_env::get_runtime_env().api_env
 }
 
 fn read_cache() -> Option<FeatureFlagsPayload> {
     let path = get_config_dir().ok()?.join(CACHE_FILE);
     let json = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&json).ok()
+    let payload = serde_json::from_str::<FeatureFlagsPayload>(&json).ok()?;
+    if payload.env != current_env() {
+        return None;
+    }
+    Some(payload)
 }
 
 fn write_cache(payload: &FeatureFlagsPayload) {
     let Ok(dir) = get_config_dir() else {
         return;
     };
-    let Ok(json) = serde_json::to_string(payload) else {
+    let mut tagged = payload.clone();
+    tagged.env = current_env();
+    let Ok(json) = serde_json::to_string(&tagged) else {
         return;
     };
-    // 缓存写失败不影响本次结果，下次启动会重新覆盖
+    // 缓存写失败不影响本次结果，下次成功会重新覆盖
     let _ = std::fs::write(dir.join(CACHE_FILE), json);
 }
 
@@ -113,29 +120,39 @@ async fn fetch_remote() -> Option<FeatureFlagsPayload> {
     }
 }
 
-/// 启动时拉取一次功能开关。永不报错：失败链路是 远程 → 缓存 → 内置默认。
+/// 读取本地缓存的功能开关（首屏用，毫秒级返回，不发起网络请求）。
+/// 无缓存或缓存环境不匹配时返回空 flags，前端按 fail-closed 先隐藏受控入口。
 #[tauri::command]
-pub async fn get_feature_flags() -> Result<FeatureFlagsResult, String> {
-    if let Some(payload) = fetch_remote().await {
-        if !payload.flags.is_empty() {
-            write_cache(&payload);
-            return Ok(FeatureFlagsResult {
-                version: payload.version,
-                flags: payload.flags,
-                source: "remote",
-            });
-        }
-    }
-    if let Some(cached) = read_cache() {
-        return Ok(FeatureFlagsResult {
+pub fn get_cached_feature_flags() -> FeatureFlagsResult {
+    match read_cache() {
+        Some(cached) => FeatureFlagsResult {
             version: cached.version,
             flags: cached.flags,
-            source: "cache",
-        });
+            source: "cache".into(),
+        },
+        None => FeatureFlagsResult {
+            version: 0,
+            flags: HashMap::new(),
+            source: "none".into(),
+        },
     }
+}
+
+/// 请求最新开关配置（双域名竞速）。成功则覆盖缓存并返回；
+/// 失败返回 Err，由前端按 fail-closed 清空 flags、隐藏全部受控入口。
+#[tauri::command]
+pub async fn fetch_feature_flags() -> Result<FeatureFlagsResult, String> {
+    let payload = fetch_remote()
+        .await
+        .ok_or_else(|| "feature flags 服务不可达".to_string())?;
+    // 响应结构可疑（flags 为空）按失败处理：宁可让前端隐藏入口
+    if payload.flags.is_empty() {
+        return Err("feature flags 响应为空".into());
+    }
+    write_cache(&payload);
     Ok(FeatureFlagsResult {
-        version: 0,
-        flags: builtin_defaults(),
-        source: "default",
+        version: payload.version,
+        flags: payload.flags,
+        source: "remote".into(),
     })
 }
