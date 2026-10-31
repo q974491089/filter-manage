@@ -133,6 +133,28 @@ function App() {
     setImportShareOpen(true);
   }, []);
 
+  /**
+   * 从一条链接/协议 URL 打开导入弹窗。
+   * force = true 时跳过「已忽略」检查（落地页按钮、协议唤起都是显式意图）。
+   */
+  const openShareFromUrl = useCallback((url: string, force: boolean) => {
+    const slug = parseShareSlug(url);
+    if (!slug) return;
+    if (!featureFlagsRef.current.isEnabled(FEATURE_PLAN_SHARE)) return;
+    if (!force) {
+      let ignored: string | null = null;
+      try {
+        ignored = localStorage.getItem("lastIgnoredShareSlug");
+      } catch {
+        /* localStorage 不可用就算了 */
+      }
+      if (ignored === slug) return;
+    }
+    importedFromShareRef.current = false;
+    setImportShareSlug(slug);
+    setImportShareOpen(true);
+  }, []);
+
   // 启动时读一次剪贴板：里面正好是一条分享链接就直接弹导入窗。
   // 每次会话只检测一次；用户忽略过的链接记在 localStorage，不再重复弹。
   const clipboardCheckedRef = useRef(false);
@@ -145,25 +167,38 @@ function App() {
       void (async () => {
         try {
           const text = await invoke<string>("read_clipboard_text");
-          const slug = parseShareSlug(text);
-          if (!slug) return;
-          let ignored: string | null = null;
-          try {
-            ignored = localStorage.getItem("lastIgnoredShareSlug");
-          } catch {
-            /* localStorage 不可用就算了 */
-          }
-          if (ignored === slug) return;
-          debugNote(`启动检测到剪贴板分享链接 ${slug}`);
-          setImportShareSlug(slug);
-          setImportShareOpen(true);
+          openShareFromUrl(text, false);
         } catch {
           // 剪贴板没有文本或放的是文件等其他格式：静默
         }
       })();
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [importShareOpen]);
+    // openShareFromUrl 是稳定引用；刻意只跑一次，不随依赖重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 协议唤起（热启动）：单实例回调转发的 filter-manage:// 链接
+  useEffect(() => {
+    const unlisten = listen<string>("share-deep-link", (event) => {
+      openShareFromUrl(event.payload, true);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [openShareFromUrl]);
+
+  // 协议唤起（冷启动）：setup 阶段暂存的链接，前端挂载后取走
+  useEffect(() => {
+    void (async () => {
+      try {
+        const url = await invoke<string | null>("get_pending_share_url");
+        if (url) openShareFromUrl(url, true);
+      } catch {
+        /* 没有待处理的链接 */
+      }
+    })();
+  }, [openShareFromUrl]);
 
   const [baseline, setBaseline] = useState({
     brightness: 0,
