@@ -175,17 +175,13 @@ export default function ImportShareModal({
     : [];
 
   return (
-    <div
-      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-3 backdrop-blur-[2px] sm:p-5"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-3 backdrop-blur-[2px] sm:p-5">
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="import-share-title"
         tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
         className="relative bg-surface-container rounded-xl shadow-2xl border border-outline-variant/25 w-[520px] max-w-[94vw] max-h-[90vh] flex flex-col overflow-hidden animate-[slide-fade-up_0.28s_cubic-bezier(0.16,1,0.3,1)_forwards] motion-reduce:animate-none"
       >
         {/* 环境景深：与分享弹窗同款头部洗染 */}
