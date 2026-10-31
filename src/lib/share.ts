@@ -105,12 +105,15 @@ export async function reportShareImport(slug: string): Promise<void> {
   }
 }
 
-/** 从完整 URL 或裸 slug 里取出 slug。用户可能粘贴落地页地址或只粘一段。 */
+/** 从完整 URL 或裸 slug 里取出 slug。支持落地页地址、协议链接、裸分享码。 */
 export function parseShareSlug(raw: string): string | null {
   const text = raw.trim();
   if (!text) return null;
   // 裸 slug：22 位 URL-safe 字符
   if (/^[A-Za-z0-9_-]{10,64}$/.test(text)) return text;
+  // 协议链接：filter-manage://import?slug=xxx（一键唤起客户端）
+  const proto = text.match(/^filter-manage:\/\/.*[?&]slug=([A-Za-z0-9_-]{10,64})/i);
+  if (proto) return proto[1];
   // /s/<slug> 或带域名
   const match = text.match(/\/s\/([A-Za-z0-9_-]{10,64})/);
   return match ? match[1] : null;
@@ -119,6 +122,11 @@ export function parseShareSlug(raw: string): string | null {
 /** 分享落地页地址（与服务端 domain 保持一致，客户端只负责拼）。 */
 export function shareUrl(slug: string): string {
   return `${serverEnv().marketApiBase}/s/${slug}`;
+}
+
+/** 一键唤起客户端导入的协议链接（需客户端已注册协议）。 */
+export function shareProtocolUrl(slug: string): string {
+  return `filter-manage://import?slug=${slug}`;
 }
 
 /** 图片资产地址（与 ICC 市场同一 R2 桶）。 */

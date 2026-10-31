@@ -13,7 +13,53 @@ mod announcements;
 mod amd;
 mod admin;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+
+/// 冷启动时协议链接（filter-manage://...）暂存在这里，等前端挂载后经
+/// get_pending_share_url 取走。用 Mutex<Option<String>> 保证只取一次。
+pub struct PendingShareUrl(pub std::sync::Mutex<Option<String>>);
+
+/// 把 filter-manage:// 协议注册到 HKCU（每用户，无需安装器参与）。
+///
+/// 每次启动都重写一遍：dev 指向 target 下的调试 exe、绿色版也能用协议、
+/// 更新后路径变化自动纠正。写 HKCU 不需要管理员权限，但本进程本来就是
+/// 管理员，更不会有问题。
+fn register_share_url_protocol() -> Result<(), String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current exe: {e}"))?
+        .to_string_lossy()
+        .to_string();
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (key, _) = hkcu
+        .create_subkey(r"Software\Classes\filter-manage")
+        .map_err(|e| format!("Failed to create protocol key: {e}"))?;
+    key.set_value("", &"URL:Filter Manage Share")
+        .map_err(|e| format!("Failed to set protocol name: {e}"))?;
+    key.set_value("URL Protocol", &"")
+        .map_err(|e| format!("Failed to set URL Protocol: {e}"))?;
+    let (cmd, _) = hkcu
+        .create_subkey(r"Software\Classes\filter-manage\shell\open\command")
+        .map_err(|e| format!("Failed to create command key: {e}"))?;
+    cmd.set_value("", &format!("\"{exe}\" \"%1\""))
+        .map_err(|e| format!("Failed to set open command: {e}"))?;
+    Ok(())
+}
+
+/// 从命令行参数里找协议链接（单实例转发与冷启动共用）
+fn find_share_url_in_args(args: &[String]) -> Option<String> {
+    args.iter()
+        .find(|a| a.starts_with("filter-manage://"))
+        .cloned()
+}
+
+/// 前端挂载后取走冷启动时的协议链接（取走即清空，只处理一次）
+#[tauri::command]
+fn get_pending_share_url(state: tauri::State<PendingShareUrl>) -> Option<String> {
+    state.0.lock().unwrap().take()
+}
 
 /// 退出前的进程内清理：停进程监听线程、还原 AMD 状态、释放托盘/窗口资源。
 ///
@@ -38,10 +84,14 @@ pub fn run() {
     }));
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
+            }
+            // 协议启动（热启动）：第二个实例把 URL 转发给主实例的前端
+            if let Some(url) = find_share_url_in_args(&args) {
+                let _ = app.emit("share-deep-link", url);
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -55,9 +105,24 @@ pub fn run() {
             Some(vec![admin::SILENT_ARG]),
         ))
         .manage(updater::UpdaterState::default())
+        .manage(PendingShareUrl(std::sync::Mutex::new(None)))
         .setup(|app| {
             let handle = app.handle().clone();
             let settings = config::get_app_settings().unwrap_or_default();
+
+            // 分享链接协议：每用户注册到 HKCU，dev/绿色版/更新后路径自愈
+            if let Err(err) = register_share_url_protocol() {
+                eprintln!("share protocol register failed: {err}");
+            }
+
+            // 冷启动：协议链接随命令行传入，暂存等前端挂载后取走
+            if let Some(url) = find_share_url_in_args(&std::env::args().collect::<Vec<_>>()) {
+                app.state::<PendingShareUrl>()
+                    .0
+                    .lock()
+                    .unwrap()
+                    .replace(url);
+            }
 
             // requireAdministrator 清单保证 release 进程必已提权。自启一律用计划任务，
             // 这里按设置覆盖注册/删除（重复注册可自愈启动参数与 exe 路径变更，含旧版迁移）。
@@ -212,6 +277,8 @@ pub fn run() {
             // 通用剪贴板（分享链接）
             debug_recorder::copy_text,
             debug_recorder::read_clipboard_text,
+            // 分享链接协议（落地页一键唤起）
+            get_pending_share_url,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
