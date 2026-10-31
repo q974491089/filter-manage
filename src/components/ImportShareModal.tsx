@@ -63,6 +63,14 @@ export default function ImportShareModal({
     setImageFailed(false);
   }, [open, initialSlug]);
 
+  // 带着剪贴板 slug 打开时自动查询一次，用户只需确认导入。
+  // 必须挂在 early return 之前，否则开合会改变 hook 数量直接崩掉组件。
+  useEffect(() => {
+    if (!open || !initialSlug) return;
+    void lookup(initialSlug);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialSlug]);
+
   if (!open) return null;
 
   async function lookup(raw: string) {
@@ -88,12 +96,6 @@ export default function ImportShareModal({
       setLoading(false);
     }
   }
-
-  // 带着剪贴板 slug 打开时自动查询一次，用户只需确认导入
-  useEffect(() => {
-    if (open && initialSlug) void lookup(initialSlug);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialSlug]);
 
   /** 方案名冲突时加后缀，绝不覆盖用户已有方案。 */
   async function uniqueName(base: string): Promise<string> {
