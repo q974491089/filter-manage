@@ -85,12 +85,14 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            eprintln!("[single-instance] args={args:?}");
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
             }
             // 协议启动（热启动）：第二个实例把 URL 转发给主实例的前端
             if let Some(url) = find_share_url_in_args(&args) {
+                eprintln!("[single-instance] 转发协议链接 {url}");
                 let _ = app.emit("share-deep-link", url);
             }
         }))
@@ -264,7 +266,8 @@ pub fn run() {
             // Announcements
             announcements::get_announcements,
             // Feature flags（客户端功能开关，后台下发）
-            features::get_feature_flags,
+            features::get_cached_feature_flags,
+            features::fetch_feature_flags,
             // 接口环境（线上/预发，仅开发构建可切换）
             server_env::get_runtime_env,
             server_env::set_api_env,
