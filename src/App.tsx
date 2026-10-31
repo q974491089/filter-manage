@@ -144,6 +144,7 @@ function App() {
    */
   const openShareFromUrl = useCallback((url: string, force: boolean) => {
     const slug = parseShareSlug(url);
+    debugNote(`[share] 收到链接 ${url} (force=${force}, slug=${slug ?? "无"})`);
     if (!slug) return;
     if (!featureFlagsRef.current.isEnabled(FEATURE_PLAN_SHARE)) return;
     if (!force) {
@@ -203,6 +204,28 @@ function App() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [checkClipboardForShare]);
+
+  // 协议唤起（热启动）：单实例回调转发的 filter-manage:// 链接
+  useEffect(() => {
+    const unlisten = listen<string>("share-deep-link", (event) => {
+      openShareFromUrl(event.payload, true);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [openShareFromUrl]);
+
+  // 协议唤起（冷启动）：setup 阶段暂存的链接，前端挂载后取走
+  useEffect(() => {
+    void (async () => {
+      try {
+        const url = await invoke<string | null>("get_pending_share_url");
+        if (url) openShareFromUrl(url, true);
+      } catch {
+        /* 没有待处理的链接 */
+      }
+    })();
+  }, [openShareFromUrl]);
 
   const [baseline, setBaseline] = useState({
     brightness: 0,
