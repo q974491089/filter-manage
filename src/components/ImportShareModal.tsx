@@ -277,14 +277,23 @@ export default function ImportShareModal({
           {share ? (
             <div className="group overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high/40">
               {coverUrl && !imageFailed ? (
-                <div className="flex justify-center bg-surface-container-highest">
+                <div className="group relative h-44 w-full overflow-hidden bg-surface-container-highest">
                   <img
                     src={coverUrl}
                     alt={share.title}
                     title="点击放大查看"
-                    className="max-h-56 max-w-full cursor-zoom-in object-contain transition-transform duration-500 ease-out group-hover:scale-[1.02] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+                    className="h-full w-full cursor-zoom-in object-cover transition-transform duration-500 ease-out group-hover:scale-[1.02] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
                     onClick={() => setZoomOpen(true)}
                     onError={() => setImageFailed(true)}
+                  />
+                  {/* 浅灰边缘蒙层：柔化图片边界，与卡片底色过渡 */}
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0"
+                    style={{
+                      background:
+                        "radial-gradient(ellipse at center, transparent 50%, rgba(205,205,214,0.32) 100%)",
+                    }}
                   />
                 </div>
               ) : null}
