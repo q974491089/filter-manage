@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../lib/ipc";
 import { debugNote } from "../lib/debug";
+import { sha256Hex } from "../lib/submissions";
 import {
   getShare,
   parseShareSlug,
@@ -113,20 +114,41 @@ export default function ImportShareModal({
     try {
       let iccProfile: string | null = null;
       if (share.iccSha256) {
-        setStage("下载 ICC 文件");
+        // 先看本机是不是已经有同一份文件（按内容 sha 对比），有就直接复用，
+        // 没必要再从服务器拉一遍
+        setStage("检查本地配置文件");
+        let localSha: string | null = null;
         try {
-          iccProfile = await invoke<string>("import_shared_icc", {
-            slug: share.slug,
-            fileName: share.iccName,
-            title: share.title,
+          const file = await invoke<{ base64: string }>("read_icc_file", {
+            name: share.iccName,
           });
-        } catch (err) {
-          // ICC 失败不阻断：方案本身仍可导入，但必须说清楚屏幕不会变
-          debugNote(`分享 ICC 下载失败：${String(err)}`);
-          showToast(
-            "error",
-            `ICC 下载失败（${err instanceof Error ? err.message : String(err)}），方案仍会导入但缺少 ICC`,
-          );
+          const binary = atob(file.base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+          localSha = await sha256Hex(bytes.buffer);
+        } catch {
+          // 本机没有这个文件（或读取失败），走下载
+        }
+
+        if (localSha && localSha === share.iccSha256) {
+          iccProfile = share.iccName;
+          debugNote(`本机已有相同 ICC「${share.iccName}」，跳过下载`);
+        } else {
+          setStage("下载 ICC 文件");
+          try {
+            iccProfile = await invoke<string>("import_shared_icc", {
+              slug: share.slug,
+              fileName: share.iccName,
+              title: share.title,
+            });
+          } catch (err) {
+            // ICC 失败不阻断：方案本身仍可导入，但必须说清楚屏幕不会变
+            debugNote(`分享 ICC 下载失败：${String(err)}`);
+            showToast(
+              "error",
+              `ICC 下载失败（${err instanceof Error ? err.message : String(err)}），方案仍会导入但缺少 ICC`,
+            );
+          }
         }
       }
 
