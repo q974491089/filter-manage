@@ -120,6 +120,10 @@ function App() {
   /** 启动时从剪贴板检测到的分享 slug（null = 手动打开入口） */
   const [importShareSlug, setImportShareSlug] = useState<string | null>(null);
   const importedFromShareRef = useRef(false);
+  /** 本会话已处理过（导入或忽略）的分享 slug：防止焦点检测反复打扰 */
+  const handledShareSlugsRef = useRef(new Set<string>());
+  const importShareOpenRef = useRef(false);
+  importShareOpenRef.current = importShareOpen;
   const updater = useUpdater();
   const ann = useAnnouncements();
   const featureFlags = useFeatureFlags();
@@ -135,70 +139,67 @@ function App() {
 
   /**
    * 从一条链接/协议 URL 打开导入弹窗。
-   * force = true 时跳过「已忽略」检查（落地页按钮、协议唤起都是显式意图）。
+   * force = true 时跳过抑制检查（落地页按钮、协议唤起都是显式意图）。
    */
   const openShareFromUrl = useCallback((url: string, force: boolean) => {
     const slug = parseShareSlug(url);
     if (!slug) return;
     if (!featureFlagsRef.current.isEnabled(FEATURE_PLAN_SHARE)) return;
     if (!force) {
-      let ignored: string | null = null;
+      // 本会话已处理过（导入或忽略）→ 不再打扰
+      if (handledShareSlugsRef.current.has(slug)) return;
+      let dismissed: string[] = [];
       try {
-        ignored = localStorage.getItem("lastIgnoredShareSlug");
+        dismissed = JSON.parse(localStorage.getItem("dismissedShareSlugs") ?? "[]");
       } catch {
         /* localStorage 不可用就算了 */
       }
-      if (ignored === slug) return;
+      if (Array.isArray(dismissed) && dismissed.includes(slug)) return;
     }
     importedFromShareRef.current = false;
     setImportShareSlug(slug);
     setImportShareOpen(true);
   }, []);
 
-  // 启动时读一次剪贴板：里面正好是一条分享链接就直接弹导入窗。
-  // 每次会话只检测一次；用户忽略过的链接记在 localStorage，不再重复弹。
-  const clipboardCheckedRef = useRef(false);
-  useEffect(() => {
-    if (clipboardCheckedRef.current) return;
-    clipboardCheckedRef.current = true;
-    const timer = window.setTimeout(() => {
-      if (importShareOpen) return;
-      if (!featureFlagsRef.current.isEnabled(FEATURE_PLAN_SHARE)) return;
-      void (async () => {
-        try {
-          const text = await invoke<string>("read_clipboard_text");
-          openShareFromUrl(text, false);
-        } catch {
-          // 剪贴板没有文本或放的是文件等其他格式：静默
-        }
-      })();
-    }, 600);
-    return () => window.clearTimeout(timer);
-    // openShareFromUrl 是稳定引用；刻意只跑一次，不随依赖重跑
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 协议唤起（热启动）：单实例回调转发的 filter-manage:// 链接
-  useEffect(() => {
-    const unlisten = listen<string>("share-deep-link", (event) => {
-      openShareFromUrl(event.payload, true);
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [openShareFromUrl]);
-
-  // 协议唤起（冷启动）：setup 阶段暂存的链接，前端挂载后取走
-  useEffect(() => {
+  /** 读取剪贴板，是分享链接就弹导入窗（启动与窗口聚焦共用） */
+  const checkClipboardForShare = useCallback(() => {
+    if (importShareOpenRef.current) return;
+    if (!featureFlagsRef.current.isEnabled(FEATURE_PLAN_SHARE)) return;
     void (async () => {
       try {
-        const url = await invoke<string | null>("get_pending_share_url");
-        if (url) openShareFromUrl(url, true);
+        const text = await invoke<string>("read_clipboard_text");
+        openShareFromUrl(text, false);
       } catch {
-        /* 没有待处理的链接 */
+        // 剪贴板没有文本或放的是文件等其他格式：静默
       }
     })();
   }, [openShareFromUrl]);
+
+  // 启动后 600ms 检测一次剪贴板
+  useEffect(() => {
+    const timer = window.setTimeout(() => checkClipboardForShare(), 600);
+    return () => window.clearTimeout(timer);
+  }, [checkClipboardForShare]);
+
+  // 窗口获得焦点时再检测一次：客户端开着的时候复制链接切回来也能弹
+  const lastClipboardCheckRef = useRef(0);
+  useEffect(() => {
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - lastClipboardCheckRef.current < 2000) return;
+      lastClipboardCheckRef.current = now;
+      checkClipboardForShare();
+    };
+    window.addEventListener("focus", onFocus);
+    const onVisibility = () => {
+      if (!document.hidden) onFocus();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [checkClipboardForShare]);
 
   const [baseline, setBaseline] = useState({
     brightness: 0,
@@ -1429,10 +1430,21 @@ function App() {
         open={importShareOpen}
         initialSlug={importShareSlug}
         onClose={() => {
-          // 关闭时没导入（取消/×/Esc）：记下这个链接，下次启动不再为它弹窗
-          if (importShareSlug && !importedFromShareRef.current) {
+          if (importShareSlug) {
+            // 本会话不再为它弹
+            handledShareSlugsRef.current.add(importShareSlug);
+            // 没导入就关（取消/×/Esc）→ 持久忽略，重启也不弹；导入过则清除
             try {
-              localStorage.setItem("lastIgnoredShareSlug", importShareSlug);
+              const dismissed = JSON.parse(
+                localStorage.getItem("dismissedShareSlugs") ?? "[]",
+              );
+              const list = Array.isArray(dismissed) ? dismissed : [];
+              const next = importedFromShareRef.current
+                ? list.filter((s) => s !== importShareSlug)
+                : list.includes(importShareSlug)
+                  ? list
+                  : [...list, importShareSlug].slice(-50);
+              localStorage.setItem("dismissedShareSlugs", JSON.stringify(next));
             } catch {
               /* localStorage 不可用就算了 */
             }
@@ -1443,11 +1455,7 @@ function App() {
         showToast={showToast}
         onImported={(name) => {
           importedFromShareRef.current = true;
-          try {
-            localStorage.setItem("lastIgnoredShareSlug", importShareSlug ?? "");
-          } catch {
-            /* 同上 */
-          }
+          handledShareSlugsRef.current.add(importShareSlug ?? "");
           void refreshConfigs();
           setSelectedConfig(name);
         }}
