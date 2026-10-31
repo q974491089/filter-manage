@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "../lib/ipc";
 import { debugNote } from "../lib/debug";
 import { sha256Hex } from "../lib/submissions";
+import { serverEnv } from "../lib/serverEnv";
 import {
   getShare,
   parseShareSlug,
@@ -84,7 +85,9 @@ export default function ImportShareModal({
     try {
       const item = await getShare(slug);
       if (!item) {
-        setError("分享不存在或已被撤销");
+        // 404 时点明当前接口环境：分享是环境作用域的，预发创建的在线上查不到
+        const envLabel = serverEnv().apiEnv === "staging" ? "预发" : "线上";
+        setError(`分享不存在或已被撤销（当前接口环境：${envLabel}）`);
         return;
       }
       setShare(item);

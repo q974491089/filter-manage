@@ -25,6 +25,7 @@ import { useAnnouncements } from "./hooks/useAnnouncements";
 import { useFeatureFlags } from "./hooks/useFeatureFlags";
 import { FEATURE_PLAN_SHARE } from "./lib/featureFlags";
 import { parseShareSlug } from "./lib/share";
+import { ensureEnvReady } from "./lib/serverEnv";
 import { debugNote, setDebugRecording } from "./lib/debug";
 import type { RgbScaleMode } from "./lib/rgbScale";
 
@@ -167,6 +168,8 @@ function App() {
     if (!featureFlagsRef.current.isEnabled(FEATURE_PLAN_SHARE)) return;
     void (async () => {
       try {
+        // 先等接口环境就绪，否则会用线上兜底值查询（明明切了预发却请求线上的竞态）
+        await ensureEnvReady();
         const text = await invoke<string>("read_clipboard_text");
         openShareFromUrl(text, false);
       } catch {
