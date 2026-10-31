@@ -53,7 +53,16 @@ export async function getSubmissionTokens(
     body: JSON.stringify({ contributorId, nickname }),
   });
   if (!res.ok) throw new Error(`获取投稿令牌失败（HTTP ${res.status}）`);
-  return (await res.json()) as SubmissionTokens;
+  const tokens = (await res.json()) as SubmissionTokens;
+  // tauri dev 时前端 origin 是 localhost:5173，直连网关会被 CORS 预检拦截；
+  // Vite 已把 /v1 代理到网关（见 vite.config.ts），这里改走同源相对路径。
+  // 打包后 origin 是 tauri.localhost，本就在 Worker 白名单里，用绝对地址。
+  const sameOrigin = import.meta.env.DEV;
+  return {
+    ...tokens,
+    gatewayUrl: sameOrigin ? "" : tokens.gatewayUrl,
+    imageGatewayUrl: sameOrigin ? "" : tokens.imageGatewayUrl,
+  };
 }
 
 export async function uploadToGateway(
