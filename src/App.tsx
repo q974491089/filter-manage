@@ -236,6 +236,8 @@ function App() {
     rgbG: 0,
     rgbB: 0,
     iccProfile: "Default",
+    /** 分辨率基线：最近一次采纳点（启动/加载方案/切显示器）的实际模式 "宽x高@Hz" */
+    resolution: null as string | null,
   });
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const [dvcCap, setDvcCap] = useState<DvcCapability | null>(null);
@@ -268,8 +270,20 @@ function App() {
   const activeMonitor = monitors.find((m) => m.device_id === selectedDeviceId);
   /** 当前选中显示器的实际分辨率 "宽x高"，由 DisplayResolution 卡片上报；保存方案时写入 */
   const [currentResolution, setCurrentResolution] = useState<string | null>(null);
-  /** 变化时让 DisplayResolution 重拉模式（托盘/快捷键/进程监听应用方案后同步） */
+  /** 变化时让 DisplayResolution 重拉模式（托盘/快捷键/进程监听应用方案后同步真实状态） */
   const [resRefreshKey, setResRefreshKey] = useState(0);
+  /** 分辨率基线采纳开关：置 true 后，卡片上报的下一个实际模式写入 baseline.resolution
+   *  （启动、应用方案、切显示器时置位），其余上报只更新当前值参与脏判断 */
+  const awaitResBaselineRef = useRef(true);
+  const handleCurrentResolutionReport = (res: string | null) => {
+    setCurrentResolution(res);
+    if (awaitResBaselineRef.current) {
+      awaitResBaselineRef.current = false;
+      setBaseline((prev) =>
+        prev.resolution === res ? prev : { ...prev, resolution: res }
+      );
+    }
+  };
   const monitorRefs = useRef<(HTMLElement | null)[]>([]);
   const logoClicksRef = useRef({ count: 0, first: 0 });
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -282,7 +296,8 @@ function App() {
     rgbR !== baseline.rgbR ||
     rgbG !== baseline.rgbG ||
     rgbB !== baseline.rgbB ||
-    activeProfile !== baseline.iccProfile;
+    activeProfile !== baseline.iccProfile ||
+    currentResolution !== baseline.resolution;
 
   const handleRgbScaleModeChange = (mode: RgbScaleMode) => {
     setRgbScaleMode(mode);
@@ -382,7 +397,7 @@ function App() {
           setRgbB(rb);
           setActiveProfile("Default");
           setSelectedConfig("");
-          setBaseline({
+          setBaseline((prev) => ({
             brightness: def.brightness,
             contrast: def.contrast,
             gamma: def.gamma,
@@ -391,9 +406,11 @@ function App() {
             rgbG: rg,
             rgbB: rb,
             iccProfile: "Default",
-          });
+            resolution: prev.resolution,
+          }));
         }
-        // 后台路径可能改了分辨率，让分辨率卡片重拉真实状态
+        // 后台路径可能改了分辨率：卡片重拉真实状态，并以重拉上报值为分辨率基线
+        awaitResBaselineRef.current = true;
         setResRefreshKey((k) => k + 1);
       } catch (err) {
         console.error("Failed to sync UI after config-applied:", err);
@@ -415,7 +432,7 @@ function App() {
       setRgbB(rb);
       setActiveProfile(cfg.icc_profile || "Default");
       setSelectedConfig(configName);
-      setBaseline({
+      setBaseline((prev) => ({
         brightness: cfg.brightness,
         contrast: cfg.contrast,
         gamma: cfg.gamma,
@@ -424,8 +441,10 @@ function App() {
         rgbG: rg,
         rgbB: rb,
         iccProfile: cfg.icc_profile || "Default",
-      });
-      // 后台路径可能改了分辨率，让分辨率卡片重拉真实状态
+        resolution: prev.resolution,
+      }));
+      // 后台路径可能改了分辨率：卡片重拉真实状态，并以重拉上报值为分辨率基线
+      awaitResBaselineRef.current = true;
       setResRefreshKey((k) => k + 1);
     } catch (err) {
       console.error("Failed to sync UI after config-applied:", err);
@@ -474,6 +493,8 @@ function App() {
   // 应用方案时要不要调它 —— 否则 AMD / Intel 机器上每次操作都会弹一次错误。
   useEffect(() => {
     let cancelled = false;
+    // 切显示器后模式列表不同，卡片重拉上报时采纳为新分辨率基线
+    awaitResBaselineRef.current = true;
     invoke<DvcCapability>("get_dvc_capability", { deviceId: selectedDeviceId })
       .then((cap) => { if (!cancelled) setDvcCap(cap); })
       .catch((err) => {
@@ -537,7 +558,7 @@ function App() {
           setRgbB(rb);
           const profile = existing.icc_profile || "Default";
           setActiveProfile(profile);
-          setBaseline({
+          setBaseline((prev) => ({
             brightness: existing.brightness,
             contrast: existing.contrast,
             gamma: existing.gamma,
@@ -546,7 +567,8 @@ function App() {
             rgbG: rg,
             rgbB: rb,
             iccProfile: profile,
-          });
+            resolution: prev.resolution,
+          }));
         } else {
           const dvcDefault = await invoke<number>("get_dvc_default_ui_value", { deviceId: selectedDeviceId });
           await invoke("save_default_config", {
@@ -660,6 +682,8 @@ function App() {
       rgbG: rg,
       rgbB: rb,
       iccProfile: profile,
+      // 预填当前实际模式，等下方重拉上报后采纳为应用后的真实基线
+      resolution: currentResolution,
     });
 
     if (config.icc_profile) {
@@ -695,6 +719,10 @@ function App() {
       console.error("Failed to apply NVIDIA:", err);
       showToast("error", `应用颜色设置失败: ${err}`);
     }
+
+    // 本路径可能改了分辨率：卡片重拉真实状态，并以重拉上报值为分辨率基线
+    awaitResBaselineRef.current = true;
+    setResRefreshKey((k) => k + 1);
   };
 
   const handleRestore = async () => {
@@ -712,6 +740,8 @@ function App() {
         // 无默认方案：配色无从恢复，但若此前应用过带分辨率的方案，至少把分辨率还回去
         try {
           await invoke("apply_config_resolution", { deviceId: selectedDeviceId, resolution: null });
+          awaitResBaselineRef.current = true;
+          setResRefreshKey((k) => k + 1);
         } catch {
           /* 无可还原项，忽略 */
         }
@@ -751,7 +781,7 @@ function App() {
       setRgbR(rr);
       setRgbG(rg);
       setRgbB(rb);
-      setBaseline({
+      setBaseline((prev) => ({
         brightness: settings.brightness,
         contrast: settings.contrast,
         gamma: settings.gamma,
@@ -760,7 +790,8 @@ function App() {
         rgbG: rg,
         rgbB: rb,
         iccProfile: activeProfile,
-      });
+        resolution: prev.resolution,
+      }));
     } catch (err) {
       console.error("Failed to load settings for display:", err);
     }
@@ -832,6 +863,7 @@ function App() {
         rgbG,
         rgbB,
         iccProfile: activeProfile,
+        resolution: currentResolution,
       });
       showToast("success", `「${name}」已保存`);
       await refreshConfigs();
@@ -875,6 +907,7 @@ function App() {
         rgbG,
         rgbB,
         iccProfile: activeProfile,
+        resolution: currentResolution,
       });
       showToast("success", `「${selectedConfig}」已更新`);
       await refreshConfigs();
@@ -893,20 +926,8 @@ function App() {
 
   const handleConfigLoad = async (config: ColorConfig) => {
     setSelectedConfig(config.name);
+    // 基线（含分辨率）统一由 handleApply 设置，这里不再重复覆盖
     await handleApply(config);
-    const rr = config.rgb_r ?? 0;
-    const rg = config.rgb_g ?? 0;
-    const rb = config.rgb_b ?? 0;
-    setBaseline({
-      brightness: config.brightness,
-      contrast: config.contrast,
-      gamma: config.gamma,
-      digitalVibrance: config.digital_vibrance,
-      rgbR: rr,
-      rgbG: rg,
-      rgbB: rb,
-      iccProfile: config.icc_profile || "Default",
-    });
   };
 
   const handleClosePromptSelect = async (closeToTray: boolean, remember: boolean) => {
@@ -1103,7 +1124,11 @@ function App() {
                 rgbG: rg,
                 rgbB: rb,
                 iccProfile: profile,
+                resolution: null,
               });
+              // 后端复位可能改过分辨率：卡片重拉，以上报的实际模式为新基线
+              awaitResBaselineRef.current = true;
+              setResRefreshKey((k) => k + 1);
             } catch {
               // 恢复界面状态失败不影响报告流程；屏幕本身已被后端重置
             }
@@ -1366,7 +1391,7 @@ function App() {
               showToast={showToast}
               deviceId={selectedDeviceId}
               deviceName={activeMonitor ? getMonitorDisplayName(activeMonitor) : undefined}
-              onCurrentResolution={setCurrentResolution}
+              onCurrentResolution={handleCurrentResolutionReport}
               refreshKey={resRefreshKey}
             />
             <PreviewImage showToast={showToast} />

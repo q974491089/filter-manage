@@ -50,7 +50,7 @@ interface DisplayResolutionProps {
   deviceId?: string;
   /** 显示器型号名，用于控件的悬浮提示 */
   deviceName?: string;
-  /** 应用成功后向 App 上报当前实际模式（保存方案时写入），null=未知 */
+  /** 上报当前实际模式（保存方案时写入；App 侧在启动/加载方案等采纳点用作分辨率基线），null=未知 */
   onCurrentResolution: (res: string | null) => void;
   /** 变化时重新拉取模式列表（托盘/快捷键/进程监听应用方案后同步真实状态） */
   refreshKey: number;
@@ -90,7 +90,7 @@ function DisplayResolution({
       setCurrent(null);
       onCurrentResolution(null);
     }
-    // onCurrentResolution 是 App 的 setState，引用稳定
+    // onCurrentResolution 的闭包只引用稳定项（ref 与 setState），无需进依赖
   }, [deviceId, refreshKey]);
 
   useEffect(() => {
