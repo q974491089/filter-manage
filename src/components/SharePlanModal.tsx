@@ -28,6 +28,9 @@ interface SharePlanModalProps {
   showToast: (type: "success" | "error", text: string) => void;
   /** 生成模拟效果图（用**被分享方案**的参数，不是当前屏幕参数） */
   onCaptureEffect: (config: ColorConfig) => Promise<string | null>;
+  /** 分享创建成功（链接已进剪贴板）：App 把 slug 记入会话已处理集合，
+   *  防止剪贴板检测把自己的分享链接再弹成「导入」 */
+  onShared?: (slug: string) => void;
 }
 
 type IccState =
@@ -52,6 +55,7 @@ export default function SharePlanModal({
   onClose,
   showToast,
   onCaptureEffect,
+  onShared,
 }: SharePlanModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -263,6 +267,8 @@ export default function SharePlanModal({
         showToast("success", "分享链接已生成");
       }
       debugNote(`分享方案「${title.trim()}」→ ${result.slug}`);
+      // 会话内不再把自己的链接当「待导入」弹窗（剪贴板检测回声抑制）
+      onShared?.(result.slug);
       setLink(url);
     } catch (err) {
       showToast("error", err instanceof Error ? err.message : String(err));
