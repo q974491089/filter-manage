@@ -31,6 +31,20 @@ export function serverEnv(): RuntimeEnv {
   return current;
 }
 
+let initPromise: Promise<RuntimeEnv> | null = null;
+
+/**
+ * 确保运行时环境已加载完成。
+ *
+ * 页面刷新后 initServerEnv 是异步 IPC，未完成前 serverEnv() 返回线上兜底值；
+ * 任何在启动早期就要发请求的消费方（剪贴板检测、导入查询）必须先 await
+ * 这个，否则会出现「明明切了预发却请求了线上」的竞态。
+ */
+export function ensureEnvReady(): Promise<RuntimeEnv> {
+  if (!initPromise) initPromise = initServerEnv();
+  return initPromise;
+}
+
 /** 启动时调用一次；之后切换环境由 switchApiEnv 更新缓存。 */
 export async function initServerEnv(): Promise<RuntimeEnv> {
   try {
