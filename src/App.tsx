@@ -1005,13 +1005,15 @@ function App() {
         !params.iccProfile || params.iccProfile === "Default"
           ? null
           : params.iccProfile,
-      brightness: params.brightness,
-      contrast: params.contrast,
-      gamma: params.gamma,
-      digitalVibrance: params.digitalVibrance,
-      rgbR: params.rgbR,
-      rgbG: params.rgbG,
-      rgbB: params.rgbB,
+      settings: {
+        brightness: params.brightness,
+        contrast: params.contrast,
+        gamma: params.gamma,
+        digitalVibrance: params.digitalVibrance,
+        rgbR: params.rgbR,
+        rgbG: params.rgbG,
+        rgbB: params.rgbB,
+      },
     });
 
     const image = new Image();
@@ -1456,6 +1458,7 @@ function App() {
         config={shareConfig}
         onClose={() => setShareConfigName(null)}
         showToast={showToast}
+        onShared={(slug) => handledShareSlugsRef.current.add(slug)}
         onCaptureEffect={async (config) => {
           // 用**被分享方案**的参数渲染，而不是当前屏幕正在用的参数；
           // 分享时不应该顺带改动顶栏预览状态或磁盘上的预览图。

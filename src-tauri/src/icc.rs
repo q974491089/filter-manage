@@ -1417,13 +1417,7 @@ pub fn set_preview_image(image_path: String) -> Result<String, String> {
 pub async fn capture_icc_effect_preview(
     app: tauri::AppHandle,
     profile_name: Option<String>,
-    brightness: i32,
-    contrast: i32,
-    gamma: f64,
-    digital_vibrance: i32,
-    rgb_r: i32,
-    rgb_g: i32,
-    rgb_b: i32,
+    settings: PreviewColorSettings,
 ) -> Result<String, String> {
     let ramp = if let Some(name) = profile_name {
         let path = PathBuf::from(&name);
@@ -1438,15 +1432,6 @@ pub async fn capture_icc_effect_preview(
         parse_vcgt(&bytes)
     } else {
         None
-    };
-    let settings = PreviewColorSettings {
-        brightness,
-        contrast,
-        gamma,
-        digital_vibrance,
-        rgb_r,
-        rgb_g,
-        rgb_b,
     };
     let window = app.get_webview_window("main");
 
@@ -1515,8 +1500,9 @@ pub fn open_icc_effect_preview_directory(app: tauri::AppHandle) -> Result<(), St
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-struct PreviewColorSettings {
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewColorSettings {
     brightness: i32,
     contrast: i32,
     gamma: f64,
@@ -1618,8 +1604,8 @@ fn capture_primary_display_with_ramp(
             for pixel in bgra.chunks_exact(4) {
                 let input = [pixel[2], pixel[1], pixel[0]];
                 let mut output = [0.0; 3];
-                for channel in 0..3 {
-                    let linear = ((input[channel] as f64 + offset) / range).clamp(0.0, 1.0);
+                for (channel, input_value) in input.iter().enumerate() {
+                    let linear = ((*input_value as f64 + offset) / range).clamp(0.0, 1.0);
                     let adjusted = if (gamma - 1.0).abs() < 1e-6 {
                         linear
                     } else {
@@ -1633,8 +1619,8 @@ fn capture_primary_display_with_ramp(
                     output[channel] = (base as f64 / 257.0 * gains[channel]).clamp(0.0, 255.0);
                 }
                 let luminance = output[0] * 0.2126 + output[1] * 0.7152 + output[2] * 0.0722;
-                for channel in 0..3 {
-                    rgb.push((luminance + (output[channel] - luminance) * saturation)
+                for out in output.iter() {
+                    rgb.push((luminance + (out - luminance) * saturation)
                         .round()
                         .clamp(0.0, 255.0) as u8);
                 }
