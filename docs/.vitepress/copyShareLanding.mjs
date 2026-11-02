@@ -7,6 +7,7 @@ import { join } from 'node:path'
  * - share-shell.html  → dist/s/index.html（/s/<slug> 的静态壳，Edge Function
  *   会先取这份 HTML、注入 <title>/og:* 再返回；镜像站没有函数时直接当静态页兜底）
  * - public/share-landing.js → dist/share-landing.js（壳页面引用的渲染脚本）
+ * - public/share-landing.css → dist/share-landing.css（壳页面样式）
  *
  * 挂在 buildEnd 是因为这两个文件不属于任何 VitePress 页面，走 markdown/
  * publicDir 流程都会被加上多余处理或丢失目录结构。
