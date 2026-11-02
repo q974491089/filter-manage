@@ -119,9 +119,23 @@ export function parseShareSlug(raw: string): string | null {
   return match ? match[1] : null;
 }
 
-/** 分享落地页地址（与服务端 domain 保持一致，客户端只负责拼）。 */
+/**
+ * 分享落地页基址。落地页挂在官网（EdgeOne Pages）而不是 admin 域：
+ * admin 前端公开出 /s/* 会让管理台暴露在分享链接的流量里，且社交抓取
+ * 标题是「Filter Manage Admin」。官网由 Edge Function 注入 og:* 预览。
+ *
+ * 预发环境没有独立官网，仍复用 admin 域的落地页（staging admin 也部署
+ * 了 /s/:slug 页面）。
+ */
+const SHARE_LANDING_BASE_PROD = "https://filter-manage.6ya.site/s";
+
+/** 分享落地页地址。 */
 export function shareUrl(slug: string): string {
-  return `${serverEnv().marketApiBase}/s/${slug}`;
+  const base =
+    serverEnv().apiEnv === "staging"
+      ? `${serverEnv().marketApiBase}/s`
+      : SHARE_LANDING_BASE_PROD;
+  return `${base}/${slug}`;
 }
 
 /** 一键唤起客户端导入的协议链接（需客户端已注册协议）。 */
