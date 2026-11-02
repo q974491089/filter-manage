@@ -77,10 +77,10 @@ async function onRequestGet(context) {
     .filter(Boolean)
     .join("\n    ");
 
-  const res = await context.env.ASSETS.fetch(
-    new URL(`/s/index.html`, context.request.url),
-  );
-  const html = (await res.text()).replace("<!--edgeone-share-meta-->", head);
+  // EdgeOne 没有 Cloudflare 的 ASSETS 绑定；静态资源路由优先于函数路由，
+  // 直接 fetch 同源 /s/index.html 即可拿到部署里的壳页面。
+  const assetRes = await fetch(new URL("/s/index.html", context.request.url));
+  const html = (await assetRes.text()).replace("<!--edgeone-share-meta-->", head);
 
   return new Response(html, {
     status: 200,
