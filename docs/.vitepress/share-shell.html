@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN" dir="ltr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <!--edgeone-share-meta-->
+    <!-- 预渲染兜底：Edge Function 挂了/镜像站没有函数时，至少标题是分享页语义 -->
+    <title>Filter Manage 方案分享</title>
+    <meta name="description" content="一键导入别人分享的 NVIDIA 调色方案：色彩参数 + 分辨率 + ICC 配置文件。">
+    <link rel="icon" href="/favicon.png">
+    <link rel="preload stylesheet" href="/share-landing.css" as="style">
+    <meta name="robots" content="noindex, follow">
+    <script>
+      // 与 VitePress 默认主题一致的暗色判定，保证壳页面亮暗自适应
+      (() => {
+        const pref = localStorage.getItem("vitepress-theme-appearance") || "auto";
+        const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (pref === "dark" || (pref === "auto" && dark)) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="fm-share-root"></div>
+    <script type="module" src="/share-landing.js"></script>
+  </body>
+</html>

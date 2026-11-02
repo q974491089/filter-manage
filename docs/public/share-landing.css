@@ -1,0 +1,349 @@
+/* 方案分享落地页样式（/s/<slug>）。
+ *
+ * 与客户端/管理端落地页同一套视觉语言：紫色 kicker + 白卡片 + 参数网格。
+ * 壳页面独立于 VitePress 页面渲染，因此在这里自带一份与官网主题同值的
+ * --vp-c-* 变量（亮/暗两套），保证单页加载时也有完整配色；若未来并入
+ * VitePress 上下文，真实主题变量会自然覆盖同名定义。
+ */
+
+:root {
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #f6f6f7;
+  --vp-c-divider: #e2e2e3;
+  --vp-c-text-1: #3c3c43;
+  --vp-c-text-2: #67676c;
+  --vp-c-brand-1: #3451b2;
+  --vp-c-brand-2: #3a5ccc;
+  --vp-c-brand-soft: rgba(100, 108, 255, 0.14);
+  --vp-font-family-base: Inter, -apple-system, "Segoe UI", "Microsoft YaHei",
+    "PingFang SC", sans-serif;
+  --vp-font-family-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+html.dark {
+  --vp-c-bg: #1b1b1f;
+  --vp-c-bg-elv: #202127;
+  --vp-c-bg-soft: #202127;
+  --vp-c-divider: #2e2e32;
+  --vp-c-text-1: #dfdfd6;
+  --vp-c-text-2: #98989f;
+  --vp-c-brand-1: #a8b1ff;
+  --vp-c-brand-2: #5c73e7;
+  --vp-c-brand-soft: rgba(100, 108, 255, 0.16);
+}
+
+.fm-share {
+  min-height: 100dvh;
+  padding: 40px 20px 64px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(1200px 400px at 50% -120px, rgba(100, 108, 255, 0.14), transparent 70%),
+    var(--vp-c-bg, #ffffff);
+  color: var(--vp-c-text-1, rgba(0, 0, 0, 0.88));
+  font-family: var(--vp-font-family-base, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif);
+}
+
+.fm-share-card {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px 30px 30px;
+  background: var(--vp-c-bg-elv, #ffffff);
+  border: 1px solid var(--vp-c-divider, rgba(0, 0, 0, 0.08));
+  border-radius: 18px;
+  box-shadow: 0 20px 60px -30px rgba(30, 20, 70, 0.35);
+}
+
+.fm-share-center {
+  text-align: center;
+  padding-top: 48px;
+  padding-bottom: 48px;
+}
+
+.fm-share-emoji {
+  font-size: 40px;
+  margin-bottom: 8px;
+}
+
+.fm-share-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.fm-share-kicker {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vp-c-brand-1, #3451b2);
+  font-weight: 600;
+}
+
+.fm-share-title {
+  margin: 4px 0 0;
+  font-size: 26px;
+  line-height: 1.3;
+  font-weight: 700;
+  border: none;
+  padding: 0;
+}
+
+.fm-share-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--vp-c-text-2, rgba(0, 0, 0, 0.45));
+}
+
+.fm-share-meta .mono {
+  font-family: var(--vp-font-family-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.fm-share-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 200px;
+}
+
+.fm-share-cover {
+  margin-top: 20px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--vp-c-divider, rgba(0, 0, 0, 0.08));
+  background: #000;
+}
+
+.fm-share-cover img {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+}
+
+.fm-share-desc {
+  margin-top: 18px;
+  white-space: pre-wrap;
+  color: var(--vp-c-text-1, rgba(0, 0, 0, 0.88));
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+
+.fm-share-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--vp-c-divider, rgba(0, 0, 0, 0.1));
+}
+
+.fm-share-section h3,
+.fm-share-howto h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  padding: 0;
+}
+
+.fm-share-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.fm-share-grid .cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--vp-c-brand-soft, rgba(100, 108, 255, 0.14));
+}
+
+.fm-share-grid .k {
+  font-size: 11.5px;
+  color: var(--vp-c-text-2, rgba(0, 0, 0, 0.45));
+}
+
+.fm-share-grid .v {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.fm-share-icc {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--vp-c-divider, rgba(0, 0, 0, 0.08));
+}
+
+.fm-share-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--vp-c-text-2, rgba(0, 0, 0, 0.45));
+}
+
+.fm-share-howto {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--vp-c-brand-soft, rgba(100, 108, 255, 0.14));
+}
+
+.fm-share-howto ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.fm-share-hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #b45309;
+}
+
+.fm-share-footer {
+  margin: 26px 0 0;
+  font-size: 12.5px;
+  text-align: center;
+  color: var(--vp-c-text-2, rgba(0, 0, 0, 0.45));
+}
+
+.fm-share-footer a {
+  color: var(--vp-c-brand-1, #3451b2);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.fm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.fm-btn-primary {
+  background: var(--vp-c-brand-1, #3451b2);
+  /* 亮色模式品牌色是深蓝 → 白字；暗色模式品牌色变浅紫 → 深底字 */
+  color: var(--vp-c-bg-elv, #ffffff);
+}
+
+.fm-btn-primary:hover {
+  background: var(--vp-c-brand-2, #3a5ccc);
+}
+
+.fm-btn-alt {
+  background: transparent;
+  color: var(--vp-c-text-1, rgba(0, 0, 0, 0.88));
+  border-color: var(--vp-c-divider, rgba(0, 0, 0, 0.12));
+}
+
+.fm-btn-alt:hover {
+  border-color: var(--vp-c-brand-1, #3451b2);
+  color: var(--vp-c-brand-1, #3451b2);
+}
+
+/* 加载骨架 */
+.fm-skel {
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--vp-c-bg-soft, #f6f6f7) 25%,
+    var(--vp-c-divider, #e2e2e3) 50%,
+    var(--vp-c-bg-soft, #f6f6f7) 75%
+  );
+  background-size: 200% 100%;
+  animation: fm-shimmer 1.4s infinite;
+}
+
+.fm-skel-title {
+  height: 28px;
+  width: 60%;
+}
+
+.fm-skel-line {
+  height: 14px;
+  width: 40%;
+  margin-top: 14px;
+}
+
+.fm-skel-line.short {
+  width: 25%;
+}
+
+.fm-skel-block {
+  height: 200px;
+  margin-top: 20px;
+}
+
+.fm-skel-block.short {
+  height: 90px;
+  width: 70%;
+}
+
+@keyframes fm-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* 轻提示 */
+.fm-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 36px;
+  transform: translateX(-50%) translateY(8px);
+  padding: 9px 18px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: #fff;
+  background: rgba(30, 30, 40, 0.92);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 100;
+}
+
+.fm-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.fm-toast.warn {
+  background: rgba(180, 83, 9, 0.95);
+}
+
+@media (max-width: 640px) {
+  .fm-share {
+    padding: 20px 12px 40px;
+  }
+
+  .fm-share-card {
+    padding: 20px 16px 22px;
+    border-radius: 14px;
+  }
+
+  .fm-share-actions {
+    width: 100%;
+    min-width: 0;
+  }
+}

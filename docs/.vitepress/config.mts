@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import { copyShareLanding } from './copyShareLanding.mjs'
 
 export default defineConfig({
   title: 'Filter Manage - ICC配置文件管理 & NVIDIA颜色设置工具',
@@ -59,5 +60,6 @@ export default defineConfig({
     socialLinks: [
       { icon: 'github', link: 'https://github.com/q974491089/filter-manage' }
     ]
-  }
+  },
+  buildEnd: copyShareLanding
 })
