@@ -248,6 +248,15 @@ html.dark {
   color: var(--vp-c-bg-elv, #ffffff);
 }
 
+/* 按钮里的品牌图标：圆形 logo 带透明角，两套主题下都能直接放在按钮底色上 */
+.fm-btn-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: block;
+  object-fit: contain;
+}
+
 .fm-btn-primary:hover {
   background: var(--vp-c-brand-2, #3a5ccc);
 }

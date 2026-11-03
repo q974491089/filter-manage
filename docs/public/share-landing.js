@@ -100,7 +100,7 @@
       `<span>${esc(item.importCount)} 次导入</span>` +
       "</div></div>" +
       '<div class="fm-share-actions">' +
-      `<button type="button" class="fm-btn fm-btn-primary" id="fm-open-client">⚡ 在 Filter Manage 中打开</button>` +
+      `<button type="button" class="fm-btn fm-btn-primary" id="fm-open-client"><img class="fm-btn-icon" src="/favicon.png" alt="" width="20" height="20">在 Filter Manage 中打开</button>` +
       `<button type="button" class="fm-btn fm-btn-alt" id="fm-copy-link">复制链接</button>` +
       "</div></div>" +
       (cover
