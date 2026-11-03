@@ -248,13 +248,16 @@ html.dark {
   color: var(--vp-c-bg-elv, #ffffff);
 }
 
-/* 按钮里的品牌图标：圆形 logo 带透明角，两套主题下都能直接放在按钮底色上 */
+/* 按钮里的品牌图标。logo 本体是深色镜头圈 + 透明四角，直接压在主按钮的
+   品牌底色上会糊成一团，垫一层白色圆底后两种主题下都清晰可辨。 */
 .fm-btn-icon {
   width: 20px;
   height: 20px;
   flex: none;
   display: block;
   object-fit: contain;
+  background: #fff;
+  border-radius: 50%;
 }
 
 .fm-btn-primary:hover {
