@@ -19,12 +19,23 @@ import AnnouncementModal from "./components/AnnouncementModal";
 import SharePlanModal from "./components/SharePlanModal";
 import ImportShareModal from "./components/ImportShareModal";
 import IccEffectPreviewModal from "./components/IccEffectPreviewModal";
+import AuthModal from "./components/AuthModal";
 import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
 import { useAnnouncements } from "./hooks/useAnnouncements";
 import { useFeatureFlags } from "./hooks/useFeatureFlags";
 import { FEATURE_PLAN_SHARE } from "./lib/featureFlags";
 import { parseShareSlug } from "./lib/share";
+import {
+  authErrorMessage,
+  authLogout,
+  bindContributor,
+  getAuthSession,
+  isUnauthorizedError,
+  refreshAuth,
+  type AuthSession,
+} from "./lib/auth";
+import { getContributorId } from "./lib/submissions";
 import { ensureEnvReady } from "./lib/serverEnv";
 import { debugNote, setDebugRecording } from "./lib/debug";
 import type { RgbScaleMode } from "./lib/rgbScale";
@@ -130,6 +141,59 @@ function App() {
   const featureFlags = useFeatureFlags();
   const featureFlagsRef = useRef(featureFlags);
   featureFlagsRef.current = featureFlags;
+
+  /** 客户端账号会话：null = 未登录（登录弹窗由顶栏入口触发） */
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  /**
+   * 启动会话恢复：凭据管理器里有令牌就校验一次（顺带轮换，30 天 TTL）。
+   * 401 = 令牌失效/被吊销 → 回未登录态；网络失败时 auth_get_session 已返回
+   * 缓存的上次已知会话，这里不重复兜底。
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        await ensureEnvReady();
+      } catch {
+        /* serverEnv 自带兜底值，继续 */
+      }
+      try {
+        let current = await getAuthSession();
+        if (current) {
+          try {
+            current = await refreshAuth();
+          } catch (err) {
+            if (isUnauthorizedError(err)) current = null;
+            // 其它错误（如网络抖动）保持现有会话
+          }
+        }
+        if (!cancelled) setSession(current);
+      } catch (err) {
+        debugNote(`startup auth: ${authErrorMessage(err)}`);
+        if (!cancelled) setSession(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 登录/注册/GitHub 授权成功：更新会话 + 静默绑定投稿身份。 */
+  const handleAuthLoggedIn = useCallback((loggedIn: AuthSession) => {
+    setSession(loggedIn);
+    setShowAuthModal(false);
+    void (async () => {
+      try {
+        const contributorId = await getContributorId();
+        await bindContributor(contributorId, loggedIn.account.displayName);
+      } catch (err) {
+        // 冲突（身份已属其他账号）等错误不打断登录流程，留痕排查。
+        debugNote(`bind-contributor: ${authErrorMessage(err)}`);
+      }
+    })();
+  }, []);
 
   /** 手动打开导入弹窗：不带预填 slug */
   const openImportShare = useCallback(() => {
@@ -514,6 +578,16 @@ function App() {
     }
     setTimeout(() => setToast(null), 3000);
   }, []);
+
+  /** 退出登录：吊销服务端会话 + 清凭据管理器（幂等），界面回未登录态。 */
+  const handleAuthLogout = useCallback(async () => {
+    try {
+      await authLogout();
+    } finally {
+      setSession(null);
+    }
+    showToast("success", "已退出登录");
+  }, [showToast]);
 
   const refreshConfigs = useCallback(async () => {
     try {
@@ -1308,6 +1382,30 @@ function App() {
             closeDetail={ann.closeDetail}
           />
 
+          {session ? (
+            <button
+              data-name="account-button"
+              onClick={() => setShowSettingsModal(true)}
+              className="w-8 h-8 rounded-full flex items-center justify-center bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              title={`已登录：${session.account.displayName || session.account.email || "账号"}`}
+              aria-label="账号"
+            >
+              <span className="font-label-md text-label-md font-medium">
+                {(session.account.displayName || session.account.email || "F").trim().charAt(0).toUpperCase()}
+              </span>
+            </button>
+          ) : (
+            <button
+              data-name="login-button"
+              onClick={() => setShowAuthModal(true)}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors"
+              title="登录"
+              aria-label="登录"
+            >
+              <Icon name="person" className="text-[20px]" />
+            </button>
+          )}
+
           <button
             data-name="settings-button"
             onClick={() => setShowSettingsModal(true)}
@@ -1451,6 +1549,19 @@ function App() {
           setShowAboutModal(true);
         }}
         onApiEnvChanged={() => void featureFlags.refresh()}
+        session={session}
+        onLogout={() => void handleAuthLogout()}
+        onOpenLogin={() => {
+          setShowSettingsModal(false);
+          setShowAuthModal(true);
+        }}
+      />
+
+      <AuthModal
+        open={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        showToast={showToast}
+        onLoggedIn={handleAuthLoggedIn}
       />
 
       <SharePlanModal

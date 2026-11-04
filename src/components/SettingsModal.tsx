@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "../lib/ipc";
 import { initServerEnv, serverEnv, switchApiEnv } from "../lib/serverEnv";
 import type { ApiEnv, RuntimeEnv } from "../lib/serverEnv";
+import type { AuthSession } from "../lib/auth";
 import ShortcutInput from "./ShortcutInput";
 import Toggle from "./Toggle";
 import TextSwitch from "./TextSwitch";
@@ -71,6 +72,12 @@ interface SettingsModalProps {
   onShowAbout: () => void;
   /** 接口环境切换成功后回调（重新拉取功能开关等即环境数据） */
   onApiEnvChanged?: () => void;
+  /** 客户端账号会话：null = 未登录 */
+  session: AuthSession | null;
+  /** 退出登录（吊销服务端会话 + 清凭据管理器） */
+  onLogout: () => void;
+  /** 未登录时打开登录弹窗（关闭本设置页） */
+  onOpenLogin: () => void;
 }
 
 type SettingsTab = "general" | "shortcuts" | "display" | "process" | "dev";
@@ -153,6 +160,9 @@ function SettingsModal({
   onRenameMonitor,
   onShowAbout,
   onApiEnvChanged,
+  session,
+  onLogout,
+  onOpenLogin,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   /** 显示器命名的本地草稿（失焦/回车才提交到父级），键同 monitorNames */
@@ -510,6 +520,51 @@ function SettingsModal({
             {/* ===== 常规设置 ===== */}
             {activeTab === "general" && (
               <div className="space-y-6">
+                {/* 账号：登录状态 + 退出/登录入口（不做 feature flag 门控，登录是基础能力） */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Icon name="person" className="text-primary text-[18px]" />
+                    <h4 className="font-title-sm text-title-sm">账号</h4>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-outline-variant/30 bg-surface-container-high px-4 py-3">
+                    {session ? (
+                      <>
+                        <div className="min-w-0">
+                          <p className="font-label-lg text-label-lg text-on-surface truncate">
+                            {session.account.displayName || session.account.email || "已登录"}
+                          </p>
+                          {session.account.email ? (
+                            <p className="text-label-md text-label-md text-on-surface-variant truncate">
+                              {session.account.email}
+                            </p>
+                          ) : null}
+                        </div>
+                        <button
+                          onClick={onLogout}
+                          className="shrink-0 h-8 px-md rounded-md border border-outline-variant/50 text-label-md text-on-surface-variant hover:bg-surface-variant/50 hover:text-on-surface transition-colors"
+                        >
+                          退出登录
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <p className="font-label-lg text-label-lg text-on-surface">未登录</p>
+                          <p className="text-label-md text-label-md text-on-surface-variant">
+                            登录后投稿与分享会归到一个账号下
+                          </p>
+                        </div>
+                        <button
+                          onClick={onOpenLogin}
+                          className="shrink-0 h-8 px-md rounded-md bg-primary text-on-primary text-label-md font-medium hover:bg-primary/90 transition-colors"
+                        >
+                          登录
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
                 {/* 界面外观 - Theme Switcher */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">

@@ -12,6 +12,7 @@ mod updater;
 mod announcements;
 mod amd;
 mod admin;
+mod auth;
 
 use tauri::{Emitter, Manager};
 
@@ -280,6 +281,17 @@ pub fn run() {
             // 通用剪贴板（分享链接）
             debug_recorder::copy_text,
             debug_recorder::read_clipboard_text,
+            // 客户端账号登录（邮箱验证码 + GitHub OAuth，令牌存凭据管理器）
+            auth::auth_get_providers,
+            auth::auth_send_email_code,
+            auth::auth_email_register,
+            auth::auth_email_login,
+            auth::auth_github_start,
+            auth::auth_exchange_ticket,
+            auth::auth_get_session,
+            auth::auth_refresh,
+            auth::auth_logout,
+            auth::auth_bind_contributor,
             // 分享链接协议（落地页一键唤起）
             get_pending_share_url,
         ])

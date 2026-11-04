@@ -29,6 +29,8 @@ reqwest = { version = "0.13", default-features = false, features = ["stream", "r
 minisign-verify = "0.2"
 futures-util = "0.3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "rt"] }
+# 客户端账号令牌存储：Windows 凭据管理器（keyring v3 按平台自动选后端）
+keyring = "3"
 png = "0.17"
 base64 = "0.22"
 windows-core = "0.58"
