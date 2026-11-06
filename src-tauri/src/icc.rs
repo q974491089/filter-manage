@@ -487,11 +487,13 @@ pub fn get_display_modes(device_id: Option<String>) -> Result<DisplayModeList, S
     }
 }
 
-/// 切换指定显示器分辨率。refresh_rate 传 Some(hz) 时精确指定刷新率（驱动
-/// 枚举里不存在则报错）；None 时优先保持当前值（目标分辨率支持时），
-/// 否则取该分辨率下的最高刷新率。先 CDS_TEST 验证再正式应用。
-#[tauri::command]
-pub fn set_display_mode(
+/// 切换指定显示器分辨率的实际执行（无门闩）。调用方必须已持颜色写门闩：
+/// 手动命令入口负责加闩并递增代号（显示模式切换同样可能重置曲线、使旧恢复
+/// 所有权失效）；方案应用路径在整组应用的门闩作用域内调用本函数。
+/// refresh_rate 传 Some(hz) 时精确指定刷新率（驱动枚举里不存在则报错）；None 时
+/// 优先保持当前值（目标分辨率支持时），否则取该分辨率下的最高刷新率。
+/// 先 CDS_TEST 验证再正式应用。
+pub(crate) fn set_display_mode_unlocked(
     device_id: Option<String>,
     width: u32,
     height: u32,
@@ -594,9 +596,24 @@ pub fn set_display_mode(
     }
 }
 
+/// 手动显示模式命令：进入颜色写门闩并递增代号，使旧恢复所有权失效
+/// （模式切换可能重置 gamma 曲线）。
+#[tauri::command]
+pub fn set_display_mode(
+    device_id: Option<String>,
+    width: u32,
+    height: u32,
+    refresh_rate: Option<u32>,
+) -> Result<(), String> {
+    let _latch = crate::nvidia::begin_external_write();
+    set_display_mode_unlocked(device_id, width, height, refresh_rate)
+}
+
 /// 全局唯一的「分辨率还原点」：本应用把某台显示器从原始模式切走时记录
-/// (设备名, 宽, 高, 刷新率)，只在第一次改动时记录；应用不带分辨率的方案时
-/// 自动还原。Mutex 保并发安全——托盘/快捷键/进程监听/前端可能同时走应用路径。
+/// (设备名, 宽, 高, 刷新率)，只在第一次真正切换成功时提交（切换失败不写入，
+/// 避免污染既有还原点）；应用不带分辨率的方案时自动还原，恢复失败保留以便
+/// 重试。Mutex 保并发安全——托盘/快捷键/进程监听/前端可能同时走应用路径，
+/// 锁在切换期间保持持有，与旧实现的串行化行为一致。
 static RESOLUTION_UNDO: std::sync::Mutex<Option<(String, u32, u32, u32)>> = std::sync::Mutex::new(None);
 
 /// 解析方案里的 "宽x高" 或 "宽x高@刷新率" 字符串，容忍空格、大写 X 和 ×
@@ -616,16 +633,191 @@ fn parse_resolution(s: &str) -> Option<(u32, u32, Option<u32>)> {
     (w > 0 && h > 0 && hz.is_none_or(|v| v > 0)).then_some((w, h, hz))
 }
 
-/// 方案应用路径的分辨率落地（前端加载方案与后端托盘/快捷键/进程监听共用）。
+/// 方案应用路径的结构化结果：把「跳过」从错误里拆出来，调用方能准确区分
+/// 「部分成功（颜色继续应用、分辨率保留）」与「真实失败」。
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum PresetResolutionResult {
+    /// 目标与当前模式一致，未做任何切换
+    Unchanged,
+    /// 目标模式切换成功
+    Applied,
+    /// `resolution: null` 时把此前的还原点恢复成功
+    Restored,
+    /// 显示器不支持方案请求的模式：整次切换跳过，保留当前模式与既有还原点
+    SkippedUnsupported { requested: String, reason: String },
+    /// 方案里的分辨率字段格式非法：忽略本次分辨率调节
+    SkippedInvalid { requested: String },
+}
+
+/// 判断方案请求的模式是否被当前显示器支持：当前模式本身算数（枚举缺失时
+/// 仍可判定「已在目标模式」），显式指定的刷新率必须命中该分辨率下的某个
+/// 可用值——不支持就跳过整次切换，不擅自降级分辨率或刷新率。
+fn preset_mode_supported(
+    list: &DisplayModeList,
+    width: u32,
+    height: u32,
+    refresh_rate: Option<u32>,
+) -> bool {
+    let matches = |w, h, hz| {
+        w == width && h == height && refresh_rate.is_none_or(|target| target == hz)
+    };
+    list.current.as_ref().is_some_and(|c| matches(c.width, c.height, c.refresh_rate))
+        || list.modes.iter().any(|m| {
+            m.width == width && m.height == height
+                && m.refresh_rates.iter().any(|hz| *hz > 0 && matches(m.width, m.height, *hz))
+        })
+}
+
+/// 与 set_display_mode 一致的不支持文案：手动入口把 skipped_unsupported 映射
+/// 回 Err 时沿用，保证两个入口对外暴露的错误信息相同。
+fn preset_unsupported_reason(
+    modes: &DisplayModeList,
+    width: u32,
+    height: u32,
+    refresh_rate: Option<u32>,
+) -> String {
+    let resolution_known = modes
+        .modes
+        .iter()
+        .any(|m| m.width == width && m.height == height);
+    match refresh_rate {
+        Some(hz) if resolution_known => {
+            format!("Refresh rate {} Hz not supported at {}x{}", hz, width, height)
+        }
+        _ => format!("Display mode {}x{} not supported", width, height),
+    }
+}
+
+/// 把目标模式格式化成人可读的请求描述（结构化结果里的 requested 字段）
+fn format_requested_mode(width: u32, height: u32, refresh_rate: Option<u32>) -> String {
+    match refresh_rate {
+        Some(hz) => format!("{}x{}@{}Hz", width, height, hz),
+        None => format!("{}x{}", width, height),
+    }
+}
+
+/// 还原点事务：执行一次真正的模式切换。
 ///
-/// - `Some("宽x高[@Hz]")`：与当前模式不同则首次记录还原点后切换；切换成功后
-///   若还原点恰为目标模式（已归位）则清除还原点。Hz 缺省时按 set_display_mode
-///   的默认策略（优先保持当前刷新率，否则取该分辨率最高值）。
+/// 首次真正切换成功后才把切换前的模式提交为还原点；切换失败（`Err`）时既有
+/// 还原点原样保留——旧实现在切换前登记，失败会留下指向污染模式的还原点。
+/// `switch` 注入以便离屏测试；锁在切换期间保持持有，串行化并发应用路径。
+fn commit_resolution_switch(
+    device_name: &str,
+    current: (u32, u32, u32),
+    target: (u32, u32, Option<u32>),
+    switch: &mut dyn FnMut(u32, u32, Option<u32>) -> Result<(), String>,
+) -> Result<PresetResolutionResult, String> {
+    let mut undo = RESOLUTION_UNDO.lock().unwrap();
+    let had_undo = undo.is_some();
+    switch(target.0, target.1, target.2)?;
+    if !had_undo {
+        *undo = Some((device_name.to_string(), current.0, current.1, current.2));
+    }
+    // 还原点恰为目标模式（本次切换等于归位）时清除；Hz 缺省按切换前值比对
+    if *undo
+        == Some((
+            device_name.to_string(),
+            target.0,
+            target.1,
+            target.2.unwrap_or(current.2),
+        ))
+    {
+        *undo = None;
+    }
+    Ok(PresetResolutionResult::Applied)
+}
+
+/// 还原点事务：应用不带分辨率的方案时，把本应用此前改走的模式还原回去。
+///
+/// 恢复失败时保留还原点（下一次应用无分辨率方案时可重试）并返回 `Err`；
+/// 已在还原点模式（例如目标方案本身把模式带了回去）则直接清除。
+fn commit_resolution_restore(
+    device_name: &str,
+    current: (u32, u32, u32),
+    switch: &mut dyn FnMut(u32, u32, Option<u32>) -> Result<(), String>,
+) -> Result<PresetResolutionResult, String> {
+    let mut undo = RESOLUTION_UNDO.lock().unwrap();
+    match undo.clone() {
+        Some((dev, uw, uh, uhz)) if dev == device_name && (uw, uh, uhz) != current => {
+            switch(uw, uh, Some(uhz))?;
+            *undo = None;
+            Ok(PresetResolutionResult::Restored)
+        }
+        Some((dev, _, _, _)) if dev == device_name => {
+            // 已归位：无需切换，仅清除还原点
+            *undo = None;
+            Ok(PresetResolutionResult::Unchanged)
+        }
+        _ => Ok(PresetResolutionResult::Unchanged),
+    }
+}
+
+/// 方案分辨率的核心状态机：设备名、模式枚举结果、目标模式与切换函数全部
+/// 注入，纯逻辑、可离屏测试。判定顺序：
+///
+/// 1. 无目标（`None`）→ 还原事务；
+/// 2. 目标与当前一致 → `Unchanged`（还原点已归位时顺手清除）；
+/// 3. 目标不被支持 → `SkippedUnsupported`（跳过整次切换，不降级分辨率或
+///    刷新率，不动还原点）；
+/// 4. 否则执行切换事务 → `Applied` / 真实错误。
+fn apply_preset_resolution_core(
+    device_name: &str,
+    modes: &DisplayModeList,
+    target: Option<(u32, u32, Option<u32>)>,
+    switch: &mut dyn FnMut(u32, u32, Option<u32>) -> Result<(), String>,
+) -> Result<PresetResolutionResult, String> {
+    let current = modes
+        .current
+        .as_ref()
+        .map(|c| (c.width, c.height, c.refresh_rate))
+        .ok_or_else(|| "Cannot determine current display mode".to_string())?;
+
+    match target {
+        None => commit_resolution_restore(device_name, current, switch),
+        Some((w, h, hz)) => {
+            // 与当前模式一致（Hz 缺省视为不关心）则不动，仅在已归位时清还原点
+            if w == current.0 && h == current.1 && hz.is_none_or(|v| v == current.2) {
+                let mut undo = RESOLUTION_UNDO.lock().unwrap();
+                if *undo == Some((device_name.to_string(), current.0, current.1, current.2)) {
+                    *undo = None;
+                }
+                return Ok(PresetResolutionResult::Unchanged);
+            }
+            if !preset_mode_supported(modes, w, h, hz) {
+                let reason = preset_unsupported_reason(modes, w, h, hz);
+                eprintln!(
+                    "[apply] preset resolution skipped (unsupported): {} on {}: {}",
+                    format_requested_mode(w, h, hz),
+                    device_name,
+                    reason
+                );
+                return Ok(PresetResolutionResult::SkippedUnsupported {
+                    requested: format_requested_mode(w, h, hz),
+                    reason,
+                });
+            }
+            commit_resolution_switch(device_name, current, (w, h, hz), switch)
+        }
+    }
+}
+
+/// 方案应用路径的分辨率落地（前端加载方案与后端托盘/快捷键/进程监听共用），
+/// 返回结构化结果供调用方区分「部分成功（跳过）」与「真实失败」。
+///
+/// - `Some("宽x高[@Hz]")`：格式非法 → `SkippedInvalid`；与当前模式相同 →
+///   `Unchanged`；显示器不支持 → `SkippedUnsupported`（保留当前模式与既有
+///   还原点；明确指定的刷新率不被支持时同样跳过，不擅自降级）；需要切换时
+///   走还原点事务，首次真正切换成功才提交还原点 → `Applied`。
 /// - `None`：方案不调节分辨率，但若还原点属于该显示器且当前模式已被改走，
-///   则还原到还原点并清除——托盘从 4:3 方案切回旧方案时分辨率跟着回去。
+///   则还原并清除 → `Restored`——托盘从 4:3 方案切回旧方案时分辨率跟着回去。
 ///
-/// 返回 Err 不应阻断方案里其余配色参数的应用，由调用方决定容错策略。
-pub fn apply_resolution_state(device_id: Option<String>, resolution: Option<&str>) -> Result<(), String> {
+/// 设备不存在、模式枚举失败、驱动实际拒绝切换仍返回 `Err`；`Err` 不应阻断
+/// 方案里其余配色参数的应用，由调用方决定容错策略。
+pub fn apply_preset_resolution_state(
+    device_id: Option<String>,
+    resolution: Option<&str>,
+) -> Result<PresetResolutionResult, String> {
     let device_name = resolve_display_device_name(device_id)?;
     let target = match resolution {
         None => None,
@@ -633,62 +825,315 @@ pub fn apply_resolution_state(device_id: Option<String>, resolution: Option<&str
             Some(t) => Some(t),
             None => {
                 eprintln!("[apply] invalid resolution in config: '{}'", s);
-                return Ok(());
+                return Ok(PresetResolutionResult::SkippedInvalid {
+                    requested: s.to_string(),
+                });
             }
         },
     };
 
     let modes = get_display_modes(Some(device_name.clone()))?;
-    let current = modes
-        .current
-        .map(|c| (c.width, c.height, c.refresh_rate))
-        .ok_or_else(|| "Cannot determine current display mode".to_string())?;
+    apply_preset_resolution_core(&device_name, &modes, target, &mut |w, h, hz| {
+        set_display_mode_unlocked(Some(device_name.clone()), w, h, hz)
+    })
+}
 
-    let mut undo = RESOLUTION_UNDO.lock().unwrap();
-    match target {
-        Some((w, h, hz)) => {
-            // 与当前模式一致（Hz 缺省视为不关心）则不动，仅在已归位时清还原点
-            if w == current.0 && h == current.1 && hz.is_none_or(|v| v == current.2) {
-                if *undo == Some((device_name.clone(), current.0, current.1, current.2)) {
-                    *undo = None;
-                }
-                return Ok(());
-            }
-            if undo.is_none() {
-                *undo = Some((device_name.clone(), current.0, current.1, current.2));
-            }
-            let result = set_display_mode(Some(device_name.clone()), w, h, hz);
-            if result.is_ok() && *undo == Some((device_name, w, h, hz.unwrap_or(current.2))) {
-                *undo = None;
-            }
-            result
-        }
-        None => {
-            let slot = undo.clone();
-            match slot {
-                Some((dev, uw, uh, uhz))
-                    if dev == device_name && (uw, uh, uhz) != current =>
-                {
-                    let result = set_display_mode(Some(device_name), uw, uh, Some(uhz));
-                    if result.is_ok() {
-                        *undo = None;
-                    }
-                    result
-                }
-                Some((dev, _, _, _)) if dev == device_name => {
-                    *undo = None;
-                    Ok(())
-                }
-                _ => Ok(()),
-            }
-        }
+/// Tauri 命令：方案加载的兼容分辨率入口。与 apply_config_resolution 共用同一份
+/// 还原点事务；区别仅在于不兼容的目标模式以 skipped_unsupported 结构化回报
+/// 而不是 Err，前端据此提示「颜色已应用、分辨率已保留」的部分成功。
+/// 前端手动调用属于外部写入：持颜色写门闩并递增代号（方案应用路径由
+/// apply_color_config_from 持闩调用 apply_preset_resolution_state，不经此处）。
+#[tauri::command]
+pub fn apply_preset_resolution(
+    device_id: Option<String>,
+    resolution: Option<String>,
+) -> Result<PresetResolutionResult, String> {
+    let _latch = crate::nvidia::begin_external_write();
+    apply_preset_resolution_state(device_id, resolution.as_deref())
+}
+
+/// Tauri 命令：旧版方案分辨率入口（严格报错语义保持不变）。与新入口共用同一
+/// 份还原点事务；不支持的目标模式仍按原有错误文案返回 Err，既有调用方的
+/// 错误提示不回退。
+#[tauri::command]
+pub fn apply_config_resolution(device_id: Option<String>, resolution: Option<String>) -> Result<(), String> {
+    let _latch = crate::nvidia::begin_external_write();
+    match apply_preset_resolution_state(device_id, resolution.as_deref())? {
+        // 旧行为保持：格式非法按忽略处理（已在状态函数里留痕）
+        PresetResolutionResult::SkippedUnsupported { reason, .. } => Err(reason),
+        _ => Ok(()),
     }
 }
 
-/// Tauri 命令：前端加载方案时应用/还原分辨率，与后端中央路径共享还原点
-#[tauri::command]
-pub fn apply_config_resolution(device_id: Option<String>, resolution: Option<String>) -> Result<(), String> {
-    apply_resolution_state(device_id, resolution.as_deref())
+/// 方案分辨率兼容策略的纯逻辑回归测试（不接触模式切换 API）
+#[cfg(test)]
+mod preset_resolution_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_resolution_or_explicit_refresh_is_rejected() {
+        let list = DisplayModeList {
+            modes: vec![DisplayModeInfo {
+                width: 1920, height: 1080,
+                refresh_rates: vec![240, 144, 60], is_current: true,
+            }],
+            current: Some(CurrentDisplayMode {
+                width: 1920, height: 1080, refresh_rate: 240,
+            }),
+        };
+        assert!(!preset_mode_supported(&list, 2560, 1440, None));
+        assert!(!preset_mode_supported(&list, 1920, 1080, Some(280)));
+        assert!(preset_mode_supported(&list, 1920, 1080, Some(144)));
+        assert!(preset_mode_supported(&list, 1920, 1080, None));
+    }
+
+    #[test]
+    fn current_mode_is_valid_even_if_missing_from_enumeration() {
+        let list = DisplayModeList {
+            modes: vec![],
+            current: Some(CurrentDisplayMode {
+                width: 1920, height: 1080, refresh_rate: 240,
+            }),
+        };
+        assert!(preset_mode_supported(&list, 1920, 1080, Some(240)));
+        assert!(!preset_mode_supported(&list, 1920, 1080, Some(144)));
+    }
+}
+
+/// 还原点事务回归测试：注入假切换函数，不接触真实屏幕。
+/// 全局还原点是进程级单例，用例间以串行锁互斥，避免并行测试互相踩状态。
+#[cfg(test)]
+mod resolution_transaction_tests {
+    use super::*;
+
+    /// 测试间串行化（还原点是全局状态）
+    fn undo_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static UNDO_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        UNDO_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn set_undo(value: Option<(String, u32, u32, u32)>) {
+        *RESOLUTION_UNDO.lock().unwrap() = value;
+    }
+
+    fn undo_snapshot() -> Option<(String, u32, u32, u32)> {
+        RESOLUTION_UNDO.lock().unwrap().clone()
+    }
+
+    fn undo_of(device: &str, w: u32, h: u32, hz: u32) -> Option<(String, u32, u32, u32)> {
+        Some((device.to_string(), w, h, hz))
+    }
+
+    /// 首次切换失败：不得创建还原点（旧实现在切换前登记，失败会留下污染）
+    #[test]
+    fn first_failed_switch_does_not_create_undo_point() {
+        let _guard = undo_test_guard();
+        set_undo(None);
+
+        let mut switch = |_w: u32, _h: u32, _hz: Option<u32>| -> Result<(), String> {
+            Err("Display mode 2560x1440 not supported".to_string())
+        };
+        let result = commit_resolution_switch(
+            "\\\\.\\DISPLAY1",
+            (1920, 1080, 240),
+            (2560, 1440, None),
+            &mut switch,
+        );
+        assert!(result.is_err());
+        assert_eq!(undo_snapshot(), None, "切换失败不得留下还原点");
+    }
+
+    /// 已有还原点时切换失败：既有还原点必须原样保留
+    #[test]
+    fn existing_undo_point_survives_failed_switch() {
+        let _guard = undo_test_guard();
+        set_undo(undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240));
+
+        let mut switch = |_w: u32, _h: u32, _hz: Option<u32>| -> Result<(), String> {
+            Err("Display mode 3840x2160 not supported".to_string())
+        };
+        let result = commit_resolution_switch(
+            "\\\\.\\DISPLAY1",
+            (1024, 768, 60), // 此前已被本应用切到 4:3
+            (3840, 2160, None),
+            &mut switch,
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            undo_snapshot(),
+            undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240),
+            "既有还原点不得被失败的切换覆盖或清除"
+        );
+    }
+
+    /// 切换成功：首次真正成功后才提交原模式为还原点；随后恢复成功并清除还原点
+    #[test]
+    fn successful_switch_commits_undo_and_restore_clears_it() {
+        let _guard = undo_test_guard();
+        set_undo(None);
+
+        let mut switch = |_w: u32, _h: u32, _hz: Option<u32>| -> Result<(), String> { Ok(()) };
+        let applied = commit_resolution_switch(
+            "\\\\.\\DISPLAY1",
+            (1920, 1080, 240),
+            (1024, 768, None),
+            &mut switch,
+        )
+        .expect("switch should succeed");
+        assert!(matches!(applied, PresetResolutionResult::Applied));
+        assert_eq!(
+            undo_snapshot(),
+            undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240),
+            "切换成功后还原点应记录切换前的完整模式"
+        );
+
+        // 注入的恢复切换：记录调用参数，验证恢复走的是还原点里的完整模式
+        let restore_calls = std::cell::RefCell::new(Vec::new());
+        let mut restore = |w: u32, h: u32, hz: Option<u32>| -> Result<(), String> {
+            restore_calls.borrow_mut().push((w, h, hz));
+            Ok(())
+        };
+        let restored =
+            commit_resolution_restore("\\\\.\\DISPLAY1", (1024, 768, 60), &mut restore)
+                .expect("restore should succeed");
+        assert!(matches!(restored, PresetResolutionResult::Restored));
+        assert_eq!(undo_snapshot(), None, "恢复成功后还原点应被清除");
+        assert_eq!(restore_calls.into_inner(), vec![(1920, 1080, Some(240))]);
+    }
+
+    /// 恢复失败：还原点保留，重试可成功
+    #[test]
+    fn failed_restore_keeps_undo_point_for_retry() {
+        let _guard = undo_test_guard();
+        set_undo(undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240));
+
+        let mut failing = |_w: u32, _h: u32, _hz: Option<u32>| -> Result<(), String> {
+            Err("Display driver failed the specified graphics mode".to_string())
+        };
+        assert!(
+            commit_resolution_restore("\\\\.\\DISPLAY1", (1024, 768, 60), &mut failing).is_err()
+        );
+        assert_eq!(
+            undo_snapshot(),
+            undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240),
+            "恢复失败时还原点必须保留以便重试"
+        );
+
+        let mut retry = |_w: u32, _h: u32, _hz: Option<u32>| -> Result<(), String> { Ok(()) };
+        let result =
+            commit_resolution_restore("\\\\.\\DISPLAY1", (1024, 768, 60), &mut retry)
+                .expect("retry should succeed");
+        assert!(matches!(result, PresetResolutionResult::Restored));
+        assert_eq!(undo_snapshot(), None);
+    }
+
+    /// 已成功切换后（还原点存在），应用不支持的方案：不清除既有还原点、不发起切换
+    #[test]
+    fn unsupported_request_keeps_existing_undo_point() {
+        let _guard = undo_test_guard();
+        set_undo(undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240));
+
+        // 当前已在本应用切换后的 2560x1440@144，方案请求 3840x2160（枚举里不存在）
+        let modes = DisplayModeList {
+            modes: vec![DisplayModeInfo {
+                width: 2560,
+                height: 1440,
+                refresh_rates: vec![144, 60],
+                is_current: true,
+            }],
+            current: Some(CurrentDisplayMode {
+                width: 2560,
+                height: 1440,
+                refresh_rate: 144,
+            }),
+        };
+        let calls = std::cell::RefCell::new(Vec::new());
+        let mut switch = |w: u32, h: u32, hz: Option<u32>| -> Result<(), String> {
+            calls.borrow_mut().push((w, h, hz));
+            Ok(())
+        };
+        let result = apply_preset_resolution_core(
+            "\\\\.\\DISPLAY1",
+            &modes,
+            Some((3840, 2160, None)),
+            &mut switch,
+        )
+        .expect("unsupported preset must be reported, not an error");
+        match result {
+            PresetResolutionResult::SkippedUnsupported { requested, reason } => {
+                assert_eq!(requested, "3840x2160");
+                assert!(reason.contains("3840x2160"), "reason 应包含请求的模式：{reason}");
+            }
+            other => panic!("expected skipped_unsupported, got {other:?}"),
+        }
+        assert_eq!(
+            undo_snapshot(),
+            undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240),
+            "跳过不支持方案不得清除既有还原点"
+        );
+        assert!(calls.into_inner().is_empty(), "不支持时不得发起切换");
+    }
+
+    /// 目标与当前一致：Unchanged；还原点已归位时清除，否则保留
+    #[test]
+    fn unchanged_target_clears_undo_only_when_restored() {
+        let _guard = undo_test_guard();
+        let modes = DisplayModeList {
+            modes: vec![DisplayModeInfo {
+                width: 1920,
+                height: 1080,
+                refresh_rates: vec![240],
+                is_current: true,
+            }],
+            current: Some(CurrentDisplayMode {
+                width: 1920,
+                height: 1080,
+                refresh_rate: 240,
+            }),
+        };
+        let mut switch = |_w: u32, _h: u32, _hz: Option<u32>| -> Result<(), String> { Ok(()) };
+
+        // 还原点与当前模式一致（已归位）→ 应用相同模式应清除还原点
+        set_undo(undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240));
+        let result = apply_preset_resolution_core(
+            "\\\\.\\DISPLAY1",
+            &modes,
+            Some((1920, 1080, None)),
+            &mut switch,
+        )
+        .expect("same mode should not fail");
+        assert!(matches!(result, PresetResolutionResult::Unchanged));
+        assert_eq!(undo_snapshot(), None, "已归位时应清除还原点");
+
+        // 还原点与当前模式不一致（还停在 4:3）→ 应用当前模式不得清除还原点
+        let modes_43 = DisplayModeList {
+            modes: vec![DisplayModeInfo {
+                width: 1024,
+                height: 768,
+                refresh_rates: vec![60],
+                is_current: true,
+            }],
+            current: Some(CurrentDisplayMode {
+                width: 1024,
+                height: 768,
+                refresh_rate: 60,
+            }),
+        };
+        set_undo(undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240));
+        let result = apply_preset_resolution_core(
+            "\\\\.\\DISPLAY1",
+            &modes_43,
+            Some((1024, 768, None)),
+            &mut switch,
+        )
+        .expect("same mode should not fail");
+        assert!(matches!(result, PresetResolutionResult::Unchanged));
+        assert_eq!(
+            undo_snapshot(),
+            undo_of("\\\\.\\DISPLAY1", 1920, 1080, 240),
+            "未归位时还原点必须保留"
+        );
+    }
 }
 
 /// 只读集成测试：枚举主显示器的可用模式，不改动任何系统状态。
@@ -906,13 +1351,12 @@ fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
     Some(ramp)
 }
 
+/// 应用 ICC 配置（WCS 注册 + vcgt 直写 LUT）。**调用方必须已持颜色写门闩**
+/// （set_icc_profile 命令 / apply_color_config_from / restore_default_icc 都在
+/// 闩内调用）；外部写入的代号递增由门闩统一完成。
 pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -> Result<(), String> {
     use windows::Win32::UI::ColorSystem::*;
     use windows::core::PCWSTR;
-
-    // 前端「应用方案」和恢复默认都走这里；屏幕配色被改写，通知进程监听
-    // 作废它排队中的恢复动作（否则会把用户刚选的设置覆盖掉）
-    crate::process_watcher::note_color_applied();
 
     let profile_path_buf = PathBuf::from(profile_path);
     let file_name = profile_path_buf
@@ -1026,6 +1470,12 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
                     ),
                 );
                 crate::debug_recorder::verify_ramp(&adapter_id, &gamma_ramp);
+                // 写入成功即缓存为该显示器的最终 LUT（恢复调度的期望曲线）。
+                // 若随后还有 NVIDIA 滑块叠加，apply_gamma_ramp_locked 会再以
+                // 合成结果覆盖缓存，方案应用结束时缓存就是真正的最终曲线。
+                if result.as_bool() {
+                    crate::nvidia::cache_final_ramp(&adapter_id, &gamma_ramp);
+                }
                 let _ = windows::Win32::Graphics::Gdi::DeleteDC(hdc);
             } else {
                 eprintln!("ICC: Failed to create DC for adapter: {}", adapter_id);
@@ -1056,9 +1506,13 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
 
 #[tauri::command]
 pub async fn set_icc_profile(profile_path: String, device_id: Option<String>) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || apply_icc_profile(&profile_path, device_id))
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?
+    tauri::async_runtime::spawn_blocking(move || {
+        // 手动 ICC 应用属于外部写入：持颜色写门闩并递增代号
+        let _latch = crate::nvidia::begin_external_write();
+        apply_icc_profile(&profile_path, device_id)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -1077,6 +1531,7 @@ pub fn get_current_icc_profile() -> Result<String, String> {
 
 /// 同步恢复系统默认 sRGB 配置（清除 vcgt ramp），并将 DVC 复位为 50。
 /// 供托盘/快捷键等同步上下文直接调用（避免在回调里 block_on 跑 async）。
+/// **调用方必须已持颜色写门闩**（apply_default_config_from / 命令包装层负责）。
 pub(crate) fn restore_default_icc(device_id: Option<String>) -> Result<(), String> {
     let color_dir = color_dir();
 
@@ -1096,7 +1551,9 @@ pub(crate) fn restore_default_icc(device_id: Option<String>) -> Result<(), Strin
 
     // 恢复数字振动为 NVIDIA 面板默认 50%。仅 NVIDIA 支持，
     // 失败不影响 ICC 本身已经恢复成功这个事实。
-    if let Err(e) = crate::nvidia::set_nvidia_digital_vibrance(device_id, 50) {
+    // 门闩已由调用方持有，走已持闩 helper，不得再经公开命令入口取闩。
+    let did = crate::nvidia::resolve_display_id(device_id);
+    if let Err(e) = crate::nvidia::dvc_set_locked(&did, 50) {
         eprintln!("[ICC] restore default: digital vibrance reset skipped: {}", e);
     }
     Ok(())
@@ -1104,9 +1561,13 @@ pub(crate) fn restore_default_icc(device_id: Option<String>) -> Result<(), Strin
 
 #[tauri::command]
 pub async fn restore_default_icc_profile(device_id: Option<String>) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || restore_default_icc(device_id))
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?
+    tauri::async_runtime::spawn_blocking(move || {
+        // 手动恢复默认属于外部写入：持颜色写门闩并递增代号
+        let _latch = crate::nvidia::begin_external_write();
+        restore_default_icc(device_id)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// 用资源管理器打开系统 ICC 目录

@@ -1,7 +1,9 @@
+mod color_recovery;
 mod config;
 mod debug_recorder;
 mod display_watch;
 mod features;
+mod foreground_watch;
 mod icc;
 mod nvidia;
 mod process_watcher;
@@ -61,12 +63,14 @@ fn get_pending_share_url(state: tauri::State<PendingShareUrl>) -> Option<String>
     state.0.lock().unwrap().take()
 }
 
-/// 退出前的进程内清理：停进程监听线程、还原 AMD 状态、释放托盘/窗口资源。
+/// 退出前的进程内清理：停进程监听线程、卸载前台 hook（同线程）、还原 AMD 状态、
+/// 释放托盘/窗口资源。
 ///
 /// `RunEvent::Exit` 会走到这里；安装更新后主动 `process::exit` 的那条路径
 /// 也必须显式调用，否则这些清理全被跳过。
 pub(crate) fn shutdown_runtime(app: &tauri::AppHandle) {
     process_watcher::stop_watcher();
+    foreground_watch::shutdown();
     amd::shutdown();
     app.cleanup_before_exit();
 }
@@ -155,8 +159,13 @@ pub fn run() {
             process_watcher::init_watcher(&handle);
 
             // 显示器拓扑监听（系统事件：WM_DISPLAYCHANGE / WM_DEVICECHANGE），
-            // Win+P 投影、关显示器、热插拔时把最新显示器列表推给前端
+            // Win+P 投影、关显示器、热插拔时把最新显示器列表推给前端；
+            // WM_DISPLAYCHANGE 同时独立发出颜色环境变化信号给恢复调度
             display_watch::start(&handle);
+
+            // 前台窗口监听（EVENT_SYSTEM_FOREGROUND，带消息循环的专用线程）：
+            // 恢复调度的前台事件源；注册失败只记日志，不影响原有监听
+            foreground_watch::start();
 
             // 启动来源：带 --silent（开机自启）→ 保持隐藏仅进托盘；否则显示主窗口。
             // 主窗口在 tauri.conf.json 中初始 visible:false，避免非静默启动时的窗口闪现。
@@ -201,6 +210,7 @@ pub fn run() {
             icc::get_display_modes,
             icc::set_display_mode,
             icc::apply_config_resolution,
+            icc::apply_preset_resolution,
             icc::restore_default_icc_profile,
             icc::import_icc_profile,
             icc::import_market_icc,

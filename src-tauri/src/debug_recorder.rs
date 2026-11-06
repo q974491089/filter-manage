@@ -2,13 +2,15 @@
 //!
 //! 触发（前端）：连续点击左上角图标 10 次 → 弹窗征得用户同意 → 开始记录。
 //! 记录内容：ICC 应用、伽马写入（滑条/托盘/快捷键/进程监听）的参数、API 结果、
-//! **回读验证差值**、显示器/驱动环境快照。只写本机磁盘，不联网；
-//! 报告由用户手动发送。
+//! **即时回读验证差值**、显示器/驱动环境快照（含显示模式摘要）。只写本机磁盘，
+//! 不联网；报告由用户手动发送。
 //!
 //! 为什么回读验证挂在调试模式：正常路径行为与开销零变化；调试模式下每次
-//! LUT 写入后读回比对，才能区分「正常生效」「API 假成功」「被静默拒绝」——
-//! `GetDeviceGammaRamp` 读的是系统缓存，`SetDeviceGammaRamp` 返回 TRUE 不代表
-//! 硬件真的编程了 LUT，这正是「点了没反应」类问题唯一可靠的判定手段。
+//! LUT 写入后读回比对，才能区分「即时回读一致」「API 假成功」「即时回读不一致」
+//! ——`GetDeviceGammaRamp` 读的是系统缓存，`SetDeviceGammaRamp` 返回 TRUE 不代表
+//! 硬件真的编程了 LUT。措辞边界：**单次即时回读≠屏幕持续生效**——一致只说明
+//! 写入当刻 OS 层一致，不能下结论「屏幕生效」或「被静默拒绝」；硬件扫描输出
+//! 是否持续采用该曲线是另一回事（恢复调度因此保留了有预算的事件后重写）。
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -176,43 +178,28 @@ pub fn log_panic(message: &str) {
     }
 }
 
-/// 写入后回读验证（仅调试模式）：高字节最大差 0 = 系统层面确实接受了这条曲线。
-/// 注意这只能证明到 OS 缓存一层；硬件是否真的用了它是另一回事，
-/// 但「API 成功 + 回读不一致」可以当场坐实静默拒绝。
+/// 写入后即时回读验证（仅调试模式）：高字节最大差 0 = 系统层面当刻接受了这条曲线。
+/// 措辞边界：这是**写入当刻的一次性比较**——「即时回读一致」只证明 OS 缓存一致，
+/// 不代表硬件扫描输出持续采用该曲线，单次比较不直接下结论为「屏幕生效」或
+/// 「被静默拒绝」；「即时回读不一致」说明这条曲线没有按预期留在系统层。
+/// 回读交给 nvidia::read_gamma_ramp（运行时可用，不依赖调试记录开关）。
 pub fn verify_ramp(device_id: &str, expected: &[u16; 768]) {
     if !active() {
         return;
     }
-    let Some(actual) = read_ramp(device_id) else {
-        log("verify", format!("device={device_id} 回读失败"));
-        return;
+    let actual = match crate::nvidia::read_gamma_ramp(device_id) {
+        Ok(actual) => actual,
+        Err(_) => {
+            log("verify", format!("device={device_id} 即时回读失败"));
+            return;
+        }
     };
-    let mut max_diff = 0i32;
-    for i in 0..768 {
-        let d = ((actual[i] >> 8) as i32 - (expected[i] >> 8) as i32).abs();
-        if d > max_diff {
-            max_diff = d;
-        }
-    }
-    let verdict = if max_diff == 0 { "生效（回读一致）" } else { "被静默拒绝（回读不一致）" };
-    log("verify", format!("device={device_id} 高字节最大差={max_diff} → {verdict}"));
-}
-
-/// 读取某显示器的当前 gamma ramp（768 个 u16，R/G/B 各 256）
-fn read_ramp(device_id: &str) -> Option<[u16; 768]> {
-    use windows::Win32::UI::ColorSystem::GetDeviceGammaRamp;
-    use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC};
-    let wide: Vec<u16> = device_id.encode_utf16().chain(std::iter::once(0)).collect();
-    unsafe {
-        let hdc = CreateDCW(windows::core::PCWSTR(wide.as_ptr()), None, None, None);
-        if hdc.is_invalid() {
-            return None;
-        }
-        let mut values = [0u16; 768];
-        let ok = GetDeviceGammaRamp(hdc, values.as_mut_ptr() as *mut _);
-        let _ = DeleteDC(hdc);
-        ok.as_bool().then_some(values)
-    }
+    let max_diff = crate::color_recovery::ramp_high_byte_diff(expected, &actual);
+    let verdict = if max_diff == 0 { "即时回读一致" } else { "即时回读不一致" };
+    log(
+        "verify",
+        format!("device={device_id} 高字节最大差={max_diff} → {verdict}（单次比较≠屏幕持续生效）"),
+    );
 }
 
 // ─── 环境快照 ────────────────────────────────────────────────────────────────
@@ -380,7 +367,7 @@ fn write_env_snapshot() {
                         m.name, m.is_primary, m.device_id, m.pnp_id
                     ),
                 );
-                if let Some(ramp) = read_ramp(&m.device_id) {
+                if let Ok(ramp) = crate::nvidia::read_gamma_ramp(&m.device_id) {
                     let points = [0usize, 16, 64, 128, 192, 255];
                     let samples: String = points
                         .iter()
@@ -388,6 +375,42 @@ fn write_env_snapshot() {
                         .collect::<Vec<_>>()
                         .join(" ");
                     log("env", format!("当前 ramp R 采样 = {samples}"));
+                } else {
+                    log("env", "当前 ramp 读取失败（不算一致，也不代表被覆盖）");
+                }
+                // 显示模式摘要：当前模式 + 可用模式（排查分辨率兼容 / 模式切换类问题，
+                // 与颜色恢复共用同一台屏幕）。只含模式数据，无凭据或窗口标题。
+                match crate::icc::get_display_modes(Some(m.device_id.clone())) {
+                    Ok(list) => {
+                        let current = list
+                            .current
+                            .map(|c| format!("{}x{}@{}Hz", c.width, c.height, c.refresh_rate))
+                            .unwrap_or_else(|| "未知".to_string());
+                        let modes = list
+                            .modes
+                            .iter()
+                            .take(8)
+                            .map(|m| {
+                                let rates = m
+                                    .refresh_rates
+                                    .iter()
+                                    .map(|r| r.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join("/");
+                                format!("{}x{}@{rates}", m.width, m.height)
+                            })
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        log(
+                            "env",
+                            format!(
+                                "显示模式摘要：当前={current} 可用={}项 [{}]",
+                                list.modes.len(),
+                                modes
+                            ),
+                        );
+                    }
+                    Err(e) => log("env", format!("显示模式枚举失败：{e}")),
                 }
             }
         }
@@ -615,7 +638,7 @@ fn stop_session_impl() -> Result<Option<DebugStopInfo>, String> {
     // 调试期间用户可能把屏幕拖得面目全非：停止时自动恢复默认配置，
     // 省去每次手动点「重置默认」。恢复发生在会话摘除前，
     // 恢复动作本身（含回读验证）会留在报告里，用户能看到屏幕被恢复成了什么。
-    match crate::tray::apply_default_config() {
+    match crate::tray::apply_default_config_from("debug") {
         Ok(()) => log("session", "已自动恢复默认设置"),
         Err(e) => log(
             "session",

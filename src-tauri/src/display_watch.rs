@@ -37,6 +37,9 @@ const SUBCLASS_ID: usize = 0x464D_5245;
 const STABLE_WINDOW: Duration = Duration::from_millis(800);
 
 static TOPOLOGY_DIRTY: AtomicBool = AtomicBool::new(false);
+/// WM_DISPLAYCHANGE 专属的「颜色环境变化」标志：分辨率/显示模式变化即使显示器
+/// 列表没变（被去重滤掉）也要通知恢复调度——这是独立于 monitors-changed 的信号
+static COLOR_ENV_DIRTY: AtomicBool = AtomicBool::new(false);
 static TOPOLOGY_MTX: Mutex<()> = Mutex::new(());
 static TOPOLOGY_CV: Condvar = Condvar::new();
 
@@ -55,6 +58,11 @@ unsafe extern "system" fn topology_subclass_proc(
     _subclass_id: usize,
     _ref_data: usize,
 ) -> LRESULT {
+    if msg == WM_DISPLAYCHANGE {
+        // 颜色环境信号：只标记，投递在 worker 的稳定窗口之后（沿用同一去抖，
+        // 模式切换过程的连发中间态不会逐条打扰恢复调度）
+        COLOR_ENV_DIRTY.store(true, Ordering::SeqCst);
+    }
     if msg == WM_DISPLAYCHANGE || (msg == WM_DEVICECHANGE && wparam.0 == DBT_DEVNODES_CHANGED) {
         TOPOLOGY_DIRTY.store(true, Ordering::SeqCst);
         let guard = TOPOLOGY_MTX.lock().unwrap();
@@ -131,6 +139,15 @@ fn spawn_worker(app: AppHandle) {
                     if !TOPOLOGY_DIRTY.swap(false, Ordering::SeqCst) {
                         break;
                     }
+                }
+
+                // 颜色环境信号独立投递：**不放在 monitors-changed 的列表比较之后**，
+                // WM_DISPLAYCHANGE 到了就发，即使显示器列表没变（模式变化可能被
+                // 列表去重滤掉）。恢复调度只在所有权有效时重开 10 秒窗口。
+                if COLOR_ENV_DIRTY.swap(false, Ordering::SeqCst) {
+                    crate::process_watcher::notify_color_env_changed(
+                        crate::process_watcher::ColorEnvEvent::DisplayModeChanged,
+                    );
                 }
 
                 let current = icc::enumerate_display_monitors();

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "../lib/ipc";
 import Select from "./Select";
+import Toggle from "./Toggle";
 
 /** 对应后端 icc::DisplayModeList / DisplayModeInfo */
 interface DisplayModeInfo {
@@ -54,6 +55,10 @@ interface DisplayResolutionProps {
   onCurrentResolution: (res: string | null) => void;
   /** 变化时重新拉取模式列表（托盘/快捷键/进程监听应用方案后同步真实状态） */
   refreshKey: number;
+  /** 保存范围开关状态：是否把分辨率和刷新率保存到方案（App 持有，进脏判断与保存 JSON） */
+  includeResolution?: boolean;
+  /** 保存范围开关变化回调；与 includeResolution 成对提供，不传 = 不显示开关 */
+  onIncludeResolutionChange?: (value: boolean) => void;
 }
 
 function DisplayResolution({
@@ -62,6 +67,8 @@ function DisplayResolution({
   deviceName,
   onCurrentResolution,
   refreshKey,
+  includeResolution = false,
+  onIncludeResolutionChange,
 }: DisplayResolutionProps) {
   const [modes, setModes] = useState<DisplayModeInfo[]>([]);
   const [current, setCurrent] = useState<DisplayModeList["current"]>(null);
@@ -207,6 +214,30 @@ function DisplayResolution({
           />
         </div>
       </div>
+      {/* 保存范围开关：与分辨率卡片同生共死（受同一个分辨率功能入口约束，
+          是否显示由 App 传不传 onIncludeResolutionChange 决定，保存路径按同一可见性收敛）。
+          开启 = 保存/更新方案时写入当前分辨率与刷新率；关闭 = 方案不指定目标模式，
+          应用此类方案时由后端按还原点决定是否恢复本应用此前改过的分辨率 */}
+      {onIncludeResolutionChange && (
+        <div
+          data-name="save-resolution-scope"
+          className="mt-md flex items-center justify-between gap-md"
+        >
+          <div className="min-w-0">
+            <p className="font-label-md text-label-md text-on-surface">将分辨率和刷新率保存到方案</p>
+            <p className="mt-0.5 text-[11px] font-normal text-on-surface-variant">
+              {includeResolution
+                ? "保存/更新方案时写入当前分辨率与刷新率"
+                : "不指定目标模式；必要时恢复本应用此前改过的分辨率"}
+            </p>
+          </div>
+          <Toggle
+            size="sm"
+            checked={includeResolution}
+            onChange={onIncludeResolutionChange}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -98,11 +98,11 @@ fn register_shortcut(app: &AppHandle, binding: &ShortcutBinding) -> Result<(), S
                 .map(|s| s.shortcut_notification)
                 .unwrap_or(true);
             if config_name == "__default__" {
-                let _ = tray::apply_default_config();
+                let _ = tray::apply_default_config_from("shortcut");
                 let _ = _app.emit("config-applied", "__default__");
                 if notify { show_toast("已切换到默认方案"); }
             } else if let Ok(cfg) = config::load_config(config_name.clone()) {
-                let _ = tray::apply_color_config(&cfg);
+                let _ = tray::apply_color_config_from("shortcut", &cfg);
                 let _ = _app.emit("config-applied", &config_name);
                 if notify { show_toast(&format!("已切换到方案：{}", config_name)); }
             }
