@@ -62,6 +62,18 @@ interface DisplayMonitor {
   is_primary: boolean;
 }
 
+/**
+ * `apply_preset_resolution` 返回值（见 .docs/api/icc.md）：判别字段 status。
+ * 五种 status 都是 Ok（部分成功）；`skipped_unsupported` / `skipped_invalid`
+ * 表示分辨率没动但颜色应继续应用，不作为全局失败处理。
+ */
+type PresetResolutionResult =
+  | { status: "unchanged" }
+  | { status: "applied" }
+  | { status: "restored" }
+  | { status: "skipped_unsupported"; requested: string; reason: string }
+  | { status: "skipped_invalid"; requested: string };
+
 /** 数字振动能力探测结果（对应后端 `nvidia::DvcCapability`） */
 interface DvcCapability {
   supported: boolean;
@@ -302,7 +314,27 @@ function App() {
     iccProfile: "Default",
     /** 分辨率基线：最近一次采纳点（启动/加载方案/切显示器）的实际模式 "宽x高@Hz" */
     resolution: null as string | null,
+    /** 保存范围基线：上次保存/加载时"是否把分辨率写入方案" */
+    includeResolution: false,
   });
+  /**
+   * 保存范围开关：是否把当前分辨率和刷新率写入方案。
+   * 新建方案默认关闭；加载含 resolution 的已有方案时开启（见 handleApply / syncUiFromAppliedConfig）。
+   * 关闭时保存不写入目标模式，且不自动改动已有方案的 JSON——只有用户保存/更新时才落盘。
+   */
+  const [includeResolution, setIncludeResolution] = useState(false);
+  /**
+   * 保存范围控件是否对用户可见。
+   *
+   * 分辨率卡片（分辨率功能入口）目前没有独立远程开关，始终渲染 → 控件可见。
+   * 但保存路径必须按"控件可见性"收敛：一旦未来入口被远程开关隐藏
+   * （用 featureFlags.isEnabled(<key>) 包住 DisplayResolution 即可），
+   * 把这里改成对应的 isEnabled 判断——不可见时更新已有方案保留原 resolution
+   * 字段、新建方案不携带分辨率，绝不因控件不可见而静默清空用户的方案字段。
+   */
+  const resolutionSaveControlVisible = true;
+  /** 方案区域的部分成功/失败说明（role="status"）；null = 不显示。每次应用前清空，不积累 */
+  const [presetStatusNote, setPresetStatusNote] = useState<string | null>(null);
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
   const [dvcCap, setDvcCap] = useState<DvcCapability | null>(null);
   /** 显示器自定义命名：键取稳定标识（pnp_id 优先，空则 device_id），存本机 localStorage */
@@ -361,7 +393,10 @@ function App() {
     rgbG !== baseline.rgbG ||
     rgbB !== baseline.rgbB ||
     activeProfile !== baseline.iccProfile ||
-    currentResolution !== baseline.resolution;
+    // 保存范围开关变化本身参与脏判断
+    includeResolution !== baseline.includeResolution ||
+    // 仅在开关开启（保存会写入分辨率）时，实际模式变化才计为分辨率变更
+    (includeResolution && currentResolution !== baseline.resolution);
 
   const handleRgbScaleModeChange = (mode: RgbScaleMode) => {
     setRgbScaleMode(mode);
@@ -461,6 +496,8 @@ function App() {
           setRgbB(rb);
           setActiveProfile("Default");
           setSelectedConfig("");
+          // 默认方案不携带分辨率：保存范围基线同步归位，避免只改 UI 不改基线
+          setIncludeResolution(false);
           setBaseline((prev) => ({
             brightness: def.brightness,
             contrast: def.contrast,
@@ -471,6 +508,7 @@ function App() {
             rgbB: rb,
             iccProfile: "Default",
             resolution: prev.resolution,
+            includeResolution: false,
           }));
         }
         // 后台路径可能改了分辨率：卡片重拉真实状态，并以重拉上报值为分辨率基线
@@ -496,6 +534,9 @@ function App() {
       setRgbB(rb);
       setActiveProfile(cfg.icc_profile || "Default");
       setSelectedConfig(configName);
+      // 后台应用的方案带不带分辨率 → 保存范围状态与基线一起显式更新
+      const cfgIncludeResolution = !!cfg.resolution;
+      setIncludeResolution(cfgIncludeResolution);
       setBaseline((prev) => ({
         brightness: cfg.brightness,
         contrast: cfg.contrast,
@@ -506,6 +547,7 @@ function App() {
         rgbB: rb,
         iccProfile: cfg.icc_profile || "Default",
         resolution: prev.resolution,
+        includeResolution: cfgIncludeResolution,
       }));
       // 后台路径可能改了分辨率：卡片重拉真实状态，并以重拉上报值为分辨率基线
       awaitResBaselineRef.current = true;
@@ -642,6 +684,7 @@ function App() {
             rgbB: rb,
             iccProfile: profile,
             resolution: prev.resolution,
+            includeResolution: false,
           }));
         } else {
           const dvcDefault = await invoke<number>("get_dvc_default_ui_value", { deviceId: selectedDeviceId });
@@ -735,16 +778,27 @@ function App() {
     setRgbB(rb);
     const profile = config.icc_profile || "Default";
     setActiveProfile(profile);
+    // 重新应用即清掉上一轮的部分成功说明，不积累旧状态
+    setPresetStatusNote(null);
 
     // 分辨率先行：模式切换可能重置 gamma ramp，先落分辨率再上色（与后端中央路径一致）。
-    // 失败不阻断配色应用。
-    if (config.resolution) {
-      try {
-        await invoke("apply_config_resolution", { deviceId: selectedDeviceId, resolution: config.resolution });
-      } catch (err) {
-        console.error("Failed to apply config resolution:", err);
-        showToast("error", `分辨率切换失败: ${err}`);
+    // 兼容入口 apply_preset_resolution：不支持的目标模式不报错，返回 skipped_unsupported
+    // 暂存为提示，颜色参数继续应用；真实失败仍 toast，且不阻断配色。
+    let resolutionSkipNote: string | null = null;
+    try {
+      const result = await invoke<PresetResolutionResult>("apply_preset_resolution", {
+        deviceId: selectedDeviceId,
+        resolution: config.resolution ?? null,
+      });
+      if (result.status === "skipped_unsupported") {
+        resolutionSkipNote = `当前显示器不支持方案中的 ${result.requested}，已保留当前分辨率`;
+      } else if (result.status === "skipped_invalid") {
+        // 配置数据损坏，不做用户提示，静默留痕
+        debugNote(`方案分辨率字段非法，已忽略: ${result.requested}`);
       }
+    } catch (err) {
+      console.error("Failed to apply config resolution:", err);
+      showToast("error", `分辨率切换失败: ${err}`);
     }
 
     setBaseline({
@@ -758,7 +812,10 @@ function App() {
       iccProfile: profile,
       // 预填当前实际模式，等下方重拉上报后采纳为应用后的真实基线
       resolution: currentResolution,
+      // 保存范围跟随所应用方案：带 resolution 的方案开启，否则关闭
+      includeResolution: !!config.resolution,
     });
+    setIncludeResolution(!!config.resolution);
 
     if (config.icc_profile) {
       try {
@@ -777,6 +834,7 @@ function App() {
       }
     }
 
+    let colorError: string | null = null;
     try {
       const calls = [
         invoke("set_nvidia_brightness", { deviceId: selectedDeviceId, value: config.brightness }),
@@ -792,9 +850,21 @@ function App() {
     } catch (err) {
       console.error("Failed to apply NVIDIA:", err);
       showToast("error", `应用颜色设置失败: ${err}`);
+      colorError = String(err);
+    }
+
+    // 颜色参数全部处理完后，在方案区域给出部分成功说明：
+    // 兼容跳过既不是全局成功也不是全局失败；颜色失败时显示实际错误并保留跳过说明。
+    if (resolutionSkipNote) {
+      setPresetStatusNote(
+        colorError
+          ? `颜色设置应用失败：${colorError}；${resolutionSkipNote}`
+          : `颜色设置已应用；${resolutionSkipNote}`
+      );
     }
 
     // 本路径可能改了分辨率：卡片重拉真实状态，并以重拉上报值为分辨率基线
+    // （skipped_unsupported 时模式未变，重拉同样把实际值采纳为基线）
     awaitResBaselineRef.current = true;
     setResRefreshKey((k) => k + 1);
   };
@@ -812,8 +882,13 @@ function App() {
         showToast("success", "已恢复默认设置");
       } else {
         // 无默认方案：配色无从恢复，但若此前应用过带分辨率的方案，至少把分辨率还回去
+        // （兼容入口：resolution=null = 恢复本应用此前改过的分辨率，含刷新率）
+        setPresetStatusNote(null);
         try {
-          await invoke("apply_config_resolution", { deviceId: selectedDeviceId, resolution: null });
+          await invoke<PresetResolutionResult>("apply_preset_resolution", {
+            deviceId: selectedDeviceId,
+            resolution: null,
+          });
           awaitResBaselineRef.current = true;
           setResRefreshKey((k) => k + 1);
         } catch {
@@ -835,6 +910,8 @@ function App() {
   const handleMonitorChange = async (deviceId: string) => {
     setSelectedDeviceId(deviceId || undefined);
     debugNote(`切换显示器 → ${deviceId || "主显示器"}`);
+    // 旧显示器上的兼容跳过说明对新显示器不再成立，切走即清
+    setPresetStatusNote(null);
     try {
       const settings = await invoke<{
         brightness: number;
@@ -865,6 +942,8 @@ function App() {
         rgbB: rb,
         iccProfile: activeProfile,
         resolution: prev.resolution,
+        // 切显示器与颜色参数一样重新对齐保存范围基线（实际模式由重拉上报采纳）
+        includeResolution,
       }));
     } catch (err) {
       console.error("Failed to load settings for display:", err);
@@ -907,7 +986,9 @@ function App() {
     rgb_r: rgbR,
     rgb_g: rgbG,
     rgb_b: rgbB,
-    resolution: currentResolution,
+    // 保存范围开关决定是否写入目标模式；关闭时写 null，且不自动改动已有方案的 JSON
+    // （只在用户保存/更新时落盘）
+    resolution: includeResolution ? currentResolution : null,
     icc_profile: activeProfile !== "Default" ? activeProfile : null,
   });
 
@@ -925,6 +1006,8 @@ function App() {
         name,
         icon,
         ...buildColorFields(),
+        // 保存范围控件不可见（分辨率功能入口被远程开关隐藏）时，新建方案不携带分辨率
+        ...(resolutionSaveControlVisible ? {} : { resolution: null }),
       };
       await invoke("save_config", { config });
       setSelectedConfig(name);
@@ -938,6 +1021,7 @@ function App() {
         rgbB,
         iccProfile: activeProfile,
         resolution: currentResolution,
+        includeResolution,
       });
       showToast("success", `「${name}」已保存`);
       await refreshConfigs();
@@ -970,6 +1054,9 @@ function App() {
         ...buildColorFields(),
         // 保留原 icon（load 的 existing.icon）
         icon: existing.icon,
+        // 保存范围控件不可见（分辨率功能入口被远程开关隐藏）时，不因控件不可见
+        // 而清空原 resolution 字段——只有用户可见地关闭保存范围后才写入 null
+        ...(resolutionSaveControlVisible ? {} : { resolution: existing.resolution ?? null }),
       };
       await invoke("save_config", { config });
       setBaseline({
@@ -982,6 +1069,7 @@ function App() {
         rgbB,
         iccProfile: activeProfile,
         resolution: currentResolution,
+        includeResolution,
       });
       showToast("success", `「${selectedConfig}」已更新`);
       await refreshConfigs();
@@ -1191,6 +1279,7 @@ function App() {
               setRgbB(rb);
               setActiveProfile(profile);
               setSelectedConfig("");
+              setIncludeResolution(false);
               setBaseline({
                 brightness: def?.brightness ?? 0,
                 contrast: def?.contrast ?? 0,
@@ -1201,6 +1290,7 @@ function App() {
                 rgbB: rb,
                 iccProfile: profile,
                 resolution: null,
+                includeResolution: false,
               });
               // 后端复位可能改过分辨率：卡片重拉，以上报的实际模式为新基线
               awaitResBaselineRef.current = true;
@@ -1493,8 +1583,27 @@ function App() {
               deviceName={activeMonitor ? getMonitorDisplayName(activeMonitor) : undefined}
               onCurrentResolution={handleCurrentResolutionReport}
               refreshKey={resRefreshKey}
+              // 保存范围开关与保存路径按同一可见性收敛：入口被隐藏时开关一并消失，
+              // 更新已有方案保留原 resolution 字段、新建方案不携带分辨率
+              includeResolution={resolutionSaveControlVisible ? includeResolution : undefined}
+              onIncludeResolutionChange={
+                resolutionSaveControlVisible ? setIncludeResolution : undefined
+              }
             />
             <PreviewImage showToast={showToast} />
+            {/* 应用方案的部分成功/失败说明：分辨率被兼容跳过、颜色已应用或失败。
+                role="status" 让读屏软件播报变化；持续显示至下一次应用/切换，不积累 */}
+            {presetStatusNote && (
+              <div
+                role="status"
+                data-name="preset-status-note"
+                className="shrink-0 rounded-lg border border-outline-variant/20 bg-surface-container px-md py-sm"
+              >
+                <p className="font-body-sm text-body-sm text-on-surface-variant leading-snug">
+                  {presetStatusNote}
+                </p>
+              </div>
+            )}
             <ConfigManager
               configs={configs}
               selectedConfig={selectedConfig}

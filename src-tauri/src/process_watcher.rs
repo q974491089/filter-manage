@@ -79,6 +79,13 @@ struct PendingRestore {
     due_at: Instant,
 }
 
+/// 当前恢复任务（Task 2/3）：只跟随 `applied` 的当前方案。
+/// `ownership` 回答「保护谁」；`window` 回答「何时检查、何时重写、何时停手」。
+struct ActiveRecovery {
+    ownership: crate::color_recovery::RecoveryOwnership,
+    window: crate::color_recovery::RecoveryWindow,
+}
+
 struct WatcherState {
     /// 已激活的规则，按激活顺序排列（最早激活的在前）
     active_rules: Vec<ProcessRule>,
@@ -86,6 +93,8 @@ struct WatcherState {
     applied: Option<AppliedConfig>,
     /// 恢复默认/回退失败后的重试队列（同一时刻最多一条）
     pending_restore: Option<PendingRestore>,
+    /// 当前恢复任务：方案激活成功时建立，规则退出/改绑/外部改写时失效
+    recovery: Option<ActiveRecovery>,
     subscribed_processes: Vec<String>,
     wmi_connected: bool,
     last_error: Option<String>,
@@ -96,19 +105,21 @@ struct WatcherState {
 
 static WATCHER_RUNNING: AtomicBool = AtomicBool::new(false);
 
-/// 每次「屏幕上的配色被改写」时自增（托盘 / 快捷键 / 进程监听 / 前端手动应用都算）。
+/// 每次「屏幕上的配色被改写」时自增（滑块 / DVC / ICC / 恢复默认 / 托盘 / 快捷键 /
+/// 进程监听 / 显示模式命令都算；统一在 nvidia.rs 的颜色写门闩内递增）。
 ///
-/// 用途：待重试的恢复动作记下发起时的代号，重试前先比对——代号变了说明期间有人
-/// 手动改过配色，这时再恢复默认就会把用户刚选的设置冲掉，直接放弃重试。
+/// 用途：待重试的恢复动作与恢复所有权记下发起时的代号，行动前先比对——代号变了
+/// 说明期间有人手动改过配色，这时再恢复默认就会把用户刚选的设置冲掉，直接放弃。
 static APPLY_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// 任何会改写屏幕色彩的路径都要调一次，见 `tray::apply_color_config`、
-/// `icc::apply_icc_profile`、`icc::restore_default_icc`。
+/// 颜色写门闩（nvidia::begin_external_write）的闩内递增入口
 pub(crate) fn note_color_applied() {
     APPLY_GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
-fn apply_generation() -> u64 {
+/// 当前代号查询。原本仅模块内可见；恢复协调器（nvidia::recovery_write_ramp 的
+/// 闩内复核）需要按计划收紧地开放它。
+pub(crate) fn apply_generation() -> u64 {
     APPLY_GENERATION.load(Ordering::SeqCst)
 }
 
@@ -122,6 +133,7 @@ fn state() -> &'static Arc<Mutex<WatcherState>> {
             active_rules: Vec::new(),
             applied: None,
             pending_restore: None,
+            recovery: None,
             subscribed_processes: Vec::new(),
             wmi_connected: false,
             last_error: None,
@@ -135,8 +147,14 @@ fn cmd_tx() -> &'static Mutex<Option<mpsc::Sender<WatcherCommand>>> {
     CMD_TX.get_or_init(|| Mutex::new(None))
 }
 
+/// watcher 日志：stderr 常驻 + 调试记录会话落盘（"process-watcher" 分类）。
+/// 调试未开启时 debug_recorder::log 内部直接返回，正常路径零落盘开销；
+/// 语义记录（Started / 规则 id / 方案名 / 目标显示器 / 激活与退出）因此
+/// 无需第二套日志管线。
 fn pw_log(msg: impl AsRef<str>) {
-    eprintln!("[process-watcher] {}", msg.as_ref());
+    let msg = msg.as_ref();
+    eprintln!("[process-watcher] {msg}");
+    crate::debug_recorder::log("process-watcher", msg);
 }
 
 fn set_health(connected: bool, error: Option<String>, attempt: u32) {
@@ -161,6 +179,26 @@ fn next_backoff_secs(prev: u64) -> u64 {
 enum WatcherCommand {
     Resubscribe,
     Stop,
+    /// 颜色环境变化信号（显示模式 / 前台窗口）：只影响恢复调度，
+    /// 不当进程创建/退出事件处理
+    ColorEnvChanged(ColorEnvEvent),
+}
+
+/// 颜色环境变化信号（Task 4）。只携带定位信息，不携带窗口标题等原始数据。
+#[derive(Debug, Clone)]
+pub(crate) enum ColorEnvEvent {
+    /// 显示模式变化（WM_DISPLAYCHANGE，display_watch 独立信号，不经拓扑列表比较）
+    DisplayModeChanged,
+    /// 某窗口成为前台（EVENT_SYSTEM_FOREGROUND，foreground_watch）
+    Foreground { pid: u32, hwnd: isize },
+}
+
+/// 颜色环境信号入口（display_watch / foreground_watch 调用）：投递给 watcher 线程。
+/// watcher 未运行或已停止时静默丢弃——监听都没开，恢复任务也不可能存在。
+pub(crate) fn notify_color_env_changed(event: ColorEnvEvent) {
+    if let Some(tx) = cmd_tx().lock().unwrap().as_ref() {
+        let _ = tx.send(WatcherCommand::ColorEnvChanged(event));
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -804,14 +842,14 @@ fn forget_rules(ids: &[String]) {
     }
 }
 
-/// 把屏幕切到目标方案
+/// 把屏幕切到目标方案（来源标记进诊断日志，区分托盘 / 快捷键 / 进程监听）
 fn apply_target(target: &SwitchTarget) -> Result<(), String> {
     match target {
         SwitchTarget::Rule { config_name, .. } => {
             let cfg = config::load_config(config_name.clone())?;
-            tray::apply_color_config(&cfg)
+            tray::apply_color_config_from("process-watcher", &cfg)
         }
-        SwitchTarget::Default => tray::apply_default_config(),
+        SwitchTarget::Default => tray::apply_default_config_from("process-watcher"),
         SwitchTarget::Keep => Ok(()),
     }
 }
@@ -833,6 +871,18 @@ fn announce_target(app: &AppHandle, target: &SwitchTarget, notify: bool) {
         }
         SwitchTarget::Keep => {}
     }
+}
+
+/// 同名多实例：仍有同名进程在跑则忽略本次退出（退出 ≠ 最后一个实例退出）。
+/// 提取为纯函数供状态测试与真实事件路径共用。
+fn stop_should_be_ignored(name: &str, running: &[String]) -> bool {
+    running.iter().any(|p| p.eq_ignore_ascii_case(name))
+}
+
+/// 待重试项是否已被别处的应用作废：代号变化 = 用户/别的路径接管了屏幕，
+/// 此时旧重试必须取消，否则会把用户刚选的配色覆盖掉。纯函数，测试共用。
+fn restore_retry_stale(pending_generation: u64, current_generation: u64) -> bool {
+    pending_generation != current_generation
 }
 
 /// 丢弃待重试项，并把它名下那批（进程已退出的）规则一并移出 active_rules。
@@ -906,12 +956,16 @@ fn deactivate_rules(app: &AppHandle, leaving: &[ProcessRule], reason: &str, noti
     // 屏幕上的方案不由这批规则提供 → 直接清状态，不用动屏幕
     if !owns_screen {
         pw_log(format!(
-            "deactivate ({reason}) without switching: {:?}",
+            "deactivate ({reason}) rules={leaving_ids:?} without switching: {:?}",
             leaving.iter().map(|r| r.process_name.as_str()).collect::<Vec<_>>()
         ));
         forget_rules(&leaving_ids);
         return;
     }
+
+    // 屏幕由这批规则提供 → 本次激活的恢复所有权随规则退出而失效
+    // （切回默认 / 回退幸存规则 / Keep 都一样；回退成功时会在下面按新激活重建）
+    state().lock().unwrap().recovery = None;
 
     let target = match (&survivor, restore_on_exit) {
         // 还有别的被监听进程在跑 → 回退到它那条更新一点的规则
@@ -924,7 +978,7 @@ fn deactivate_rules(app: &AppHandle, leaving: &[ProcessRule], reason: &str, noti
         (None, false) => SwitchTarget::Keep,
     };
 
-    pw_log(format!("deactivate ({reason}) → {}", describe_target(&target)));
+    pw_log(format!("deactivate ({reason}) rules={leaving_ids:?} → {}", describe_target(&target)));
 
     if matches!(target, SwitchTarget::Keep) {
         forget_rules(&leaving_ids);
@@ -946,12 +1000,31 @@ fn deactivate_rules(app: &AppHandle, leaving: &[ProcessRule], reason: &str, noti
                     _ => None,
                 };
             }
+            // 幸存规则的方案已重新贴屏 → 按新激活重建恢复所有权
+            // （方案整体应用已结束：代号与最终 LUT 此刻都已定型）
+            if let SwitchTarget::Rule { rule_id, .. } = &target {
+                match capture_recovery_ownership(rule_id) {
+                    Some(o) => {
+                        pw_log(format!(
+                            "recovery armed for rule {rule_id} target={} pnp={} gen={} (activation {})",
+                            o.device_id, o.pnp_id, o.generation, o.activation_seq
+                        ));
+                        state().lock().unwrap().recovery = Some(ActiveRecovery {
+                            ownership: o,
+                            window: crate::color_recovery::RecoveryWindow::open_startup(Instant::now()),
+                        });
+                    }
+                    None => pw_log(
+                        "recovery not armed after fallback: final ramp not captured (apply API may have failed)",
+                    ),
+                }
+            }
             pw_log(format!("deactivate ({reason}) applied {}", describe_target(&target)));
             announce_target(app, &target, notify);
         }
         Err(e) => {
             // 屏幕没切换成功，状态就不能提前改：规则留在 active_rules 里，
-            // status 与屏幕保持一致，并排队重试
+            // status 与屏幕保持一致，并排队重试（恢复所有权已在上方清除）
             pw_log(format!(
                 "deactivate ({reason}) failed: {e}; queued for retry"
             ));
@@ -1000,12 +1073,27 @@ fn reactivate_rule(app: &AppHandle, rule: &ProcessRule) {
                 rule_id: rule.id.clone(),
                 config_name: rule.config_name.clone(),
             });
-            // 新方案已经生效，排队的恢复动作作废
+            // 新方案已经生效，排队的恢复动作作废；旧激活的恢复所有权也一并作废
             take_pending_restore(&mut st);
+            st.recovery = None;
         }
     }
-    pw_log(format!("reactivated {} → {}", rule.id, rule.config_name));
+    pw_log(format!("reactivated rule={} → {}", rule.id, rule.config_name));
     if was_applied {
+        // 改绑成功 = 新激活：按新代号与最终 LUT 重建恢复所有权
+        match capture_recovery_ownership(&rule.id) {
+            Some(o) => {
+                pw_log(format!(
+                    "recovery armed for rule {} target={} pnp={} gen={} (activation {})",
+                    o.rule_id, o.device_id, o.pnp_id, o.generation, o.activation_seq
+                ));
+                state().lock().unwrap().recovery = Some(ActiveRecovery {
+                    ownership: o,
+                    window: crate::color_recovery::RecoveryWindow::open_startup(Instant::now()),
+                });
+            }
+            None => pw_log("recovery not armed after rebind: final ramp not captured"),
+        }
         let _ = app.emit("config-applied", &rule.config_name);
     }
 }
@@ -1022,7 +1110,7 @@ fn tick_pending_restore(app: &AppHandle) {
         let st = state().lock().unwrap();
         st.pending_restore
             .as_ref()
-            .filter(|p| p.generation != apply_generation())
+            .filter(|p| restore_retry_stale(p.generation, apply_generation()))
             .map(|p| p.rule_ids.clone())
     };
     if let Some(ids) = stale_ids {
@@ -1078,6 +1166,22 @@ fn tick_pending_restore(app: &AppHandle) {
                 "pending restore succeeded on attempt {attempt}: {}",
                 describe_target(&target)
             ));
+            // 回退到幸存规则成功 = 该规则的新激活 → 重建恢复所有权
+            if let SwitchTarget::Rule { rule_id, .. } = &target {
+                match capture_recovery_ownership(rule_id) {
+                    Some(o) => {
+                        pw_log(format!(
+                            "recovery armed for rule {rule_id} target={} pnp={} gen={} (activation {})",
+                            o.device_id, o.pnp_id, o.generation, o.activation_seq
+                        ));
+                        state().lock().unwrap().recovery = Some(ActiveRecovery {
+                            ownership: o,
+                            window: crate::color_recovery::RecoveryWindow::open_startup(Instant::now()),
+                        });
+                    }
+                    None => pw_log("recovery not armed after pending restore: final ramp not captured"),
+                }
+            }
             announce_target(app, &target, notify);
         }
         Err(e) => {
@@ -1134,12 +1238,16 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
             let Some(rule) = rule else {
                 return;
             };
+            pw_log(format!(
+                "event Started matched rule={} config={}",
+                rule.id, rule.config_name
+            ));
 
             let config_name = rule.config_name.clone();
             let notify = settings.process_notification;
 
             let applied = config::load_config(config_name.clone())
-                .and_then(|cfg| tray::apply_color_config(&cfg));
+                .and_then(|cfg| tray::apply_color_config_from("process-watcher", &cfg));
             match applied {
                 Ok(()) => {
                     // 先登记再 emit，避免前端 get_watcher_status 与事件竞态
@@ -1151,13 +1259,35 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
                             rule_id: rule.id.clone(),
                             config_name: config_name.clone(),
                         });
-                        // 新方案已经生效，之前排队的恢复动作作废
+                        // 新方案已经生效，之前排队的恢复动作作废；旧激活的恢复
+                        // 所有权同样作废（下面按新激活重建）
                         take_pending_restore(&mut st);
+                        st.recovery = None;
                     }
-                    pw_log(format!(
-                        "activated config={config_name} (active={})",
-                        state().lock().unwrap().active_rules.len()
-                    ));
+                    // 方案整体应用结束：此刻捕获最终代号与最终 LUT 建立恢复所有权。
+                    // 初次 apply API 失败（最终 LUT 未捕获）时不建立恢复任务。
+                    let active = state().lock().unwrap().active_rules.len();
+                    match capture_recovery_ownership(&rule.id) {
+                        Some(o) => {
+                            pw_log(format!(
+                                "activated rule={} config={config_name} target={} pnp={} gen={} source=process-watcher (active={active}) recovery=armed(activation {})",
+                                rule.id, o.device_id, o.pnp_id, o.generation, o.activation_seq
+                            ));
+                            state().lock().unwrap().recovery = Some(ActiveRecovery {
+                                ownership: o,
+                                window: crate::color_recovery::RecoveryWindow::open_startup(Instant::now()),
+                            });
+                        }
+                        None => {
+                            let target = actual_target_display()
+                                .map(|(d, p)| format!("{d} (pnp {p})"))
+                                .unwrap_or_else(|| "<unknown>".to_string());
+                            pw_log(format!(
+                                "activated rule={} config={config_name} target={target} source=process-watcher (active={active}) recovery=none (final ramp not captured: apply API may have failed)",
+                                rule.id
+                            ));
+                        }
+                    }
                     let _ = app.emit("config-applied", &config_name);
                     if notify {
                         show_toast(&format!("进程触发：已切换到「{}」", config_name));
@@ -1172,11 +1302,8 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
         ProcessEvent::Stopped(name) => {
             pw_log(format!("event Stopped name={name}"));
 
-            // 同名多实例：仍有进程在跑则忽略本次退出
-            let still = running_process_names()
-                .iter()
-                .any(|p| p.eq_ignore_ascii_case(&name));
-            if still {
+            // 同名多实例：仍有同名进程在跑则忽略本次退出（恢复所有权保持）
+            if stop_should_be_ignored(&name, &running_process_names()) {
                 pw_log(format!(
                     "Stopped ignored, instance still running: {name}"
                 ));
@@ -1193,6 +1320,284 @@ fn handle_event(event: ProcessEvent, app: &AppHandle) {
             };
 
             deactivate_rules(app, &leaving, "process stopped", settings.process_notification);
+        }
+    }
+}
+
+// ─── 颜色恢复协调（Task 2 / Task 3）──────────────────────────────────────────
+//
+// 调度模型：所有恢复决策与规则生命周期事件都跑在 watcher 线程上（无每规则
+// 线程，无轮询——watcher 主循环每次迭代 tick 一次，无活跃窗口时零开销）；
+// 跨线程风险只有「外部颜色写入递增代号」，它在 nvidia.rs 门闩内被复核拦截。
+
+/// 实际目标显示器：方案应用路径全部走 None → 主显示器。
+/// 返回 (device_id, pnp_id)。
+fn actual_target_display() -> Option<(String, String)> {
+    let monitors = crate::icc::enumerate_display_monitors();
+    let target = monitors
+        .iter()
+        .find(|m| m.is_primary)
+        .or_else(|| monitors.first())?;
+    Some((target.device_id.clone(), target.pnp_id.clone()))
+}
+
+/// 方案整体应用成功后捕获恢复所有权：实际目标显示器 + 最终代号 + 最终 LUT。
+/// 返回 None = 最终 LUT 未捕获（apply API 失败或该显示器从未成功写入），
+/// 按计划不建立恢复任务。
+fn capture_recovery_ownership(rule_id: &str) -> Option<crate::color_recovery::RecoveryOwnership> {
+    let (device_id, pnp_id) = actual_target_display()?;
+    let generation = apply_generation();
+    let expected_lut = crate::nvidia::final_ramp_for_display(&device_id)?;
+    Some(crate::color_recovery::RecoveryOwnership {
+        rule_id: rule_id.to_string(),
+        activation_seq: crate::color_recovery::next_activation_seq(),
+        device_id,
+        pnp_id,
+        generation,
+        expected_lut,
+    })
+}
+
+/// 恢复写入前的所有权与状态复核（纯函数，真实 tick 与测试共用）。
+/// 返回 Err(reason) 时调度器不得写屏。
+fn recovery_permission(
+    st: &WatcherState,
+    ownership: &crate::color_recovery::RecoveryOwnership,
+    current_generation: u64,
+) -> Result<(), &'static str> {
+    if ownership.generation != current_generation {
+        return Err("generation changed: screen was rewritten elsewhere");
+    }
+    let Some(applied) = st.applied.as_ref() else {
+        return Err("no config applied");
+    };
+    if applied.rule_id != ownership.rule_id {
+        return Err("a different rule owns the screen now");
+    }
+    if !st.active_rules.iter().any(|r| r.id == ownership.rule_id) {
+        return Err("rule no longer active");
+    }
+    match st.recovery.as_ref() {
+        Some(rec) if rec.ownership.activation_seq == ownership.activation_seq => Ok(()),
+        _ => Err("ownership superseded by a newer activation"),
+    }
+}
+
+/// 显示器身份复核：设备名复用（重新连接成另一台物理屏）时旧 pnp 不能继续写；
+/// 设备消失（None）同样不算持有身份。
+fn pnp_identity_holds(owned_pnp: &str, current: Option<&str>) -> bool {
+    current.is_some_and(|p| p == owned_pnp)
+}
+
+/// 当前枚举里该设备名对应的 pnp_id；设备不存在时为 None
+fn current_pnp_for_device(device_id: &str) -> Option<String> {
+    crate::icc::enumerate_display_monitors()
+        .into_iter()
+        .find(|m| m.device_id == device_id)
+        .map(|m| m.pnp_id)
+}
+
+/// 前台信号的进程匹配：只查这个 PID 的可执行文件名（不是进程快照，也不是
+/// 原始窗口标题——按计划忽略标题）。
+#[cfg(windows)]
+fn process_name_of_pid(pid: u32) -> Option<String> {
+    let path = get_process_exe_path(pid)?;
+    Some(
+        path.rsplit(['\\', '/'])
+            .next()
+            .unwrap_or(&path)
+            .to_string(),
+    )
+}
+
+#[cfg(not(windows))]
+fn process_name_of_pid(_pid: u32) -> Option<String> {
+    None
+}
+
+/// 执行一次恢复写入：pnp 身份复核 → 门闩内代号复核 + 写缓存 LUT → 记预算。
+/// 写入失败（含代号变化）同样计预算；代号变化或预算耗尽时不放回窗口。
+fn finish_recovery_write(
+    mut rec: ActiveRecovery,
+    reason: crate::color_recovery::WriteReason,
+) {
+    // 显示器身份复核：device_id 复用但 pnp 变化（重新连接成另一台物理屏）→
+    // 旧身份不能继续写，恢复所有权作废
+    let current_pnp = current_pnp_for_device(&rec.ownership.device_id);
+    if !pnp_identity_holds(&rec.ownership.pnp_id, current_pnp.as_deref()) {
+        pw_log(format!(
+            "color recovery dropped: display identity changed for {} (now {}, owned pnp {})",
+            rec.ownership.device_id,
+            current_pnp.as_deref().unwrap_or("<device gone>"),
+            rec.ownership.pnp_id
+        ));
+        return; // 不放回
+    }
+
+    let now = Instant::now();
+    let result = crate::nvidia::recovery_write_ramp(
+        &rec.ownership.device_id,
+        &rec.ownership.expected_lut,
+        rec.ownership.generation,
+    );
+    let exhausted = rec.window.finish_write(now);
+    match result {
+        Ok(()) => {
+            // 写入后回读仅用于日志：区分「写完系统层就一致」与「写入被拒/再次被覆盖」
+            let post = crate::nvidia::read_gamma_ramp(&rec.ownership.device_id);
+            let post_desc = match post {
+                Ok(actual) => format!(
+                    "写入后回读高字节差={}",
+                    crate::color_recovery::ramp_high_byte_diff(&rec.ownership.expected_lut, &actual)
+                ),
+                Err(e) => format!("写入后回读失败：{e}"),
+            };
+            pw_log(format!(
+                "color recovery wrote cached LUT ({}) writes={}/{} {}",
+                reason.as_str(),
+                rec.window.writes_used,
+                crate::color_recovery::MAX_RECOVERY_WRITES,
+                post_desc
+            ));
+        }
+        Err(crate::nvidia::RecoveryWriteError::GenerationChanged) => {
+            pw_log("color recovery write aborted: generation changed inside latch");
+            return; // 所有权已死，不放回
+        }
+        Err(crate::nvidia::RecoveryWriteError::WriteFailed(e)) => {
+            pw_log(format!("color recovery write failed ({}): {e}", reason.as_str()));
+        }
+    }
+    if exhausted {
+        pw_log(format!(
+            "color recovery stopped for this activation: {}",
+            crate::color_recovery::CloseReason::BudgetExhausted.as_str()
+        ));
+        return; // 预算耗尽，不放回
+    }
+    state().lock().unwrap().recovery = Some(rec);
+}
+
+/// 恢复调度的单次 tick：由 watcher 主循环每次迭代调用（与规则生命周期事件
+/// 同一线程，所有权状态无并发写入者）。期限/冷却/预算决策全部在
+/// color_recovery 的纯函数里；本函数只做真实 I/O：回读、受门闩保护的写入、日志。
+fn tick_color_recovery() {
+    // 取出任务（同线程独占修改，取出后无人会动它；结束时要么放回要么丢弃）
+    let mut rec = match state().lock().unwrap().recovery.take() {
+        Some(rec) => rec,
+        None => return,
+    };
+    let now = Instant::now();
+
+    // 所有权先于一切 I/O 复核：代号变化 / applied 变化 → 本次激活的所有权失效
+    {
+        let st = state().lock().unwrap();
+        if let Err(reason) = recovery_permission(&st, &rec.ownership, apply_generation()) {
+            pw_log(format!("color recovery dropped: {reason}"));
+            return; // 不放回
+        }
+    }
+
+    match rec.window.due_request(now) {
+        crate::color_recovery::RecoveryRequest::Wait => {
+            state().lock().unwrap().recovery = Some(rec);
+        }
+        crate::color_recovery::RecoveryRequest::Close(reason) => {
+            // 到期立即停止回读 / 预算耗尽：记一次原因，无活跃窗口时无曲线轮询
+            pw_log(format!("color recovery window closed: {}", reason.as_str()));
+        }
+        crate::color_recovery::RecoveryRequest::Verify => {
+            let read = crate::nvidia::read_gamma_ramp(&rec.ownership.device_id);
+            let diff = read
+                .as_ref()
+                .ok()
+                .map(|actual| {
+                    crate::color_recovery::ramp_high_byte_diff(&rec.ownership.expected_lut, actual)
+                });
+            match rec.window.finish_verify(now, diff) {
+                crate::color_recovery::VerifyFollowup::None => {
+                    if let Err(e) = &read {
+                        // 读取失败仅记录并等待后续检查，不伪称覆盖、不直接写入
+                        pw_log(format!("color recovery readback failed (will retry next tick): {e}"));
+                    }
+                    state().lock().unwrap().recovery = Some(rec);
+                }
+                crate::color_recovery::VerifyFollowup::WriteAfterCooldown => {
+                    pw_log("color recovery: deviation detected, waiting write cooldown");
+                    state().lock().unwrap().recovery = Some(rec);
+                }
+                crate::color_recovery::VerifyFollowup::CloseWindow(reason) => {
+                    pw_log(format!("color recovery window closed: {}", reason.as_str()));
+                }
+                crate::color_recovery::VerifyFollowup::WriteNow(reason) => {
+                    finish_recovery_write(rec, reason);
+                }
+            }
+        }
+        crate::color_recovery::RecoveryRequest::Write => {
+            // 待办的事件后重写（安定 800ms 与冷却均已满足；即使 OS 回读一致
+            // 也要重写一次——回读一致不能证明硬件扫描输出持续采用该曲线）
+            finish_recovery_write(rec, crate::color_recovery::WriteReason::EventReassert);
+        }
+    }
+}
+
+/// 颜色环境事件（显示模式变化 / 目标进程前台）：只在恢复所有权有效时重新开启
+/// 10 秒检查窗口；无关窗口、设置窗口、其他游戏不触发任何恢复。
+fn handle_color_env_event(event: ColorEnvEvent) {
+    match event {
+        ColorEnvEvent::DisplayModeChanged => {
+            pw_log("color-env: display mode changed (WM_DISPLAYCHANGE)");
+            let mut st = state().lock().unwrap();
+            if let Some(rec) = st.recovery.as_mut() {
+                if rec.ownership.generation == apply_generation() {
+                    rec.window.note_event(Instant::now());
+                    pw_log("color recovery: display mode event → 10s window opened");
+                }
+            }
+        }
+        ColorEnvEvent::Foreground { pid, hwnd } => {
+            // 无恢复任务时忽略：不读设置、不查进程，避免每次 Alt+Tab 都白做
+            let active_rule_id = {
+                let st = state().lock().unwrap();
+                match st.recovery.as_ref() {
+                    Some(rec) if rec.ownership.generation == apply_generation() => {
+                        Some(rec.ownership.rule_id.clone())
+                    }
+                    _ => None,
+                }
+            };
+            let Some(rule_id) = active_rule_id else { return };
+
+            let settings = match config::get_app_settings() {
+                Ok(s) => s,
+                Err(e) => {
+                    pw_log(format!("color-env foreground: get_app_settings failed: {e}"));
+                    return;
+                }
+            };
+            if !settings.process_watcher_enabled {
+                return;
+            }
+
+            let Some(name) = process_name_of_pid(pid) else { return };
+            // 只对「当前有效规则」的目标进程成为前台开窗：规则必须仍是
+            // 恢复所有权对应的那条 applied 规则
+            let matched = settings.process_rules.iter().any(|r| {
+                r.enabled && r.id == rule_id && r.process_name.eq_ignore_ascii_case(&name)
+            });
+            if !matched {
+                return;
+            }
+            pw_log(format!(
+                "color recovery: foreground pid={pid} hwnd={hwnd:#x} name={name} matches applied rule → 10s window"
+            ));
+            let mut st = state().lock().unwrap();
+            if let Some(rec) = st.recovery.as_mut() {
+                if rec.ownership.rule_id == rule_id && rec.ownership.generation == apply_generation() {
+                    rec.window.note_event(Instant::now());
+                }
+            }
         }
     }
 }
@@ -1445,6 +1850,9 @@ pub fn init_watcher(app: &AppHandle) {
                 // 上次恢复默认失败的话，到点了在这里重试
                 tick_pending_restore(&app_handle);
 
+                // 颜色恢复调度 tick：只在存在活跃恢复窗口时做真实工作
+                tick_color_recovery();
+
                 match cmd_receiver.try_recv() {
                     Ok(WatcherCommand::Resubscribe) => {
                         pw_log("command Resubscribe");
@@ -1487,6 +1895,9 @@ pub fn init_watcher(app: &AppHandle) {
                             );
                             pw_log("idle after resubscribe: disabled or no rules");
                         }
+                    }
+                    Ok(WatcherCommand::ColorEnvChanged(evt)) => {
+                        handle_color_env_event(evt);
                     }
                     Ok(WatcherCommand::Stop) => {
                         pw_log("command Stop");
@@ -1688,4 +2099,128 @@ pub fn get_watcher_status() -> Result<WatcherStatus, String> {
         last_error: st.last_error.clone(),
         reconnect_attempt: st.reconnect_attempt,
     })
+}
+
+// ─── 恢复所有权状态测试（不接触真实桌面）──────────────────────────────────────
+//
+// 全部通过纯函数驱动：直接构造 WatcherState / 所有权 / 合成时间，不调 Win32、
+// 不触碰全局 state() 单例（也不启动 watcher 线程）。
+
+#[cfg(test)]
+mod recovery_state_tests {
+    use super::*;
+    use crate::color_recovery::{RecoveryOwnership, RecoveryWindow};
+
+    fn rule(id: &str, name: &str, config: &str) -> ProcessRule {
+        ProcessRule {
+            id: id.into(),
+            process_name: name.into(),
+            config_name: config.into(),
+            enabled: true,
+            restore_on_exit: true,
+        }
+    }
+
+    fn ownership(rule_id: &str, seq: u64, gen: u64) -> RecoveryOwnership {
+        RecoveryOwnership {
+            rule_id: rule_id.into(),
+            activation_seq: seq,
+            device_id: "\\\\.\\DISPLAY1".into(),
+            pnp_id: "MONITOR\\TEST1111\\{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}".into(),
+            generation: gen,
+            expected_lut: [0x8000; 768],
+        }
+    }
+
+    fn state_with(
+        active: Vec<ProcessRule>,
+        applied_rule: Option<&str>,
+        recovery: Option<RecoveryOwnership>,
+    ) -> WatcherState {
+        WatcherState {
+            active_rules: active,
+            applied: applied_rule.map(|id| AppliedConfig {
+                rule_id: id.into(),
+                config_name: "cfg".into(),
+            }),
+            pending_restore: None,
+            recovery: recovery.map(|o| ActiveRecovery {
+                ownership: o,
+                window: RecoveryWindow::open_startup(Instant::now()),
+            }),
+            subscribed_processes: vec![],
+            wmi_connected: false,
+            last_error: None,
+            reconnect_attempt: 0,
+        }
+    }
+
+    /// 场景 1：用户在别处改了配色（滑块 / 手动 ICC / 托盘）→ 代号变化使旧所有权
+    /// 与旧重试一并取消；恢复调度拒绝写屏
+    #[test]
+    fn user_edit_cancels_stale_ownership_and_retry() {
+        let st = state_with(
+            vec![rule("r1", "game.exe", "cfg")],
+            Some("r1"),
+            Some(ownership("r1", 1, 5)),
+        );
+        let owned = st.recovery.as_ref().unwrap().ownership.clone();
+        assert!(
+            recovery_permission(&st, &owned, 5).is_ok(),
+            "代号未变时所有权有效"
+        );
+        // 用户拖动滑块 → 门闩内代号递增为 6
+        assert!(
+            recovery_permission(&st, &owned, 6).is_err(),
+            "旧代号下不得写屏（用户编辑使旧所有权失效）"
+        );
+        // 旧重试同理：待办的发起代号已过期
+        assert!(restore_retry_stale(5, 6), "代号变化 → 旧重试取消");
+        assert!(!restore_retry_stale(6, 6));
+    }
+
+    /// 场景 2：两个规则先后激活，只有贴屏的那条（后者）能恢复；
+    /// active_rules 中已被后来方案盖住的规则不在保护范围
+    #[test]
+    fn only_the_applied_rule_may_recover() {
+        let st = state_with(
+            vec![rule("r1", "a.exe", "cfgA"), rule("r2", "b.exe", "cfgB")],
+            Some("r2"),
+            Some(ownership("r2", 2, 7)),
+        );
+        // r2（applied、最新激活）→ 允许
+        assert!(recovery_permission(&st, &ownership("r2", 2, 7), 7).is_ok());
+        // r1 的旧所有权 → 拒绝（applied 已不是它，激活序号也旧了）
+        assert!(
+            recovery_permission(&st, &ownership("r1", 1, 6), 7).is_err(),
+            "被后来方案盖住的规则不得恢复"
+        );
+    }
+
+    /// 场景 3：同名进程多实例，退出一个不触发恢复默认——
+    /// 恢复所有权随「最后一个实例退出」才走 deactivate 清除
+    #[test]
+    fn one_of_two_instances_leaving_keeps_ownership() {
+        let running = vec!["game.exe".to_string(), "other.exe".to_string()];
+        assert!(
+            stop_should_be_ignored("GAME.EXE", &running),
+            "仍有同名实例在跑（大小写不敏感）→ 忽略退出，所有权保持"
+        );
+        assert!(
+            !stop_should_be_ignored("game.exe", &["other.exe".to_string()]),
+            "最后一个实例退出 → 才走 deactivate 清所有权"
+        );
+    }
+
+    /// 场景 4：显示器重新连接且设备名复用时，旧 pnp 身份不能继续写
+    #[test]
+    fn reused_device_name_with_new_pnp_cannot_write() {
+        let owned = "MONITOR\\AAA1111\\{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}";
+        // 同名设备挂在另一台物理显示器（pnp 变了）→ 旧身份失效
+        assert!(!pnp_identity_holds(owned, Some("MONITOR\\BBB2222\\{2}")));
+        // 设备消失（显示器移除）→ 同样不算持有身份
+        assert!(!pnp_identity_holds(owned, None), "设备移除 → 旧身份失效");
+        // 同一台物理屏（pnp 一致）→ 身份成立
+        assert!(pnp_identity_holds(owned, Some(owned)));
+    }
 }

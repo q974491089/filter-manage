@@ -35,6 +35,129 @@ impl Default for NvidiaSettings {
 static DISPLAY_SETTINGS: Mutex<Option<HashMap<String, NvidiaSettings>>> = Mutex::new(None);
 static DISPLAY_ICC_RAMPS: Mutex<Option<HashMap<String, [[u16; 256]; 3]>>> = Mutex::new(None);
 
+// ─── 颜色写门闩（Task 2）──────────────────────────────────────────────────────
+//
+// 所有会改写屏幕颜色的外部路径——滑块亮度/对比度/伽马/RGB、DVC、ICC、恢复默认、
+// 托盘/快捷键/进程监听的整组方案应用、手动显示模式——都要持闩执行；每次外部写入
+// 在闩内递增 APPLY_GENERATION（process_watcher::note_color_applied），让恢复调度
+// 立即感知「屏幕被别人接管了」。恢复写入走 recovery_write_ramp：同一门闩内复核
+// 代号后写缓存的最终 LUT，不递增代号。
+//
+// 锁序约定（两条方向都单向，杜绝死锁）：
+// - 门闩内部绝不锁 process_watcher 的状态锁；
+// - 持状态锁的代码也绝不持闩跨 I/O（watcher 的恢复 tick 先放状态锁再取闩）。
+static COLOR_WRITE_LATCH: Mutex<()> = Mutex::new(());
+
+/// 每台显示器最近一次**成功**写入的最终合成 LUT（含 ICC vcgt 与 RGB 增益）。
+/// 恢复调度用它作为「期望曲线」；写入失败不更新缓存（屏幕仍是旧曲线）。
+static FINAL_RAMPS: Mutex<Option<HashMap<String, [u16; 768]>>> = Mutex::new(None);
+
+/// 外部颜色写入的持闩入口：取闩并在闩内递增 APPLY_GENERATION。
+/// 返回的 guard 必须保持到写入结束；整组方案应用也持同一把闩（内部走已持闩
+/// helper，不得再取公开入口）。
+pub(crate) fn begin_external_write() -> std::sync::MutexGuard<'static, ()> {
+    let guard = COLOR_WRITE_LATCH.lock().unwrap();
+    crate::process_watcher::note_color_applied();
+    guard
+}
+
+/// 查询某显示器最近一次成功写入的最终 LUT；从未成功写入（apply API 失败）时
+/// 返回 None，调用方据此不建立恢复任务。
+pub(crate) fn final_ramp_for_display(device_id: &str) -> Option<[u16; 768]> {
+    FINAL_RAMPS
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(device_id))
+        .copied()
+}
+
+/// 在门闩作用域内缓存最终 LUT。调用方必须已持闩（apply_gamma_ramp_locked 与
+/// icc.rs 的 ICC 直写路径都在闩内调用）。
+pub(crate) fn cache_final_ramp(device_id: &str, ramp: &[u16; 768]) {
+    FINAL_RAMPS
+        .lock()
+        .unwrap()
+        .get_or_insert_with(HashMap::new)
+        .insert(device_id.to_string(), *ramp);
+}
+
+/// 运行时回读某显示器的当前 gamma ramp（768 个 u16，R/G/B 各 256）。
+/// 不依赖调试记录是否开启；读取失败返回 Err —— 调用方不得把失败当成「一致」。
+pub(crate) fn read_gamma_ramp(device_id: &str) -> Result<[u16; 768], String> {
+    use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC};
+    use windows::Win32::UI::ColorSystem::GetDeviceGammaRamp;
+    let wide: Vec<u16> = device_id.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let hdc = CreateDCW(windows::core::PCWSTR(wide.as_ptr()), None, None, None);
+        if hdc.is_invalid() {
+            return Err(format!("CreateDCW failed for {device_id}"));
+        }
+        let mut values = [0u16; 768];
+        let ok = GetDeviceGammaRamp(hdc, values.as_mut_ptr() as *mut _);
+        let _ = DeleteDC(hdc);
+        if ok.as_bool() {
+            Ok(values)
+        } else {
+            Err(format!("GetDeviceGammaRamp failed for {device_id}"))
+        }
+    }
+}
+
+/// 恢复写入的失败形态：代号在门闩内复核时已变化（所有权作废）或真实写入失败。
+#[derive(Debug)]
+pub(crate) enum RecoveryWriteError {
+    GenerationChanged,
+    WriteFailed(String),
+}
+
+/// 恢复调度专用写入：同一门闩内完成「复核代号 → 写入缓存的最终 LUT」，消除
+/// 检查与写入之间被外部写入插队的竞态。不递增代号、不重跑方案、不切分辨率、
+/// 不重新注册 ICC、不重复 DVC。调用方（watcher 线程）不得持有状态锁。
+pub(crate) fn recovery_write_ramp(
+    device_id: &str,
+    ramp: &[u16; 768],
+    expected_generation: u64,
+) -> Result<(), RecoveryWriteError> {
+    let _latch = COLOR_WRITE_LATCH.lock().unwrap();
+    if crate::process_watcher::apply_generation() != expected_generation {
+        return Err(RecoveryWriteError::GenerationChanged);
+    }
+    write_gamma_ramp_raw(device_id, ramp).map_err(RecoveryWriteError::WriteFailed)
+}
+
+/// CreateDCW + SetDeviceGammaRamp + 即时回读验证（验证日志仅在调试记录开启时落盘）。
+fn write_gamma_ramp_raw(device_id: &str, ramp: &[u16; 768]) -> Result<(), String> {
+    unsafe {
+        let device_w: Vec<u16> = device_id.encode_utf16().chain(std::iter::once(0)).collect();
+        let hdc = windows::Win32::Graphics::Gdi::CreateDCW(
+            windows::core::PCWSTR(device_w.as_ptr()),
+            None,
+            None,
+            None,
+        );
+        if hdc.is_invalid() {
+            return Err(format!("Failed to create DC for display: {device_id}"));
+        }
+        let result =
+            windows::Win32::UI::ColorSystem::SetDeviceGammaRamp(hdc, ramp.as_ptr() as *const _);
+        let _ = windows::Win32::Graphics::Gdi::DeleteDC(hdc);
+        crate::debug_recorder::log(
+            "gamma",
+            format!(
+                "device={device_id} SetDeviceGammaRamp 返回={}（TRUE≠生效，见 verify 行）",
+                result.as_bool()
+            ),
+        );
+        crate::debug_recorder::verify_ramp(device_id, ramp);
+        if result.as_bool() {
+            Ok(())
+        } else {
+            Err(format!("SetDeviceGammaRamp failed for {device_id}"))
+        }
+    }
+}
+
 #[allow(dead_code)]
 fn get_settings_map() -> std::sync::MutexGuard<'static, Option<HashMap<String, NvidiaSettings>>> {
     DISPLAY_SETTINGS.lock().unwrap()
@@ -343,7 +466,10 @@ fn rgb_gain_to_scale(gain: i32) -> f64 {
     1.0 + (gain.clamp(-100, 100) as f64 / 100.0) * 0.48
 }
 
-fn apply_gamma_ramp(device_id: &str) -> Result<(), String> {
+/// 按当前设置合成并写入 gamma ramp（已持闩版本；调用方必须先 `begin_external_write`）。
+/// 写入成功后缓存最终 LUT（含 ICC vcgt 与 RGB 增益）作为恢复调度的期望曲线；
+/// 写入失败不缓存 —— 初次 apply 失败的显示器不会有恢复任务。
+fn apply_gamma_ramp_locked(device_id: &str) -> Result<(), String> {
     let s = get_or_default_settings(device_id);
     // UI range -> WindowsDisplayAPI range
     let b = (s.brightness as f64 + 125.0) / 250.0;
@@ -391,51 +517,61 @@ fn apply_gamma_ramp(device_id: &str) -> Result<(), String> {
         ),
     );
 
-    unsafe {
-        // 使用 CreateDCW 指定具体显示器
-        let device_w: Vec<u16> = device_id.encode_utf16().chain(std::iter::once(0)).collect();
-        let hdc = windows::Win32::Graphics::Gdi::CreateDCW(
-            windows::core::PCWSTR(device_w.as_ptr()),
-            None,
-            None,
-            None,
-        );
-        if hdc.is_invalid() {
-            return Err(format!("Failed to create DC for display: {}", device_id));
-        }
-        let result = windows::Win32::UI::ColorSystem::SetDeviceGammaRamp(hdc, ramp.as_ptr() as *const _);
-        let _ = windows::Win32::Graphics::Gdi::DeleteDC(hdc);
-        crate::debug_recorder::log(
-            "gamma",
-            format!(
-                "device={device_id} SetDeviceGammaRamp 返回={}（TRUE≠生效，见 verify 行）",
-                result.as_bool()
-            ),
-        );
-        crate::debug_recorder::verify_ramp(device_id, &ramp);
-        if result.as_bool() { Ok(()) } else { Err(format!("SetDeviceGammaRamp failed for {}", device_id)) }
+    let result = write_gamma_ramp_raw(device_id, &ramp);
+    if result.is_ok() {
+        cache_final_ramp(device_id, &ramp);
     }
+    result
+}
+
+// ─── 滑块命令：公开持闩入口 + 私有已持闩 helper ───────────────────────────────
+//
+// 整组方案应用（tray::apply_color_config_from）持闩调用 *_locked helper，
+// 不经公开入口重取闩（Mutex 不可重入）。
+
+pub(crate) fn set_brightness_locked(did: &str, value: i32) -> Result<(), String> {
+    update_settings(did, |s| s.brightness = value);
+    apply_gamma_ramp_locked(did)
+}
+
+pub(crate) fn set_contrast_locked(did: &str, value: i32) -> Result<(), String> {
+    update_settings(did, |s| s.contrast = value);
+    apply_gamma_ramp_locked(did)
+}
+
+pub(crate) fn set_gamma_locked(did: &str, value: f64) -> Result<(), String> {
+    update_settings(did, |s| s.gamma = value);
+    apply_gamma_ramp_locked(did)
+}
+
+pub(crate) fn set_rgb_gain_locked(did: &str, r: i32, g: i32, b: i32) -> Result<(), String> {
+    update_settings(did, |s| {
+        s.rgb_r = r.clamp(-100, 100);
+        s.rgb_g = g.clamp(-100, 100);
+        s.rgb_b = b.clamp(-100, 100);
+    });
+    apply_gamma_ramp_locked(did)
 }
 
 #[tauri::command]
 pub fn set_nvidia_brightness(device_id: Option<String>, value: i32) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    update_settings(&did, |s| s.brightness = value);
-    apply_gamma_ramp(&did)
+    let _latch = begin_external_write();
+    set_brightness_locked(&did, value)
 }
 
 #[tauri::command]
 pub fn set_nvidia_contrast(device_id: Option<String>, value: i32) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    update_settings(&did, |s| s.contrast = value);
-    apply_gamma_ramp(&did)
+    let _latch = begin_external_write();
+    set_contrast_locked(&did, value)
 }
 
 #[tauri::command]
 pub fn set_nvidia_gamma(device_id: Option<String>, value: f64) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    update_settings(&did, |s| s.gamma = value);
-    apply_gamma_ramp(&did)
+    let _latch = begin_external_write();
+    set_gamma_locked(&did, value)
 }
 
 /// 设置 RGB 增益（内部标度 -100..+100，0 = 无偏色）
@@ -447,12 +583,8 @@ pub fn set_nvidia_rgb_gain(
     b: i32,
 ) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    update_settings(&did, |s| {
-        s.rgb_r = r.clamp(-100, 100);
-        s.rgb_g = g.clamp(-100, 100);
-        s.rgb_b = b.clamp(-100, 100);
-    });
-    apply_gamma_ramp(&did)
+    let _latch = begin_external_write();
+    set_rgb_gain_locked(&did, r, g, b)
 }
 
 // ─── 数字振动后端分派 ─────────────────────────────────────────────────────────
@@ -495,7 +627,8 @@ fn dvc_get_info(did: &str) -> Result<(DvcVendor, (i32, i32, i32, i32)), String> 
     }
 }
 
-fn dvc_set(did: &str, ui_level: i32) -> Result<(), String> {
+/// DVC 写入的已持闩版本（调用方必须先 `begin_external_write`）。
+pub(crate) fn dvc_set_locked(did: &str, ui_level: i32) -> Result<(), String> {
     let outcome = match nvapi_set_dvc(ui_level, Some(did)) {
         Ok(()) => Ok(()),
         Err(nv) if nvidia_absent(&nv) => crate::amd::set_saturation_ui(did, ui_level)
@@ -523,11 +656,12 @@ fn dvc_set(did: &str, ui_level: i32) -> Result<(), String> {
 pub fn set_nvidia_digital_vibrance(device_id: Option<String>, value: i32) -> Result<(), String> {
     let did = resolve_display_id(device_id);
     update_settings(&did, |s| s.digital_vibrance = value);
-    dvc_set(&did, value.clamp(0, 100))
+    let _latch = begin_external_write();
+    dvc_set_locked(&did, value.clamp(0, 100))
 }
 
 /// 解析 device_id，fallback 到主显示器
-fn resolve_display_id(device_id: Option<String>) -> String {
+pub(crate) fn resolve_display_id(device_id: Option<String>) -> String {
     device_id.unwrap_or_else(|| {
         crate::icc::get_display_monitors()
             .ok()
