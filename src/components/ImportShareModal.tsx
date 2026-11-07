@@ -21,6 +21,8 @@ interface ImportShareModalProps {
   onImported: (name: string) => void;
   /** 启动检测到剪贴板里的分享链接时预填，并自动查询 */
   initialSlug?: string | null;
+  /** 导入后打算应用到的显示器（当前选中的显示器）；缺省按主显示器校验分辨率 */
+  deviceId?: string;
 }
 
 interface ColorConfig {
@@ -36,6 +38,62 @@ interface ColorConfig {
   icc_profile: string | null;
 }
 
+/** 对应后端 icc::DisplayModeList / DisplayModeInfo / CurrentDisplayMode */
+interface DisplayModeInfo {
+  width: number;
+  height: number;
+  refresh_rates: number[];
+  is_current: boolean;
+}
+
+interface DisplayModeList {
+  modes: DisplayModeInfo[];
+  current: { width: number; height: number; refresh_rate: number } | null;
+}
+
+/** 解析方案分辨率字段 "宽x高[@Hz]"（与后端 parse_resolution 同规则，容忍大写 X 与 ×） */
+function parseResolutionSpec(spec: string): { w: number; h: number; hz?: number } | null {
+  const m = spec.trim().match(/^(\d+)\s*[xX×]\s*(\d+)(?:\s*@\s*(\d+))?$/);
+  if (!m) return null;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  const hz = m[3] !== undefined ? Number(m[3]) : undefined;
+  if (w <= 0 || h <= 0) return null;
+  if (hz !== undefined && hz <= 0) return null;
+  return { w, h, hz };
+}
+
+/**
+ * 导入预检：分享方案的分辨率当前显示器是否支持。返回落库值与给用户的说明。
+ * - 宽高不支持 / 字段无效 → 丢弃整个字段（应用时保持用户当前分辨率）
+ * - 宽高支持但指定刷新率不支持 → 只去掉 @Hz（沿用该分辨率的默认刷新率）
+ * - 当前模式即使枚举缺失也算支持（与后端 preset_mode_supported 同口径，防驱动枚举抖动）
+ */
+function analyzeSharedResolution(spec: string, list: DisplayModeList): { value: string | null; note: string | null } {
+  const parsed = parseResolutionSpec(spec);
+  if (!parsed) {
+    return { value: null, note: "方案中的分辨率字段无效，导入后将不携带分辨率" };
+  }
+  const matchesCurrent = list.current !== null
+    && list.current.width === parsed.w
+    && list.current.height === parsed.h
+    && (parsed.hz === undefined || parsed.hz === list.current.refresh_rate);
+  const mode = list.modes.find((m) => m.width === parsed.w && m.height === parsed.h);
+  if (!matchesCurrent && !mode) {
+    return {
+      value: null,
+      note: `当前显示器不支持 ${parsed.w}×${parsed.h}，已删除该分辨率；导入后应用时保持你现在的分辨率`,
+    };
+  }
+  if (parsed.hz !== undefined && mode && !mode.refresh_rates.includes(parsed.hz) && !matchesCurrent) {
+    return {
+      value: `${parsed.w}x${parsed.h}`,
+      note: `当前显示器不支持 ${parsed.w}×${parsed.h}@${parsed.hz}Hz，已删除失效的刷新率，导入后按该分辨率的默认刷新率应用`,
+    };
+  }
+  return { value: spec, note: null };
+}
+
 const inputClass =
   "w-full h-9 px-sm rounded-md bg-surface-container-high border border-outline-variant/25 outline-none focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 text-body-sm text-on-surface transition-colors";
 
@@ -45,6 +103,7 @@ export default function ImportShareModal({
   showToast,
   onImported,
   initialSlug,
+  deviceId,
 }: ImportShareModalProps) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -54,6 +113,8 @@ export default function ImportShareModal({
   const [stage, setStage] = useState("");
   const [imageFailed, setImageFailed] = useState(false);
   const [zoomOpen, setZoomOpen] = useState(false);
+  /** 分辨率导入预检结果（null = 未预检或方案不带分辨率）；仅用于弹窗内提示，落库以 doImport 里的实时复检为准 */
+  const [resCompat, setResCompat] = useState<{ value: string | null; note: string | null } | null>(null);
   const modalRef = useModalAccessibility(open, onClose, true, !importing);
 
   useEffect(() => {
@@ -63,6 +124,7 @@ export default function ImportShareModal({
     setError(null);
     setStage("");
     setImageFailed(false);
+    setResCompat(null);
   }, [open, initialSlug]);
 
   // 带着剪贴板 slug 打开时自动查询一次，用户只需确认导入。
@@ -93,11 +155,29 @@ export default function ImportShareModal({
       }
       setShare(item);
       setImageFailed(false);
+      setResCompat(null);
       debugNote(`查看分享 ${slug}`);
+      // 查到方案就立刻预检分辨率：用户在点导入之前就能看到"哪个分辨率会被删"
+      if (item.resolution) {
+        void analyzeResolutionCompat(item.resolution);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  /** 弹窗内的分辨率预检：枚举目标显示器支持的模式，标出会被删除的失效分辨率 */
+  async function analyzeResolutionCompat(spec: string) {
+    try {
+      const list = await invoke<DisplayModeList>("get_display_modes", {
+        deviceId: deviceId ?? null,
+      });
+      setResCompat(analyzeSharedResolution(spec, list));
+    } catch (err) {
+      // 枚举失败不拦导入：落库保留原值，应用时还有 apply_preset_resolution 兼容兜底
+      debugNote(`导入预检分辨率失败（保留原值）：${String(err)}`);
     }
   }
 
@@ -169,6 +249,24 @@ export default function ImportShareModal({
 
       setStage("保存方案");
       const name = await uniqueName(share.title);
+
+      // 落库前实时复检（预览时的预检可能已过期：显示器/模式会变），
+      // 不支持的分辨率在这里剔除，应用时保持用户当前分辨率
+      let resolution: string | null = share.resolution || null;
+      let resNote: string | null = null;
+      if (resolution) {
+        try {
+          const list = await invoke<DisplayModeList>("get_display_modes", {
+            deviceId: deviceId ?? null,
+          });
+          const compat = analyzeSharedResolution(resolution, list);
+          resolution = compat.value;
+          resNote = compat.note;
+        } catch (err) {
+          debugNote(`导入前分辨率复检失败（保留原值）：${String(err)}`);
+        }
+      }
+
       const config: ColorConfig = {
         name,
         brightness: share.color.brightness,
@@ -178,13 +276,13 @@ export default function ImportShareModal({
         rgb_r: share.color.rgbR,
         rgb_g: share.color.rgbG,
         rgb_b: share.color.rgbB,
-        resolution: share.resolution || null,
+        resolution,
         icc_profile: iccProfile,
       };
       await invoke("save_config", { config });
       void reportShareImport(share.slug);
-      debugNote(`导入分享方案「${name}」`);
-      showToast("success", `已导入「${name}」`);
+      debugNote(`导入分享方案「${name}」${resNote ? `（${resNote}）` : ""}`);
+      showToast("success", resNote ? `已导入「${name}」；${resNote}` : `已导入「${name}」`);
       onImported(name);
       onClose();
     } catch (err) {
@@ -205,7 +303,14 @@ export default function ImportShareModal({
         ["Gamma", String(share.color.gamma)],
         ["数字振动", String(share.color.digitalVibrance)],
         ["RGB", `${share.color.rgbR} / ${share.color.rgbG} / ${share.color.rgbB}`],
-        ["分辨率", share.resolution || "不调整"],
+        [
+          "分辨率",
+          share.resolution
+            ? resCompat && resCompat.value === null
+              ? `${share.resolution}（将移除）`
+              : share.resolution
+            : "不调整",
+        ],
       ]
     : [];
 
@@ -320,6 +425,15 @@ export default function ImportShareModal({
                     </div>
                   ))}
                 </div>
+                {resCompat?.note ? (
+                  <div
+                    role="status"
+                    className="flex items-start gap-xs rounded-md bg-tertiary/10 px-md py-sm text-[11px] leading-relaxed text-tertiary"
+                  >
+                    <Icon name="info" className="mt-[2px] shrink-0 text-[14px]" />
+                    <span>{resCompat.note}</span>
+                  </div>
+                ) : null}
                 <div className="flex items-center gap-xs text-[11px] text-on-surface-variant">
                   <Icon name={share.iccName ? "download" : "info"} className="text-[14px]" />
                   {share.iccName
