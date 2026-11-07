@@ -1592,6 +1592,7 @@ function App() {
       <ImportShareModal
         open={importShareOpen}
         initialSlug={importShareSlug}
+        deviceId={selectedDeviceId}
         onClose={() => {
           if (importShareSlug) {
             // 本会话不再为它弹
