@@ -20,6 +20,8 @@ import SharePlanModal from "./components/SharePlanModal";
 import ImportShareModal from "./components/ImportShareModal";
 import IccEffectPreviewModal from "./components/IccEffectPreviewModal";
 import AuthModal from "./components/AuthModal";
+import AccountMenu from "./components/AccountMenu";
+import MyInfoModal from "./components/MyInfoModal";
 import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
 import { useAnnouncements } from "./hooks/useAnnouncements";
@@ -157,6 +159,7 @@ function App() {
   /** 客户端账号会话：null = 未登录（登录弹窗由顶栏入口触发） */
   const [session, setSession] = useState<AuthSession | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showMyInfoModal, setShowMyInfoModal] = useState(false);
 
   /**
    * 启动会话恢复：凭据管理器里有令牌就校验一次（顺带轮换，30 天 TTL）。
@@ -1472,38 +1475,13 @@ function App() {
             closeDetail={ann.closeDetail}
           />
 
-          {session ? (
-            <button
-              data-name="account-button"
-              onClick={() => setShowSettingsModal(true)}
-              className="w-8 h-8 rounded-full flex items-center justify-center bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              title={`已登录：${session.account.displayName || session.account.email || "账号"}`}
-              aria-label="账号"
-            >
-              <span className="font-label-md text-label-md font-medium">
-                {(session.account.displayName || session.account.email || "F").trim().charAt(0).toUpperCase()}
-              </span>
-            </button>
-          ) : (
-            <button
-              data-name="login-button"
-              onClick={() => setShowAuthModal(true)}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors"
-              title="登录"
-              aria-label="登录"
-            >
-              <Icon name="person" className="text-[20px]" />
-            </button>
-          )}
-
-          <button
-            data-name="settings-button"
-            onClick={() => setShowSettingsModal(true)}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-primary/10 transition-colors"
-            title="设置"
-          >
-            <Icon name="settings" className="text-[20px]" />
-          </button>
+          <AccountMenu
+            session={session}
+            onOpenLogin={() => setShowAuthModal(true)}
+            onOpenMyInfo={() => setShowMyInfoModal(true)}
+            onOpenSettings={() => setShowSettingsModal(true)}
+            onLogout={() => void handleAuthLogout()}
+          />
 
         </div>
       </header>
@@ -1658,12 +1636,6 @@ function App() {
           setShowAboutModal(true);
         }}
         onApiEnvChanged={() => void featureFlags.refresh()}
-        session={session}
-        onLogout={() => void handleAuthLogout()}
-        onOpenLogin={() => {
-          setShowSettingsModal(false);
-          setShowAuthModal(true);
-        }}
       />
 
       <AuthModal
@@ -1672,6 +1644,15 @@ function App() {
         showToast={showToast}
         onLoggedIn={handleAuthLoggedIn}
       />
+
+      {session ? (
+        <MyInfoModal
+          open={showMyInfoModal}
+          onClose={() => setShowMyInfoModal(false)}
+          session={session}
+          onOpenSettings={() => setShowSettingsModal(true)}
+        />
+      ) : null}
 
       <SharePlanModal
         open={shareConfigName !== null}
