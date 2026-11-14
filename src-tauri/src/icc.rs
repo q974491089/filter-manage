@@ -1486,76 +1486,238 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
     apply_icc_profile_standard(profile_path, device_id)
 }
 
-/// Transition helper: explicitly uses WCS/GDI, without selecting B recursively.
-/// Caller already holds the shared color-write latch.
-pub(crate) fn apply_icc_profile_standard(profile_path: &str, device_id: Option<String>) -> Result<(), String> {
-    let target = crate::nvidia::resolve_display_id(device_id.clone());
-    use windows::Win32::UI::ColorSystem::*;
-    use windows::core::PCWSTR;
+/// Query the effective legacy ICC association on every application. Never use
+/// an in-process cache: Windows color settings can be changed outside this app.
+struct ProfileAssociation {
+    per_user: bool,
+    name: String,
+}
 
-    let profile_path_buf = PathBuf::from(profile_path);
-    let file_name = profile_path_buf
+fn same_profile_name(left: &str, right: &str) -> bool {
+    // WCS may return a full Windows path or just a filename.
+    let basename = |name: &str| {
+        name.rsplit(['\\', '/'])
+            .next()
+            .unwrap_or(name)
+            .to_lowercase()
+    };
+    !left.is_empty() && basename(left) == basename(right)
+}
+
+fn ensure_profile_association(
+    desired: &str,
+    query: impl FnOnce() -> Result<ProfileAssociation, String>,
+    update: impl FnOnce(bool) -> Result<(), String>,
+) -> Result<bool, String> {
+    let state = query();
+    if let Ok(current) = &state {
+        if same_profile_name(&current.name, desired) {
+            return Ok(false);
+        }
+    }
+    let enable_per_user = state.as_ref().map_or(true, |s| !s.per_user);
+    if let Err(error) = state {
+        crate::debug_recorder::log(
+            "icc",
+            format!("WCS 当前关联查询失败，按原路径设置：{error}"),
+        );
+    }
+    update(enable_per_user)?;
+    Ok(true)
+}
+
+fn query_profile_association(pnp: &str) -> Result<ProfileAssociation, String> {
+    use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::{Foundation::BOOL, UI::ColorSystem::*};
+    let device: Vec<u16> = pnp.encode_utf16().chain(Some(0)).collect();
+    let device = PCWSTR(device.as_ptr());
+    let mut per_user = BOOL(0);
+    unsafe {
+        if !WcsGetUsePerUserProfiles(device, CLASS_MONITOR, &mut per_user).as_bool() {
+            return Err(format!(
+                "WcsGetUsePerUserProfiles: {}",
+                windows::core::Error::from_win32()
+            ));
+        }
+        let scope = if per_user.as_bool() {
+            WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER
+        } else {
+            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE
+        };
+        let mut bytes = 0u32;
+        if !WcsGetDefaultColorProfileSize(scope, device, CPT_ICC, CPST_PERCEPTUAL, 0, &mut bytes)
+            .as_bool()
+        {
+            return Err(format!(
+                "WcsGetDefaultColorProfileSize: {}",
+                windows::core::Error::from_win32()
+            ));
+        }
+        if bytes < 2 || bytes % 2 != 0 || bytes > 65536 {
+            return Err(format!("WCS returned invalid profile buffer size: {bytes}"));
+        }
+        let mut name = vec![0u16; bytes as usize / 2];
+        if !WcsGetDefaultColorProfile(
+            scope,
+            device,
+            CPT_ICC,
+            CPST_PERCEPTUAL,
+            0,
+            bytes,
+            PWSTR(name.as_mut_ptr()),
+        )
+        .as_bool()
+        {
+            return Err(format!(
+                "WcsGetDefaultColorProfile: {}",
+                windows::core::Error::from_win32()
+            ));
+        }
+        let end = name
+            .iter()
+            .position(|v| *v == 0)
+            .ok_or("WCS returned an unterminated profile name")?;
+        if end == 0 {
+            return Err("WCS returned an empty profile name".into());
+        }
+        Ok(ProfileAssociation {
+            per_user: per_user.as_bool(),
+            name: String::from_utf16_lossy(&name[..end]),
+        })
+    }
+}
+
+/// Validate the installed bytes and prepare the association, without writing a
+/// gamma curve or resetting DVC. A preset writes its final composed curve later.
+fn prepare_icc_profile_standard(
+    profile_path: &str,
+    device_id: Option<String>,
+) -> Result<Vec<u8>, String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::ColorSystem::*;
+    let file_name = PathBuf::from(profile_path)
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or("Invalid profile path")?
         .to_string();
-
-    crate::debug_recorder::log("icc", format!("开始应用：'{file_name}' device={device_id:?}"));
-
+    let target = crate::nvidia::resolve_display_id(device_id.clone());
+    crate::debug_recorder::log("icc", format!("准备 ICC：'{file_name}' device={target}"));
     let dest_path = color_dir().join(&file_name);
-
-    if !std::path::Path::new(&dest_path).exists() {
-        fs::copy(profile_path, &dest_path).map_err(|e| {
-            crate::debug_recorder::log("icc", format!("复制 ICC 到系统目录失败：{e}"));
-            format!("Failed to copy ICC profile: {}", e)
-        })?;
+    if !dest_path.exists() {
+        fs::copy(profile_path, &dest_path)
+            .map_err(|e| format!("Failed to copy ICC profile: {e}"))?;
     }
-
-    // 读取 ICC 文件解析 vcgt
-    let icc_data = fs::read(&dest_path).map_err(|e| {
-        crate::debug_recorder::log("icc", format!("读取 ICC 失败：{e}"));
-        format!("Failed to read ICC file: {}", e)
-    })?;
+    let icc_data = fs::read(&dest_path).map_err(|e| format!("Failed to read ICC file: {e}"))?;
     crate::icc_validation::validate_profile_tags(&icc_data)
-        .map_err(|error| format!("Invalid ICC profile '{file_name}': {error}"))?;
-    let previous_base = crate::nvidia::icc_base_for_display(&target);
-    crate::debug_recorder::log(
-        "icc",
-        format!("文件 {} 字节，来源 '{}'，目标目录文件已存在={}", icc_data.len(), profile_path, std::path::Path::new(&dest_path).exists()),
+        .map_err(|e| format!("Invalid ICC profile '{file_name}': {e}"))?;
+    let pnp_id = resolve_device_pnp(device_id)?;
+    let outcome = ensure_profile_association(
+        &file_name,
+        || query_profile_association(&pnp_id),
+        |enable_per_user| {
+            let device: Vec<u16> = pnp_id.encode_utf16().chain(Some(0)).collect();
+            let name: Vec<u16> = file_name.encode_utf16().chain(Some(0)).collect();
+            let path: Vec<u16> = dest_path
+                .to_string_lossy()
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
+            let device = PCWSTR(device.as_ptr());
+            let name = PCWSTR(name.as_ptr());
+            // Keep the old best-effort association behavior, but report every failure.
+            let mut failures = Vec::new();
+            let mut check = |step: &str, success: bool| {
+                if !success {
+                    failures.push(format!("{step}: {}", windows::core::Error::from_win32()));
+                }
+            };
+            unsafe {
+                check(
+                    "InstallColorProfileW",
+                    InstallColorProfileW(None, PCWSTR(path.as_ptr())).as_bool(),
+                );
+                if enable_per_user {
+                    check(
+                        "WcsSetUsePerUserProfiles",
+                        WcsSetUsePerUserProfiles(device, CLASS_MONITOR, true).as_bool(),
+                    );
+                }
+                check(
+                    "WcsAssociateColorProfileWithDevice",
+                    WcsAssociateColorProfileWithDevice(
+                        WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+                        name,
+                        device,
+                    )
+                    .as_bool(),
+                );
+                check(
+                    "WcsSetDefaultColorProfile",
+                    WcsSetDefaultColorProfile(
+                        WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+                        device,
+                        CPT_ICC,
+                        CPST_PERCEPTUAL,
+                        0,
+                        name,
+                    )
+                    .as_bool(),
+                );
+            }
+            if failures.is_empty() {
+                Ok(())
+            } else {
+                Err(failures.join(" | "))
+            }
+        },
     );
+    match outcome {
+        Ok(false) => crate::debug_recorder::log(
+            "icc",
+            format!("WCS 关联相同，跳过注册/默认配置更新：'{file_name}' pnp={pnp_id}"),
+        ),
+        Ok(true) => {
+            crate::debug_recorder::log("icc", format!("WCS 关联已更新：'{file_name}' pnp={pnp_id}"))
+        }
+        Err(error) => {
+            crate::debug_recorder::log(
+                "icc",
+                format!("WCS 关联设置失败，继续应用颜色曲线：{error}"),
+            );
+            crate::color_backend::note_warning(
+                &target,
+                format!("颜色曲线继续应用，系统 ICC 关联失败：{error}"),
+            );
+        }
+    }
+    Ok(icc_data)
+}
 
-    let pnp_id = resolve_device_pnp(device_id.clone()).map_err(|e| {
-        crate::debug_recorder::log("icc", format!("显示器定位失败：{e}"));
-        e
-    })?;
-    let device_id_w: Vec<u16> = pnp_id.encode_utf16().chain(std::iter::once(0)).collect();
-    let file_name_w: Vec<u16> = file_name.encode_utf16().chain(std::iter::once(0)).collect();
+pub(crate) fn prepare_preset_icc_standard(
+    profile_path: Option<&str>,
+    device_id: &str,
+) -> Result<Option<[[u16; 256]; 3]>, String> {
+    let default_path;
+    let path = match profile_path {
+        Some(path) => path,
+        None => {
+            default_path = find_system_default_profile()?
+                .to_string_lossy()
+                .into_owned();
+            &default_path
+        }
+    };
+    let data = prepare_icc_profile_standard(path, Some(device_id.into()))?;
+    Ok(profile_path.and_then(|_| parse_vcgt(&data)))
+}
 
-    eprintln!("ICC: Applying profile: {} to PnP: {}", file_name, pnp_id);
-
+/// Transition/manual helper: explicitly uses WCS/GDI. Caller holds the latch.
+pub(crate) fn apply_icc_profile_standard(profile_path: &str, device_id: Option<String>) -> Result<(), String> {
+    let target = crate::nvidia::resolve_display_id(device_id.clone());
+    let icc_data = prepare_icc_profile_standard(profile_path, device_id.clone())?;
+    let previous_base = crate::nvidia::icc_base_for_display(&target);
+    use windows::Win32::UI::ColorSystem::*;
     unsafe {
-        // 1. WCS 注册（让颜色管理面板同步）
-        let dest_path_w: Vec<u16> = dest_path
-            .to_string_lossy()
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        let _ = InstallColorProfileW(None, PCWSTR(dest_path_w.as_ptr()));
-        let _ = WcsSetUsePerUserProfiles(PCWSTR(device_id_w.as_ptr()), CLASS_MONITOR, true);
-        let _ = WcsAssociateColorProfileWithDevice(
-            WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
-            PCWSTR(file_name_w.as_ptr()),
-            PCWSTR(device_id_w.as_ptr()),
-        );
-        let _ = WcsSetDefaultColorProfile(
-            WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
-            PCWSTR(device_id_w.as_ptr()),
-            CPT_ICC,
-            CPST_PERCEPTUAL,
-            0,
-            PCWSTR(file_name_w.as_ptr()),
-        );
-
         // 2. 直接用 SetDeviceGammaRamp 写入显卡 LUT（立即生效）
         if let Some(ramp) = parse_vcgt(&icc_data) {
             crate::debug_recorder::log(
@@ -1652,6 +1814,94 @@ fn apply_profile_without_vcgt(
         return Err(error);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod profile_association_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn same_effective_profile_preserves_both_system_and_user_associations() {
+        for per_user in [false, true] {
+            let changed = ensure_profile_association(
+                "sRGB Color Space Profile.icm",
+                || {
+                    Ok(ProfileAssociation {
+                        per_user,
+                        name:
+                            r"C:\Windows\System32\spool\drivers\color\SRGB COLOR SPACE PROFILE.ICM"
+                                .into(),
+                    })
+                },
+                |_| panic!("same effective association must not call any WCS setters"),
+            )
+            .unwrap();
+            assert!(!changed);
+        }
+    }
+
+    #[test]
+    fn different_profile_changes_association_and_only_enables_user_scope_if_needed() {
+        for per_user in [false, true] {
+            let changed = ensure_profile_association(
+                "new.icc",
+                || {
+                    Ok(ProfileAssociation {
+                        per_user,
+                        name: "old.icc".into(),
+                    })
+                },
+                |enable| {
+                    assert_eq!(enable, !per_user);
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert!(changed);
+        }
+    }
+
+    #[test]
+    fn external_profile_change_is_observed_on_the_next_apply() {
+        let external = Cell::new(false);
+        let queries = Cell::new(0);
+        for expected_change in [false, true] {
+            let changed = ensure_profile_association(
+                "desired.icc",
+                || {
+                    queries.set(queries.get() + 1);
+                    Ok(ProfileAssociation {
+                        per_user: true,
+                        name: if external.get() {
+                            "external.icc"
+                        } else {
+                            "desired.icc"
+                        }
+                        .into(),
+                    })
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
+            assert_eq!(changed, expected_change);
+            external.set(true);
+        }
+        assert_eq!(queries.get(), 2);
+    }
+
+    #[test]
+    fn unavailable_query_still_applies_and_preserves_setter_errors() {
+        let result = ensure_profile_association(
+            "desired.icc",
+            || Err("query unsupported".into()),
+            |enable| {
+                assert!(enable);
+                Err("association failed".into())
+            },
+        );
+        assert_eq!(result, Err("association failed".into()));
+    }
 }
 
 #[cfg(test)]

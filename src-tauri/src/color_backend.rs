@@ -614,26 +614,20 @@ pub(crate) fn apply_config_locked(
     let previous_profile = profile_for_display(device_id);
     let result = with_logical_rollback(
         || {
-            let base = match selected_profile(cfg.icc_profile.as_deref()) {
-                Some(path) => {
-                    let curve = icc::read_profile_curve(path)?;
-                    if active_backend(device_id) == Backend::Standard {
-                        icc::apply_icc_profile(path, Some(device_id.into()))?;
-                    }
-                    note_profile(device_id, path);
-                    if curve.is_none() {
-                        note_warning(device_id, "该 ICC 无有效 VCGT，仅应用滑块参数".into());
-                    }
-                    curve
-                }
-                None => {
-                    clear_profile(device_id);
-                    if active_backend(device_id) == Backend::Standard {
-                        icc::restore_default_icc(Some(device_id.into()))?;
-                    }
-                    None
-                }
+            let profile = selected_profile(cfg.icc_profile.as_deref());
+            let base = if active_backend(device_id) == Backend::Standard {
+                icc::prepare_preset_icc_standard(profile, device_id)?
+            } else {
+                profile.map(icc::read_profile_curve).transpose()?.flatten()
             };
+            if let Some(path) = profile {
+                note_profile(device_id, path);
+                if base.is_none() {
+                    note_warning(device_id, "该 ICC 无有效 VCGT，仅应用滑块参数".into());
+                }
+            } else {
+                clear_profile(device_id);
+            }
             nvidia::set_icc_base_ramp_for_display(device_id, base);
             nvidia::replace_settings(
                 device_id,
@@ -647,14 +641,14 @@ pub(crate) fn apply_config_locked(
                     rgb_b: cfg.rgb_b.clamp(-100, 100),
                 },
             );
-            if let Err(error) = nvidia::apply_gamma_ramp_locked(device_id) {
-                return Err(error);
-            }
+            // DVC may reconfigure the driver. Write the final LUT after it, just
+            // as a slider does; never write old settings or an intermediate DVC=50.
             if let Err(error) =
                 nvidia::dvc_set_locked(device_id, cfg.digital_vibrance.clamp(0, 100))
             {
-                note_warning(device_id, format!("颜色曲线已写入，数字振动失败：{error}"));
+                note_warning(device_id, format!("数字振动失败：{error}"));
             }
+            nvidia::apply_gamma_ramp_locked(device_id)?;
             Ok(runtime()
                 .lock()
                 .unwrap()
@@ -745,6 +739,46 @@ pub async fn set_display_color_backend(
     .map_err(|e| format!("Backend switch task failed: {e}"))?
 }
 
+// Two bounded checks cover ICC/driver reloads immediately after a manual preset.
+// This is independent of debug recording and never restarts ICC, DVC or resolution.
+const PRESET_SETTLE_DELAYS_MS: [u64; 2] = [250, 750];
+
+fn schedule_preset_settle(device_id: &str, name: &str, generation: u64, expected: [u16; 768]) {
+    let Ok(cap) = display_capability::inspect(device_id) else {
+        return;
+    };
+    if cap.output_ambiguous || cap.monitor_state != "enabled" || cap.hdr_enabled != Some(false) {
+        return;
+    }
+    let Some(stable_key) = cap.stable_key else {
+        return;
+    };
+    let device_id = device_id.to_string();
+    let name = name.to_string();
+    if let Err(error) = std::thread::Builder::new().name("preset-color-settle".into()).spawn(move || {
+        let mut previous_ms = 0;
+        for delay_ms in PRESET_SETTLE_DELAYS_MS {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms - previous_ms));
+            previous_ms = delay_ms;
+            match nvidia::settle_preset_ramp_if_current(&device_id, &stable_key, generation, &expected) {
+                Ok(nvidia::PresetSettleOutcome::Cancelled) => return,
+                Ok(nvidia::PresetSettleOutcome::Unchanged) => {
+                    crate::debug_recorder::log("preset-settle", format!("方案 '{name}' device={device_id} generation={generation} +{delay_ms}ms 曲线保持，无需补写"));
+                }
+                Ok(nvidia::PresetSettleOutcome::Reapplied(diff)) => {
+                    crate::debug_recorder::log("preset-settle", format!("方案 '{name}' device={device_id} generation={generation} +{delay_ms}ms 高字节最大差={diff}，已补写最终曲线"));
+                }
+                Err(error) => {
+                    crate::debug_recorder::log("preset-settle", format!("方案 '{name}' device={device_id} 短时校验停止：{error}"));
+                    return;
+                }
+            }
+        }
+    }) {
+        crate::debug_recorder::log("preset-settle", format!("无法启动短时校验：{error}"));
+    }
+}
+
 #[tauri::command]
 pub async fn apply_display_color_config(
     device_id: Option<String>,
@@ -768,6 +802,7 @@ pub async fn apply_display_color_config(
         let status = status_for(&did)?;
         if status.active_backend == "standard" {
             if let Some(expected) = nvidia::final_ramp_for_display(&did) {
+                schedule_preset_settle(&did, &config.name, crate::process_watcher::apply_generation(), expected);
                 crate::debug_recorder::verify_preset_after_delay(
                     did.clone(), config.name.clone(),
                     crate::process_watcher::apply_generation(), expected,

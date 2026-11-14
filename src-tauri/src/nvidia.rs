@@ -125,6 +125,156 @@ pub(crate) fn read_gamma_ramp_if_current(
     })
 }
 
+/// A short preset-settling probe. Read, identity check and conditional write all
+/// share the color latch; a newer user action can never be overwritten here.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum PresetSettleOutcome {
+    Cancelled,
+    Unchanged,
+    Reapplied(u8),
+}
+
+pub(crate) fn settle_preset_ramp_if_current(
+    device_id: &str,
+    stable_key: &str,
+    generation: u64,
+    expected: &[u16; 768],
+) -> Result<PresetSettleOutcome, String> {
+    let _latch = COLOR_WRITE_LATCH.lock().unwrap();
+    let current = crate::process_watcher::apply_generation();
+    if current != generation {
+        return Ok(PresetSettleOutcome::Cancelled);
+    }
+    let cap = crate::display_capability::inspect(device_id)?;
+    let same_output = cap.stable_key.as_deref() == Some(stable_key)
+        && cap.monitor_state == "enabled"
+        && !cap.output_ambiguous
+        && cap.hdr_enabled == Some(false)
+        && crate::color_backend::active_backend(device_id)
+            == crate::color_backend::Backend::Standard;
+    settle_preset_sample(
+        generation,
+        crate::process_watcher::apply_generation,
+        same_output,
+        expected,
+        || read_gamma_ramp(device_id),
+        || crate::color_backend::write_ramp_locked(device_id, expected),
+    )
+}
+
+fn settle_preset_sample(
+    generation: u64,
+    current: impl Fn() -> u64,
+    same_output: bool,
+    expected: &[u16; 768],
+    read: impl FnOnce() -> Result<[u16; 768], String>,
+    write: impl FnOnce() -> Result<(), String>,
+) -> Result<PresetSettleOutcome, String> {
+    if generation != current() || !same_output {
+        return Ok(PresetSettleOutcome::Cancelled);
+    }
+    let actual = read()?;
+    let diff = crate::color_recovery::ramp_high_byte_diff(expected, &actual);
+    // Windows may quantize one high-byte step even for a near-neutral curve.
+    if diff <= 2 {
+        return Ok(PresetSettleOutcome::Unchanged);
+    }
+    if generation != current() {
+        return Ok(PresetSettleOutcome::Cancelled);
+    }
+    write()?;
+    Ok(PresetSettleOutcome::Reapplied(diff))
+}
+
+#[cfg(test)]
+mod preset_settle_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn reset_curve_is_repaired_but_matching_and_quantized_curves_are_not_written() {
+        let expected = [40000u16; 768];
+        let writes = Cell::new(0);
+        for actual in [[32896; 768], expected, [39744; 768]] {
+            let outcome = settle_preset_sample(
+                10,
+                || 10,
+                true,
+                &expected,
+                || Ok(actual),
+                || {
+                    writes.set(writes.get() + 1);
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                matches!(outcome, PresetSettleOutcome::Reapplied(_)),
+                actual[0] == 32896
+            );
+        }
+        assert_eq!(writes.get(), 1);
+    }
+
+    #[test]
+    fn newer_slider_or_changed_display_cancels_before_io() {
+        for (current, same_output) in [(11, true), (10, false)] {
+            assert_eq!(
+                settle_preset_sample(
+                    10,
+                    || current,
+                    same_output,
+                    &[0; 768],
+                    || panic!("cancelled preset must not read"),
+                    || panic!("cancelled preset must not write")
+                )
+                .unwrap(),
+                PresetSettleOutcome::Cancelled
+            );
+        }
+    }
+
+    #[test]
+    fn generation_change_during_read_prevents_the_write() {
+        let generation = Cell::new(10);
+        let outcome = settle_preset_sample(
+            10,
+            || generation.get(),
+            true,
+            &[40000; 768],
+            || {
+                generation.set(11);
+                Ok([0; 768])
+            },
+            || panic!("superseded preset must not write"),
+        )
+        .unwrap();
+        assert_eq!(outcome, PresetSettleOutcome::Cancelled);
+    }
+
+    #[test]
+    fn unreadable_curve_is_not_guessed_and_driver_write_failures_are_preserved() {
+        let read_error = settle_preset_sample(
+            10,
+            || 10,
+            true,
+            &[40000; 768],
+            || Err("read failed".into()),
+            || panic!("read failure must not write"),
+        );
+        assert_eq!(read_error, Err("read failed".into()));
+        let write_error = settle_preset_sample(
+            10,
+            || 10,
+            true,
+            &[40000; 768],
+            || Ok([0; 768]),
+            || Err("write failed".into()),
+        );
+        assert_eq!(write_error, Err("write failed".into()));
+    }
+}
+
 fn read_matching_generation<T>(expected: u64, current: u64, read: impl FnOnce() -> T) -> Option<T> {
     (expected == current).then(read)
 }
