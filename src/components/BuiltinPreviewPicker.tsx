@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -6,6 +6,7 @@ import {
   peekBuiltinPreview, renderBuiltinPreview, type BuiltinSceneId, type PreviewSettings,
 } from "../lib/builtinPreview";
 import { Icon } from "./Icon";
+import SegmentedTabs from "./SegmentedTabs";
 
 interface Props {
   scene: BuiltinSceneId;
@@ -24,14 +25,6 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
   const [error, setError] = useState("");
   const [zoomOpen, setZoomOpen] = useState(false);
   const sequence = useRef(0);
-  /** 场景 tab 滑块：记录选中项的位置与宽度，切换时高亮块平滑滑过去 */
-  const sceneTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [sceneThumb, setSceneThumb] = useState<{ left: number; width: number } | null>(null);
-  useLayoutEffect(() => {
-    const index = BUILTIN_SCENES.findIndex((item) => item.id === scene);
-    const el = sceneTabRefs.current[index];
-    if (el) setSceneThumb({ left: el.offsetLeft, width: el.offsetWidth });
-  }, [scene]);
   const settingsKey = JSON.stringify(settings);
   const originalSrc = `/game-previews/${scene}.png`;
   const shownSrc = original || !effect ? originalSrc : effect;
@@ -107,36 +100,15 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
       <div className="overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-highest">
         <div className="relative aspect-video w-full overflow-hidden">
           {/* 场景切换：右上角纯文字 tab，替代原先占一整行的三缩略图 */}
-          <div
-            role="group"
-            aria-label="切换预览场景"
-            className="absolute right-sm top-sm z-10 flex gap-1 rounded-md bg-black/60 p-1 backdrop-blur-[2px]"
-          >
-            {sceneThumb ? (
-              <span
-                aria-hidden
-                className="absolute rounded bg-white/25 transition-[left,width] duration-200 ease-out motion-reduce:transition-none"
-                style={{ left: sceneThumb.left, width: sceneThumb.width, top: 4, bottom: 4 }}
-              />
-            ) : null}
-            {BUILTIN_SCENES.map((item, index) => (
-              <button
-                key={item.id}
-                ref={(el) => {
-                  sceneTabRefs.current[index] = el;
-                }}
-                type="button"
-                aria-pressed={scene === item.id}
-                disabled={disabled}
-                onClick={() => onChange(item.id)}
-                className={`relative z-10 rounded px-2 py-0.5 text-[11px] leading-5 disabled:opacity-50 ${
-                  scene === item.id ? "text-white" : "text-white/75 hover:text-white"
-                }`}
-              >
-                {item.game}
-              </button>
-            ))}
-          </div>
+          <SegmentedTabs
+            items={BUILTIN_SCENES.map((item) => ({ id: item.id, label: item.game }))}
+            value={scene}
+            onChange={onChange}
+            disabled={disabled}
+            variant="overlay"
+            ariaLabel="切换预览场景"
+            className="absolute right-sm top-sm z-10"
+          />
           <button type="button" onClick={() => setZoomOpen(true)} aria-label={`放大查看 ${selected.name} 预览图`}
             className="group relative block h-full w-full cursor-zoom-in focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
             <img src={shownSrc} alt={`${selected.name} · ${original ? "原图" : "模拟效果"}`} className="h-full w-full object-contain" draggable={false} />
@@ -149,10 +121,17 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
         </div>
         <div className="flex items-center justify-between gap-sm px-sm py-xs">
           <span className="text-[11px] text-on-surface-variant">{selected.name} · 官方截图</span>
-          <div className="flex gap-xs" role="group" aria-label="预览对比">
-            <button type="button" aria-pressed={original} onClick={() => setOriginal(true)} className={`rounded px-sm py-xs text-label-sm ${original ? "bg-primary/15 text-primary" : "text-on-surface-variant"}`}>原图</button>
-            <button type="button" aria-pressed={!original} onClick={() => setOriginal(false)} className={`rounded px-sm py-xs text-label-sm ${!original ? "bg-primary/15 text-primary" : "text-on-surface-variant"}`}>效果</button>
-          </div>
+          <SegmentedTabs
+            items={[
+              { id: "original", label: "原图" },
+              { id: "effect", label: "效果" },
+            ]}
+            value={original ? "original" : "effect"}
+            onChange={(id) => setOriginal(id === "original")}
+            variant="overlay"
+            ariaLabel="预览对比"
+            className="w-[124px]"
+          />
         </div>
       </div>
       {error ? <p role="status" className="text-body-sm text-error">预览暂不可用：{error}</p> : null}
