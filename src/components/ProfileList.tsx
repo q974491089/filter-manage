@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "../lib/ipc";
 import { debugNote } from "../lib/debug";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -16,14 +16,19 @@ interface ProfileListProps {
   onProfileSelect: (profile: string) => void;
   showToast: (type: "success" | "error", text: string) => void;
   selectedDeviceId?: string;
+  disabled?: boolean;
+  onWriteBusyChange?: (busy: boolean) => void;
+  onWriteFinished?: () => void;
 }
 
-function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDeviceId }: ProfileListProps) {
+function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDeviceId, disabled = false, onWriteBusyChange, onWriteFinished }: ProfileListProps) {
   const [profiles, setProfiles] = useState<IccProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const applyPending = useRef(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -109,6 +114,10 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
   };
 
   const handleProfileSelect = async (profile: IccProfile) => {
+    if (disabled || applyPending.current) return;
+    applyPending.current = true;
+    setApplying(true);
+    onWriteBusyChange?.(true);
     try {
       debugNote(`点击 ICC「${profile.name}」`);
       await invoke("set_icc_profile", {
@@ -118,10 +127,20 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
       onProfileSelect(profile.name);
     } catch (err) {
       console.error("Failed to set ICC profile:", err);
+      showToast("error", `ICC 应用失败：${String(err)}`);
+    } finally {
+      applyPending.current = false;
+      setApplying(false);
+      onWriteBusyChange?.(false);
+      onWriteFinished?.();
     }
   };
 
   const handleRestoreDefault = async () => {
+    if (disabled || applyPending.current) return;
+    applyPending.current = true;
+    setApplying(true);
+    onWriteBusyChange?.(true);
     try {
       debugNote("点击「恢复默认」ICC");
       await invoke("restore_default_icc_profile", {
@@ -130,6 +149,12 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
       onProfileSelect("Default");
     } catch (err) {
       console.error("Failed to restore default ICC profile:", err);
+      showToast("error", `ICC 恢复失败：${String(err)}`);
+    } finally {
+      applyPending.current = false;
+      setApplying(false);
+      onWriteBusyChange?.(false);
+      onWriteFinished?.();
     }
   };
 
@@ -200,6 +225,7 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
           <button
             data-name="restore-button"
             onClick={handleRestoreDefault}
+            disabled={disabled || applying}
             className="flex-1 py-xs px-sm rounded-md bg-primary/10 text-primary border border-primary/25 font-label-md text-label-md flex flex-col items-center justify-center gap-xs hover:bg-primary/18 hover:border-primary/40 transition-all whitespace-nowrap"
           >
             <Icon name="refresh" className="text-[18px]" />
@@ -247,8 +273,17 @@ function ProfileList({ activeProfile, onProfileSelect, showToast, selectedDevice
               <div
                 key={profile.name}
                 data-name="profile-item"
-                onClick={() => handleProfileSelect(profile)}
-                className={`p-md rounded-lg cursor-pointer group transition-all ${
+                role="button"
+                tabIndex={disabled || applying ? -1 : 0}
+                aria-disabled={disabled || applying}
+                onClick={() => void handleProfileSelect(profile)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void handleProfileSelect(profile);
+                  }
+                }}
+                className={`p-md rounded-lg group transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${disabled || applying ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${
                   activeProfile === profile.name
                     ? "bg-primary/15 border-2 border-primary shadow-sm"
                     : "bg-primary/5 hover:bg-primary/12 border border-primary/15 hover:border-primary/40"

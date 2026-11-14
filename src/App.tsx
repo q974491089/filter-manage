@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { exit } from "@tauri-apps/plugin-process";
 import ProfileList from "./components/ProfileList";
 import ColorAdjuster from "./components/ColorAdjuster";
+import DisplayColorMode from "./components/DisplayColorMode";
 import PreviewImage from "./components/PreviewImage";
 import DisplayResolution from "./components/DisplayResolution";
 import ConfigManager from "./components/ConfigManager";
@@ -23,7 +24,9 @@ import { Icon } from "./components/Icon";
 import { useUpdater } from "./hooks/useUpdater";
 import { useAnnouncements } from "./hooks/useAnnouncements";
 import { useFeatureFlags } from "./hooks/useFeatureFlags";
-import { FEATURE_PLAN_SHARE } from "./lib/featureFlags";
+import { useDisplayColorBackend } from "./hooks/useDisplayColorBackend";
+import { FEATURE_PLAN_SHARE, FEATURE_NVIDIA_COLOR_BACKEND } from "./lib/featureFlags";
+import { normalizeColorSettings, type DisplayColorApplyResult } from "./lib/displayColor";
 import { parseShareSlug } from "./lib/share";
 import { ensureEnvReady } from "./lib/serverEnv";
 import { debugNote, setDebugRecording } from "./lib/debug";
@@ -50,18 +53,6 @@ interface DisplayMonitor {
   pnp_id: string;
   is_primary: boolean;
 }
-
-/**
- * `apply_preset_resolution` 返回值（见 .docs/api/icc.md）：判别字段 status。
- * 五种 status 都是 Ok（部分成功）；`skipped_unsupported` / `skipped_invalid`
- * 表示分辨率没动但颜色应继续应用，不作为全局失败处理。
- */
-type PresetResolutionResult =
-  | { status: "unchanged" }
-  | { status: "applied" }
-  | { status: "restored" }
-  | { status: "skipped_unsupported"; requested: string; reason: string }
-  | { status: "skipped_invalid"; requested: string };
 
 /** 数字振动能力探测结果（对应后端 `nvidia::DvcCapability`） */
 interface DvcCapability {
@@ -103,6 +94,10 @@ function App() {
   const [configs, setConfigs] = useState<ColorConfig[]>([]);
   const [selectedConfig, setSelectedConfig] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sliderWritePending, setSliderWritePending] = useState(false);
+  const [profileWritePending, setProfileWritePending] = useState(false);
+  const configApplyPending = useRef(false);
+  const configApplySequence = useRef(0);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   type ThemeMode = "light" | "dark" | "system";
@@ -304,6 +299,10 @@ function App() {
   const [currentResolution, setCurrentResolution] = useState<string | null>(null);
   /** 变化时让 DisplayResolution 重拉模式（托盘/快捷键/进程监听应用方案后同步真实状态） */
   const [resRefreshKey, setResRefreshKey] = useState(0);
+  const nvidiaColorEnabled = featureFlags.isEnabled(FEATURE_NVIDIA_COLOR_BACKEND);
+  const displayColor = useDisplayColorBackend(nvidiaColorEnabled, selectedDeviceId, resRefreshKey);
+  const colorActionBusy = loading || sliderWritePending || profileWritePending || displayColor.switching;
+  const emergencyColorRecovery = !nvidiaColorEnabled && displayColor.status?.active_backend === "nvidia";
   /** 分辨率基线采纳开关：置 true 后，卡片上报的下一个实际模式写入 baseline.resolution
    *  （启动、应用方案、切显示器时置位），其余上报只更新当前值参与脏判断 */
   const awaitResBaselineRef = useRef(true);
@@ -430,7 +429,7 @@ function App() {
           setRgbR(rr);
           setRgbG(rg);
           setRgbB(rb);
-          setActiveProfile("Default");
+          setActiveProfile(def.icc_profile || "Default");
           setSelectedConfig("");
           // 默认方案不携带分辨率：保存范围基线同步归位，避免只改 UI 不改基线
           setIncludeResolution(false);
@@ -442,7 +441,7 @@ function App() {
             rgbR: rr,
             rgbG: rg,
             rgbB: rb,
-            iccProfile: "Default",
+            iccProfile: def.icc_profile || "Default",
             resolution: prev.resolution,
             includeResolution: false,
           }));
@@ -691,140 +690,92 @@ function App() {
   };
 
   const handleApply = async (config: ColorConfig) => {
+    const normalization = normalizeColorSettings(config);
+    config = normalization.config;
+    const targetDevice = selectedDeviceId;
+    const sequence = ++configApplySequence.current;
     debugNote(`应用方案「${config.name}」`);
-    const rr = config.rgb_r ?? 0;
-    const rg = config.rgb_g ?? 0;
-    const rb = config.rgb_b ?? 0;
-    setBrightness(config.brightness);
-    setContrast(config.contrast);
-    setGamma(config.gamma);
-    setDigitalVibrance(config.digital_vibrance);
-    setRgbR(rr);
-    setRgbG(rg);
-    setRgbB(rb);
-    const profile = config.icc_profile || "Default";
-    setActiveProfile(profile);
-    // 重新应用即清掉上一轮的部分成功说明，不积累旧状态
     setPresetStatusNote(null);
-
-    // 分辨率先行：模式切换可能重置 gamma ramp，先落分辨率再上色（与后端中央路径一致）。
-    // 兼容入口 apply_preset_resolution：不支持的目标模式不报错，返回 skipped_unsupported
-    // 暂存为提示，颜色参数继续应用；真实失败仍 toast，且不阻断配色。
-    let resolutionSkipNote: string | null = null;
     try {
-      const result = await invoke<PresetResolutionResult>("apply_preset_resolution", {
-        deviceId: selectedDeviceId,
-        resolution: config.resolution ?? null,
+      // 整组颜色由后端在同一写入锁内处理，分辨率先行且只应用一次。
+      const result = await invoke<DisplayColorApplyResult>("apply_display_color_config", {
+        deviceId: targetDevice,
+        config,
       });
-      if (result.status === "skipped_unsupported") {
-        resolutionSkipNote = `当前显示器不支持方案中的 ${result.requested}，已保留当前分辨率`;
-      } else if (result.status === "skipped_invalid") {
-        // 配置数据损坏，不做用户提示，静默留痕
-        debugNote(`方案分辨率字段非法，已忽略: ${result.requested}`);
+      if (sequence !== configApplySequence.current || selectedDeviceRef.current !== targetDevice) return;
+      displayColor.adoptStatus(result.status);
+      const rr = config.rgb_r ?? 0;
+      const rg = config.rgb_g ?? 0;
+      const rb = config.rgb_b ?? 0;
+      const profile = config.icc_profile || "Default";
+      setBrightness(config.brightness);
+      setContrast(config.contrast);
+      setGamma(config.gamma);
+      setDigitalVibrance(config.digital_vibrance);
+      setRgbR(rr);
+      setRgbG(rg);
+      setRgbB(rb);
+      setActiveProfile(profile);
+      setIncludeResolution(!!config.resolution);
+      setBaseline({
+        brightness: config.brightness,
+        contrast: config.contrast,
+        gamma: config.gamma,
+        digitalVibrance: config.digital_vibrance,
+        rgbR: rr,
+        rgbG: rg,
+        rgbB: rb,
+        iccProfile: profile,
+        resolution: currentResolution,
+        includeResolution: !!config.resolution,
+      });
+      const notes = [...normalization.warnings, ...result.warnings];
+      if (result.resolution.status === "skipped_unsupported") {
+        notes.unshift(`当前显示器不支持方案中的 ${result.resolution.requested}，已保留当前分辨率`);
+      } else if (result.resolution.status === "skipped_invalid") {
+        debugNote(`方案分辨率字段非法，已忽略: ${result.resolution.requested}`);
       }
+      if (notes.length > 0) setPresetStatusNote(`颜色参数已写入；${notes.join("；")}`);
+      return { ...result, warnings: notes };
     } catch (err) {
-      console.error("Failed to apply config resolution:", err);
-      showToast("error", `分辨率切换失败: ${err}`);
-    }
-
-    setBaseline({
-      brightness: config.brightness,
-      contrast: config.contrast,
-      gamma: config.gamma,
-      digitalVibrance: config.digital_vibrance,
-      rgbR: rr,
-      rgbG: rg,
-      rgbB: rb,
-      iccProfile: profile,
-      // 预填当前实际模式，等下方重拉上报后采纳为应用后的真实基线
-      resolution: currentResolution,
-      // 保存范围跟随所应用方案：带 resolution 的方案开启，否则关闭
-      includeResolution: !!config.resolution,
-    });
-    setIncludeResolution(!!config.resolution);
-
-    if (config.icc_profile) {
-      try {
-        const profiles = await invoke<{ name: string; path: string }[]>("get_icc_profiles");
-        const match = profiles.find((p) => p.name === config.icc_profile);
-        if (match) await invoke("set_icc_profile", { profilePath: match.path, deviceId: selectedDeviceId });
-      } catch (err) {
-        console.error("Failed to apply ICC:", err);
+      if (sequence === configApplySequence.current && selectedDeviceRef.current === targetDevice) {
+        setPresetStatusNote(`颜色设置应用失败：${String(err)}`);
+        await displayColor.refresh();
       }
-    } else {
-      setActiveProfile("Default");
-      try {
-        await invoke("restore_default_icc_profile", { deviceId: selectedDeviceId });
-      } catch (err) {
-        console.error("Failed to restore ICC:", err);
+      throw err;
+    } finally {
+      if (sequence === configApplySequence.current && selectedDeviceRef.current === targetDevice) {
+        awaitResBaselineRef.current = true;
+        setResRefreshKey((k) => k + 1);
       }
     }
-
-    let colorError: string | null = null;
-    try {
-      const calls = [
-        invoke("set_nvidia_brightness", { deviceId: selectedDeviceId, value: config.brightness }),
-        invoke("set_nvidia_contrast", { deviceId: selectedDeviceId, value: config.contrast }),
-        invoke("set_nvidia_gamma", { deviceId: selectedDeviceId, value: config.gamma }),
-        invoke("set_nvidia_rgb_gain", { deviceId: selectedDeviceId, r: rr, g: rg, b: rb }),
-      ];
-      // 探测到明确不支持才跳过；尚未探测完（null）时照常尝试
-      if (dvcCap?.supported !== false) {
-        calls.push(invoke("set_nvidia_digital_vibrance", { deviceId: selectedDeviceId, value: config.digital_vibrance }));
-      }
-      await Promise.all(calls);
-    } catch (err) {
-      console.error("Failed to apply NVIDIA:", err);
-      showToast("error", `应用颜色设置失败: ${err}`);
-      colorError = String(err);
-    }
-
-    // 颜色参数全部处理完后，在方案区域给出部分成功说明：
-    // 兼容跳过既不是全局成功也不是全局失败；颜色失败时显示实际错误并保留跳过说明。
-    if (resolutionSkipNote) {
-      setPresetStatusNote(
-        colorError
-          ? `颜色设置应用失败：${colorError}；${resolutionSkipNote}`
-          : `颜色设置已应用；${resolutionSkipNote}`
-      );
-    }
-
-    // 本路径可能改了分辨率：卡片重拉真实状态，并以重拉上报值为分辨率基线
-    // （skipped_unsupported 时模式未变，重拉同样把实际值采纳为基线）
-    awaitResBaselineRef.current = true;
-    setResRefreshKey((k) => k + 1);
   };
 
   const handleRestore = async () => {
+    if (colorActionBusy || configApplyPending.current) return;
+    configApplyPending.current = true;
     setLoading(true);
     debugNote("点击「重置默认」");
     try {
       const def = await invoke<ColorConfig | null>("load_default_config");
-      if (def) {
-        const dvcDefault = await invoke<number>("get_dvc_default_ui_value", { deviceId: selectedDeviceId });
-        def.digital_vibrance = dvcDefault;
-        await handleApply(def);
-        setSelectedConfig("");
-        showToast("success", "已恢复默认设置");
-      } else {
-        // 无默认方案：配色无从恢复，但若此前应用过带分辨率的方案，至少把分辨率还回去
-        // （兼容入口：resolution=null = 恢复本应用此前改过的分辨率，含刷新率）
-        setPresetStatusNote(null);
-        try {
-          await invoke<PresetResolutionResult>("apply_preset_resolution", {
-            deviceId: selectedDeviceId,
-            resolution: null,
-          });
-          awaitResBaselineRef.current = true;
-          setResRefreshKey((k) => k + 1);
-        } catch {
-          /* 无可还原项，忽略 */
-        }
-        showToast("error", "未找到默认设置");
-      }
+      const applied = await handleApply(def ?? {
+        name: "__default__",
+        brightness: 0,
+        contrast: 0,
+        gamma: 1.0,
+        digital_vibrance: 50,
+        rgb_r: 0,
+        rgb_g: 0,
+        rgb_b: 0,
+        icc_profile: null,
+        resolution: null,
+      });
+      setSelectedConfig("");
+      showToast("success", applied?.warnings.length ? "默认颜色已部分应用，详见方案区域说明" : "默认颜色已写入");
     } catch (err) {
       showToast("error", `恢复失败: ${err}`);
     } finally {
+      configApplyPending.current = false;
       setLoading(false);
     }
   };
@@ -1013,9 +964,22 @@ function App() {
   };
 
   const handleConfigLoad = async (config: ColorConfig) => {
-    setSelectedConfig(config.name);
-    // 基线（含分辨率）统一由 handleApply 设置，这里不再重复覆盖
-    await handleApply(config);
+    if (colorActionBusy || configApplyPending.current) throw new Error("正在应用颜色，请稍后重试");
+    configApplyPending.current = true;
+    setLoading(true);
+    const targetDevice = selectedDeviceId;
+    try {
+      const applied = await handleApply(config);
+      if (selectedDeviceRef.current === targetDevice && applied) {
+        setSelectedConfig(config.name);
+        showToast("success", applied.warnings.length
+          ? `「${config.name}」已部分应用，详见方案区域说明`
+          : `「${config.name}」颜色已写入`);
+      }
+    } finally {
+      configApplyPending.current = false;
+      setLoading(false);
+    }
   };
 
   const handleClosePromptSelect = async (closeToTray: boolean, remember: boolean) => {
@@ -1286,6 +1250,7 @@ function App() {
                     />
                   ) : (
                     <button
+                      disabled={colorActionBusy}
                       onClick={() => handleMonitorChange(monitor.device_id)}
                       title={getMonitorDisplayName(monitor)}
                       className={`group relative w-full flex items-center justify-center px-md py-2 rounded-md font-label-md text-label-md transition-colors duration-200 whitespace-nowrap ${
@@ -1328,7 +1293,7 @@ function App() {
           <button
             data-name="restore-button"
             onClick={handleRestore}
-            disabled={loading}
+            disabled={colorActionBusy || emergencyColorRecovery}
             className="flex items-center gap-xs px-md py-sm rounded text-on-surface-variant hover:bg-surface-variant/50 transition-all active:scale-95 duration-150 disabled:opacity-40"
           >
             <Icon name="settings_backup_restore" className="text-[18px]" />
@@ -1448,6 +1413,9 @@ function App() {
               onProfileSelect={handleProfileChange}
               showToast={showToast}
               selectedDeviceId={selectedDeviceId}
+              disabled={colorActionBusy || emergencyColorRecovery}
+              onWriteBusyChange={setProfileWritePending}
+              onWriteFinished={() => void displayColor.refresh()}
             />
           </div>
           <div data-name="adjuster-panel" className="col-span-5 flex flex-col min-h-0 h-full overflow-hidden">
@@ -1476,6 +1444,23 @@ function App() {
               onDeviceChange={setSelectedDeviceId}
               showToast={showToast}
               dvcCapability={dvcCap}
+              disabled={loading || profileWritePending || displayColor.switching || emergencyColorRecovery}
+              onWriteBusyChange={setSliderWritePending}
+              onWriteFinished={() => void displayColor.refresh()}
+              modePanel={
+                <DisplayColorMode
+                  enabled={nvidiaColorEnabled}
+                  deviceId={selectedDeviceId}
+                  status={displayColor.status}
+                  error={displayColor.error}
+                  querying={displayColor.querying}
+                  busy={colorActionBusy}
+                  monitorName={activeMonitor ? getMonitorDisplayName(activeMonitor) : undefined}
+                  onSwitch={(backend) => colorActionBusy ? Promise.resolve(false) : displayColor.switchBackend(backend)}
+                  onRefresh={displayColor.refresh}
+                  showToast={showToast}
+                />
+              }
             />
           </div>
           <div data-name="preview-config-panel" className="col-span-4 flex flex-col min-h-0 h-full overflow-hidden gap-gutter">
@@ -1510,6 +1495,7 @@ function App() {
               configs={configs}
               selectedConfig={selectedConfig}
               onConfigLoad={handleConfigLoad}
+              disabled={colorActionBusy || emergencyColorRecovery}
               onConfigsChange={refreshConfigs}
               showToast={showToast}
               shareEnabled={featureFlags.isEnabled(FEATURE_PLAN_SHARE)}

@@ -50,3 +50,5 @@
 【文档已完成同步更新】2026-11-07 — 监听方案颜色恢复（计划 .docs/plans/2026-11-06-process-color-recovery.md）：新增 color_recovery.rs 纯策略与 foreground_watch.rs 前台监听；nvidia.rs 全局颜色写门闩（外部写入递增代号、成功写入缓存最终 LUT）；process_watcher.rs 恢复调度（120 秒窗口/3 次写入预算/所有权校验）+ WM_DISPLAYCHANGE 独立颜色环境信号；pw_log 双写调试记录、verify_ramp 文案改「即时回读一致/不一致」、环境快照补显示模式摘要；前端接口无变化。已同步 .docs/api/nvidia.md、.docs/api/process_watcher.md、.docs/api/debug.md、.docs/README.md（开发中块）
 
 【文档已完成同步更新】2026-11-06 — 方案分辨率兼容处理（计划 .docs/plans/2026-11-06-preset-resolution-compatibility.md）：新增 apply_preset_resolution 命令与 PresetResolutionResult 结构化结果（不支持时 skipped_unsupported 保留当前模式继续配色，不再整单报错）；还原点事务改「首次切换成功才提交、失败不污染、恢复失败可重试」；托盘/快捷键/进程监听共用兼容 helper；前端部分成功提示（role=status）+ 分辨率保存范围开关（includeResolution 进脏判断，隐藏时不清空已有方案 resolution）。已同步 .docs/api/icc.md、.docs/api/config.md、.docs/README.md、.docs/handoff/preset-resolution-frontend.md
+
+【文档已完成同步更新】2026-11-14 — 无登录分支已提取 NVIDIA ICC 后端、监听颜色恢复后续修复与 AMD 活动监视器 PnP 识别修复；.docs/api/icc.md、amd.md、README 已同步，最终验证由整合执行。

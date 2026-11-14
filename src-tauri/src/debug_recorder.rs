@@ -367,6 +367,15 @@ fn write_env_snapshot() {
                         m.name, m.is_primary, m.device_id, m.pnp_id
                     ),
                 );
+                match crate::display_capability::inspect(&m.device_id) {
+                    Ok(capability) => log("env", format!(
+                        "调色环境 backend={} monitor_state={} gpu_vendor={} hdr={:?} advanced_color={:?} ambiguous={} stable_key={:?}",
+                        crate::color_backend::active_backend(&m.device_id).name(),
+                        capability.monitor_state, capability.gpu_vendor, capability.hdr_enabled,
+                        capability.advanced_color_enabled, capability.output_ambiguous, capability.stable_key,
+                    )),
+                    Err(error) => log("env", format!("调色环境查询失败（不代表标准调色失败）：{error}")),
+                }
                 if let Ok(ramp) = crate::nvidia::read_gamma_ramp(&m.device_id) {
                     let points = [0usize, 16, 64, 128, 192, 255];
                     let samples: String = points

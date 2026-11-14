@@ -45,7 +45,7 @@ interface AppSettings {
 interface ConfigManagerProps {
   configs: ColorConfig[];
   selectedConfig: string;
-  onConfigLoad: (config: ColorConfig) => void;
+  onConfigLoad: (config: ColorConfig) => void | Promise<void>;
   onConfigsChange: () => void;
   showToast: (type: "success" | "error", text: string) => void;
   /** 分享某条方案（按钮只在方案卡片上） */
@@ -54,6 +54,7 @@ interface ConfigManagerProps {
   onImportShare?: () => void;
   /** 功能开关：分享入口是否可用 */
   shareEnabled?: boolean;
+  disabled?: boolean;
 }
 
 const PRESET_ICONS = [
@@ -78,6 +79,7 @@ function ConfigManager({
   onShareConfig,
   onImportShare,
   shareEnabled = true,
+  disabled = false,
 }: ConfigManagerProps) {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingConfig, setEditingConfig] = useState<string | null>(null);
@@ -92,11 +94,11 @@ function ConfigManager({
   const [processSearchQuery, setProcessSearchQuery] = useState("");
 
   const handleLoad = async (name: string) => {
+    if (disabled) return;
     try {
       debugNote(`点击方案「${name}」`);
       const config = await invoke<ColorConfig>("load_config", { name });
-      onConfigLoad(config);
-      showToast("success", `已加载「${name}」`);
+      await onConfigLoad(config);
     } catch (err) {
       showToast("error", `加载失败: ${err}`);
     }

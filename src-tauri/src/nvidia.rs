@@ -61,8 +61,39 @@ pub(crate) fn begin_external_write() -> std::sync::MutexGuard<'static, ()> {
     guard
 }
 
-/// 查询某显示器最近一次成功写入的最终 LUT；从未成功写入（apply API 失败）时
-/// 返回 None，调用方据此不建立恢复任务。
+/// watcher 的整组应用事务：成功 apply 与快照捕获都在外部写门闩内完成。
+/// `apply` 返回实际写入的 device_id；`capture` 不得重新选择目标显示器、重取
+/// 公开颜色写入口或锁 watcher 状态。快照只能使用传入的本次 generation。
+/// apply 失败时不调用 capture；成功但无可用快照时保留 Ok(None)。
+pub(crate) fn with_external_write_snapshot<S>(
+    apply: impl FnOnce() -> Result<String, String>,
+    capture: impl FnOnce(&str, u64) -> Option<S>,
+) -> Result<Option<S>, String> {
+    with_write_snapshot(
+        begin_external_write,
+        apply,
+        crate::process_watcher::apply_generation,
+        capture,
+    )
+}
+
+// 生产路径与局部 mutex/假写测试共用的事务边界；G 持有写门闩直到 capture 完成。
+fn with_write_snapshot<G, S>(
+    begin_write: impl FnOnce() -> G,
+    apply: impl FnOnce() -> Result<String, String>,
+    generation: impl FnOnce() -> u64,
+    capture: impl FnOnce(&str, u64) -> Option<S>,
+) -> Result<Option<S>, String> {
+    let latch = begin_write();
+    let device_id = apply()?;
+    let snapshot = capture(&device_id, generation());
+    drop(latch);
+    Ok(snapshot)
+}
+
+/// 查询某显示器最近一次成功写入的最终 LUT；从未成功写入时返回 None。
+/// 缓存本身不代表本次 apply 成功，也不能与闩外采样的 generation 拼成所有权；
+/// watcher 必须通过 with_external_write_snapshot 在成功 apply 后、持闩时捕获。
 pub(crate) fn final_ramp_for_display(device_id: &str) -> Option<[u16; 768]> {
     FINAL_RAMPS
         .lock()
@@ -118,16 +149,88 @@ pub(crate) fn recovery_write_ramp(
     device_id: &str,
     ramp: &[u16; 768],
     expected_generation: u64,
+    backend: crate::color_backend::Backend,
 ) -> Result<(), RecoveryWriteError> {
     let _latch = COLOR_WRITE_LATCH.lock().unwrap();
-    if crate::process_watcher::apply_generation() != expected_generation {
+    perform_recovery_write(expected_generation, backend, crate::process_watcher::apply_generation(),
+        crate::color_backend::active_backend(device_id),
+        || crate::color_backend::write_ramp_locked(device_id, ramp))
+}
+
+fn perform_recovery_write(
+    expected_generation: u64, owned_backend: crate::color_backend::Backend,
+    current_generation: u64, current_backend: crate::color_backend::Backend,
+    write: impl FnOnce() -> Result<(), String>,
+) -> Result<(), RecoveryWriteError> {
+    if current_generation != expected_generation {
         return Err(RecoveryWriteError::GenerationChanged);
     }
-    write_gamma_ramp_raw(device_id, ramp).map_err(RecoveryWriteError::WriteFailed)
+    if current_backend != owned_backend {
+        return Err(RecoveryWriteError::GenerationChanged);
+    }
+    write().map_err(RecoveryWriteError::WriteFailed)
+}
+
+#[cfg(test)]
+mod backend_routing_tests {
+    use super::*;
+    use crate::color_backend::Backend;
+    use std::cell::Cell;
+
+    #[test]
+    fn stale_generation_and_backend_never_reach_the_writer() {
+        let writes = Cell::new(0);
+        let first = perform_recovery_write(5, Backend::Nvidia, 6, Backend::Nvidia, || { writes.set(1); Ok(()) });
+        assert!(matches!(first, Err(RecoveryWriteError::GenerationChanged)));
+        let second = perform_recovery_write(5, Backend::Standard, 5, Backend::Nvidia, || { writes.set(1); Ok(()) });
+        assert!(matches!(second, Err(RecoveryWriteError::GenerationChanged)));
+        assert_eq!(writes.get(), 0);
+    }
+
+    #[test]
+    fn current_owner_reaches_one_writer_and_preserves_driver_error() {
+        let writes = Cell::new(0);
+        let result = perform_recovery_write(5, Backend::Nvidia, 5, Backend::Nvidia, || {
+            writes.set(writes.get() + 1); Err("NVAPI -104".into())
+        });
+        assert_eq!(writes.get(), 1);
+        assert!(matches!(result, Err(RecoveryWriteError::WriteFailed(error)) if error == "NVAPI -104"));
+    }
+
+    #[test]
+    fn shared_renderer_preserves_neutral_curve_and_distinct_vcgt_channels() {
+        let neutral = NvidiaSettings::default();
+        assert_eq!(compose_gamma_ramp(&neutral, None), crate::color_backend::identity_ramp());
+        let base = std::array::from_fn(|channel| std::array::from_fn(|i| match channel {
+            0 => (i * 128) as u16,
+            1 => (i * 257) as u16,
+            _ => ((i * 257 + 16384).min(65535)) as u16,
+        }));
+        let curve = compose_gamma_ramp(&neutral, Some(&base));
+        assert_eq!(curve[128], 16384);
+        assert_eq!(curve[256 + 128], 32896);
+        assert_eq!(curve[512 + 128], 49280);
+    }
+
+    #[test]
+    fn rgb_gain_does_not_modify_other_channels_and_gamma_keeps_endpoints() {
+        let normal = compose_gamma_ramp(&NvidiaSettings::default(), None);
+        let mut settings = NvidiaSettings::default();
+        settings.rgb_r = 100;
+        let gained = compose_gamma_ramp(&settings, None);
+        assert_eq!(normal[256..], gained[256..]);
+        assert!(gained[128] > normal[128]);
+        settings.rgb_r = 0;
+        settings.gamma = 2.0;
+        let gamma = compose_gamma_ramp(&settings, None);
+        assert_eq!(gamma[0], 0);
+        assert_eq!(gamma[255], 65535);
+        assert!(gamma[128] > normal[128]);
+    }
 }
 
 /// CreateDCW + SetDeviceGammaRamp + 即时回读验证（验证日志仅在调试记录开启时落盘）。
-fn write_gamma_ramp_raw(device_id: &str, ramp: &[u16; 768]) -> Result<(), String> {
+pub(crate) fn write_gamma_ramp_raw(device_id: &str, ramp: &[u16; 768]) -> Result<(), String> {
     unsafe {
         let device_w: Vec<u16> = device_id.encode_utf16().chain(std::iter::once(0)).collect();
         let hdc = windows::Win32::Graphics::Gdi::CreateDCW(
@@ -163,7 +266,7 @@ fn get_settings_map() -> std::sync::MutexGuard<'static, Option<HashMap<String, N
     DISPLAY_SETTINGS.lock().unwrap()
 }
 
-fn get_or_default_settings(device_id: &str) -> NvidiaSettings {
+pub(crate) fn get_or_default_settings(device_id: &str) -> NvidiaSettings {
     let map = DISPLAY_SETTINGS.lock().unwrap();
     map.as_ref()
         .and_then(|m| m.get(device_id))
@@ -174,9 +277,19 @@ fn get_or_default_settings(device_id: &str) -> NvidiaSettings {
 fn update_settings(device_id: &str, f: impl FnOnce(&mut NvidiaSettings)) -> NvidiaSettings {
     let mut map = DISPLAY_SETTINGS.lock().unwrap();
     let m = map.get_or_insert_with(HashMap::new);
-    let s = m.entry(device_id.to_string()).or_insert_with(NvidiaSettings::default);
+    let s = m
+        .entry(device_id.to_string())
+        .or_insert_with(NvidiaSettings::default);
     f(s);
     s.clone()
+}
+
+pub(crate) fn replace_settings(device_id: &str, settings: NvidiaSettings) {
+    update_settings(device_id, |current| *current = settings);
+}
+
+pub(crate) fn icc_base_for_display(device_id: &str) -> Option<[[u16; 256]; 3]> {
+    DISPLAY_ICC_RAMPS.lock().unwrap().as_ref().and_then(|m| m.get(device_id)).copied()
 }
 
 /// 由 icc.rs 调用，设置指定显示器的 ICC vcgt 基础 ramp
@@ -184,8 +297,12 @@ pub fn set_icc_base_ramp_for_display(device_id: &str, ramp: Option<[[u16; 256]; 
     let mut map = DISPLAY_ICC_RAMPS.lock().unwrap();
     let m = map.get_or_insert_with(HashMap::new);
     match ramp {
-        Some(r) => { m.insert(device_id.to_string(), r); }
-        None => { m.remove(device_id); }
+        Some(r) => {
+            m.insert(device_id.to_string(), r);
+        }
+        None => {
+            m.remove(device_id);
+        }
     }
 }
 
@@ -228,11 +345,18 @@ type NvGetAssociatedDisplayHandle = unsafe extern "C" fn(
     sz_display_name: *const std::ffi::c_char,
     p_nv_disp_handle: *mut NvDisplayHandle,
 ) -> i32;
-type NvSetDvcLevel = unsafe extern "C" fn(h_nv_disp: NvDisplayHandle, output_id: u32, level: i32) -> i32;
-type NvSetDvcLevelEx =
-    unsafe extern "C" fn(h_nv_disp: NvDisplayHandle, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
-type NvGetDvcInfoEx =
-    unsafe extern "C" fn(h_nv_disp: NvDisplayHandle, output_id: u32, p_dvc_info: *mut NvDvcInfoEx) -> i32;
+type NvSetDvcLevel =
+    unsafe extern "C" fn(h_nv_disp: NvDisplayHandle, output_id: u32, level: i32) -> i32;
+type NvSetDvcLevelEx = unsafe extern "C" fn(
+    h_nv_disp: NvDisplayHandle,
+    output_id: u32,
+    p_dvc_info: *mut NvDvcInfoEx,
+) -> i32;
+type NvGetDvcInfoEx = unsafe extern "C" fn(
+    h_nv_disp: NvDisplayHandle,
+    output_id: u32,
+    p_dvc_info: *mut NvDvcInfoEx,
+) -> i32;
 
 /// 取得指定显示器的 NVAPI display handle。
 ///
@@ -243,15 +367,24 @@ type NvGetDvcInfoEx =
 /// 按名字取不到时回退到第一个 NVIDIA 显示器，保证单显示器场景可用。
 fn nvapi_load_for_display(
     device_id: Option<&str>,
-) -> Result<(windows::Win32::Foundation::HMODULE, NvDisplayHandle, NvQueryInterface), String> {
+) -> Result<
+    (
+        windows::Win32::Foundation::HMODULE,
+        NvDisplayHandle,
+        NvQueryInterface,
+    ),
+    String,
+> {
     unsafe {
-        let lib = windows::Win32::System::LibraryLoader::LoadLibraryW(
-            windows::core::w!("nvapi64.dll")
-        ).map_err(|e| format!("nvapi64.dll not found: {}", e))?;
+        let lib =
+            windows::Win32::System::LibraryLoader::LoadLibraryW(windows::core::w!("nvapi64.dll"))
+                .map_err(|e| format!("nvapi64.dll not found: {}", e))?;
 
         let query_ptr = windows::Win32::System::LibraryLoader::GetProcAddress(
-            lib, windows::core::s!("nvapi_QueryInterface"),
-        ).ok_or("nvapi_QueryInterface not found")?;
+            lib,
+            windows::core::s!("nvapi_QueryInterface"),
+        )
+        .ok_or("nvapi_QueryInterface not found")?;
         let query_fn: NvQueryInterface = std::mem::transmute(query_ptr);
 
         let init_ptr = query_fn(NVAPI_ID_INITIALIZE);
@@ -338,11 +471,17 @@ fn nvapi_get_dvc_info(device_id: Option<&str>) -> Result<(i32, i32, i32, i32), S
         let _ = windows::Win32::Foundation::FreeLibrary(lib);
 
         if status == 0 {
-            Ok((info.min_level, info.max_level, info.default_level, info.current_level))
+            Ok((
+                info.min_level,
+                info.max_level,
+                info.default_level,
+                info.current_level,
+            ))
         } else {
             Err(format!(
                 "GetDVCInfoEx failed: status={} (display={})",
-                status, device_id.unwrap_or("<primary>")
+                status,
+                device_id.unwrap_or("<primary>")
             ))
         }
     }
@@ -394,7 +533,10 @@ fn nvapi_set_dvc(ui_level: i32, device_id: Option<&str>) -> Result<(), String> {
                 let get_fn: NvGetDvcInfoEx = std::mem::transmute(get_ptr);
                 let mut cur = NvDvcInfoEx {
                     version: (std::mem::size_of::<NvDvcInfoEx>() as u32) | 0x10000,
-                    current_level: 0, min_level: 0, max_level: 100, default_level: 50,
+                    current_level: 0,
+                    min_level: 0,
+                    max_level: 100,
+                    default_level: 50,
                 };
                 if get_fn(handle, 0, &mut cur) == 0 {
                     info.min_level = cur.min_level;
@@ -426,7 +568,10 @@ fn nvapi_set_dvc(ui_level: i32, device_id: Option<&str>) -> Result<(), String> {
         } else {
             Err(format!(
                 "{} failed: status={} (display={}, ui_level={})",
-                api, status, device_id.unwrap_or("<primary>"), ui_level
+                api,
+                status,
+                device_id.unwrap_or("<primary>"),
+                ui_level
             ))
         }
     }
@@ -440,7 +585,11 @@ fn calculate_lut(brightness: f64, contrast: f64, gamma: f64) -> [u16; 256] {
     let brightness = (brightness.clamp(0.0, 1.0) - 0.5) * 2.0; // -1..1
 
     // 亮度/对比度线性变换（不含伽马）
-    let offset = if contrast > 0.0 { contrast * -25.4 } else { contrast * -32.0 };
+    let offset = if contrast > 0.0 {
+        contrast * -25.4
+    } else {
+        contrast * -32.0
+    };
     let range = 255.0 + offset * 2.0;
     let offset = offset + brightness * (range / 5.0);
 
@@ -469,8 +618,17 @@ fn rgb_gain_to_scale(gain: i32) -> f64 {
 /// 按当前设置合成并写入 gamma ramp（已持闩版本；调用方必须先 `begin_external_write`）。
 /// 写入成功后缓存最终 LUT（含 ICC vcgt 与 RGB 增益）作为恢复调度的期望曲线；
 /// 写入失败不缓存 —— 初次 apply 失败的显示器不会有恢复任务。
-fn apply_gamma_ramp_locked(device_id: &str) -> Result<(), String> {
+pub(crate) fn build_gamma_ramp(device_id: &str) -> [u16; 768] {
     let s = get_or_default_settings(device_id);
+    let base = icc_base_for_display(device_id);
+    let ramp = compose_gamma_ramp(&s, base.as_ref());
+    crate::debug_recorder::log("gamma", format!("device={device_id} 亮度={} 对比度={} 伽马={} RGB=({},{},{}) icc_base={} 中间调R={}",
+        s.brightness, s.contrast, s.gamma, s.rgb_r, s.rgb_g, s.rgb_b, base.is_some(), ramp[128] >> 8));
+    ramp
+}
+
+/// Shared numeric renderer: A/B/default preparation all use the same mapping.
+pub(crate) fn compose_gamma_ramp(s: &NvidiaSettings, icc_base: Option<&[[u16; 256]; 3]>) -> [u16; 768] {
     // UI range -> WindowsDisplayAPI range
     let b = (s.brightness as f64 + 125.0) / 250.0;
     let c = (s.contrast as f64 + 82.0) / 164.0;
@@ -484,8 +642,6 @@ fn apply_gamma_ramp_locked(device_id: &str) -> Result<(), String> {
     ];
 
     // 在 ICC vcgt 基础上叠加调节：把 lut 作为索引映射应用到 icc_base，再乘通道增益
-    let icc_ramps = DISPLAY_ICC_RAMPS.lock().unwrap();
-    let icc_base = icc_ramps.as_ref().and_then(|m| m.get(device_id));
     let mut ramp = [0u16; 768];
     for i in 0..256 {
         for (ch, offset) in [(0usize, 0usize), (1, 256), (2, 512)] {
@@ -499,25 +655,12 @@ fn apply_gamma_ramp_locked(device_id: &str) -> Result<(), String> {
             ramp[offset + i] = scaled;
         }
     }
-    // 是否有 ICC 基础曲线要在 drop 借用之前取出，日志行要用
-    let has_icc_base = icc_base.is_some();
-    drop(icc_ramps);
+    ramp
+}
 
-    crate::debug_recorder::log(
-        "gamma",
-        format!(
-            "device={device_id} 亮度={} 对比度={} 伽马={} RGB=({},{},{}) icc_base={has_icc_base} 中间调R={}",
-            s.brightness,
-            s.contrast,
-            s.gamma,
-            s.rgb_r,
-            s.rgb_g,
-            s.rgb_b,
-            ramp[128] >> 8
-        ),
-    );
-
-    let result = write_gamma_ramp_raw(device_id, &ramp);
+pub(crate) fn apply_gamma_ramp_locked(device_id: &str) -> Result<(), String> {
+    let ramp = build_gamma_ramp(device_id);
+    let result = crate::color_backend::write_ramp_locked(device_id, &ramp);
     if result.is_ok() {
         cache_final_ramp(device_id, &ramp);
     }
@@ -530,61 +673,74 @@ fn apply_gamma_ramp_locked(device_id: &str) -> Result<(), String> {
 // 不经公开入口重取闩（Mutex 不可重入）。
 
 pub(crate) fn set_brightness_locked(did: &str, value: i32) -> Result<(), String> {
-    update_settings(did, |s| s.brightness = value);
-    apply_gamma_ramp_locked(did)
+    update_and_apply(did, |s| s.brightness = value.clamp(-125, 125))
 }
 
 pub(crate) fn set_contrast_locked(did: &str, value: i32) -> Result<(), String> {
-    update_settings(did, |s| s.contrast = value);
-    apply_gamma_ramp_locked(did)
+    update_and_apply(did, |s| s.contrast = value.clamp(-82, 82))
 }
 
 pub(crate) fn set_gamma_locked(did: &str, value: f64) -> Result<(), String> {
-    update_settings(did, |s| s.gamma = value);
-    apply_gamma_ramp_locked(did)
+    if !value.is_finite() { return Err("Gamma must be finite".into()); }
+    update_and_apply(did, |s| s.gamma = value.clamp(0.4, 2.8))
 }
 
 pub(crate) fn set_rgb_gain_locked(did: &str, r: i32, g: i32, b: i32) -> Result<(), String> {
-    update_settings(did, |s| {
+    update_and_apply(did, |s| {
         s.rgb_r = r.clamp(-100, 100);
         s.rgb_g = g.clamp(-100, 100);
         s.rgb_b = b.clamp(-100, 100);
-    });
-    apply_gamma_ramp_locked(did)
+    })
+}
+
+fn update_and_apply(did: &str, update: impl FnOnce(&mut NvidiaSettings)) -> Result<(), String> {
+    let previous = get_or_default_settings(did);
+    update_settings(did, update);
+    let result = apply_gamma_ramp_locked(did);
+    if result.is_err() { replace_settings(did, previous); }
+    result
 }
 
 #[tauri::command]
-pub fn set_nvidia_brightness(device_id: Option<String>, value: i32) -> Result<(), String> {
+pub async fn set_nvidia_brightness(device_id: Option<String>, value: i32) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    let _latch = begin_external_write();
-    set_brightness_locked(&did, value)
+    tauri::async_runtime::spawn_blocking(move || {
+        let _latch = begin_external_write();
+        set_brightness_locked(&did, value)
+    }).await.map_err(|e| format!("Brightness task failed: {e}"))?
 }
 
 #[tauri::command]
-pub fn set_nvidia_contrast(device_id: Option<String>, value: i32) -> Result<(), String> {
+pub async fn set_nvidia_contrast(device_id: Option<String>, value: i32) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    let _latch = begin_external_write();
-    set_contrast_locked(&did, value)
+    tauri::async_runtime::spawn_blocking(move || {
+        let _latch = begin_external_write();
+        set_contrast_locked(&did, value)
+    }).await.map_err(|e| format!("Contrast task failed: {e}"))?
 }
 
 #[tauri::command]
-pub fn set_nvidia_gamma(device_id: Option<String>, value: f64) -> Result<(), String> {
+pub async fn set_nvidia_gamma(device_id: Option<String>, value: f64) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    let _latch = begin_external_write();
-    set_gamma_locked(&did, value)
+    tauri::async_runtime::spawn_blocking(move || {
+        let _latch = begin_external_write();
+        set_gamma_locked(&did, value)
+    }).await.map_err(|e| format!("Gamma task failed: {e}"))?
 }
 
 /// 设置 RGB 增益（内部标度 -100..+100，0 = 无偏色）
 #[tauri::command]
-pub fn set_nvidia_rgb_gain(
+pub async fn set_nvidia_rgb_gain(
     device_id: Option<String>,
     r: i32,
     g: i32,
     b: i32,
 ) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    let _latch = begin_external_write();
-    set_rgb_gain_locked(&did, r, g, b)
+    tauri::async_runtime::spawn_blocking(move || {
+        let _latch = begin_external_write();
+        set_rgb_gain_locked(&did, r, g, b)
+    }).await.map_err(|e| format!("RGB task failed: {e}"))?
 }
 
 // ─── 数字振动后端分派 ─────────────────────────────────────────────────────────
@@ -653,11 +809,15 @@ pub(crate) fn dvc_set_locked(did: &str, ui_level: i32) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_nvidia_digital_vibrance(device_id: Option<String>, value: i32) -> Result<(), String> {
+pub async fn set_nvidia_digital_vibrance(device_id: Option<String>, value: i32) -> Result<(), String> {
     let did = resolve_display_id(device_id);
-    update_settings(&did, |s| s.digital_vibrance = value);
-    let _latch = begin_external_write();
-    dvc_set_locked(&did, value.clamp(0, 100))
+    tauri::async_runtime::spawn_blocking(move || {
+        let _latch = begin_external_write();
+        let value = value.clamp(0, 100);
+        dvc_set_locked(&did, value)?;
+        update_settings(&did, |s| s.digital_vibrance = value);
+        Ok(())
+    }).await.map_err(|e| format!("Digital vibrance task failed: {e}"))?
 }
 
 /// 解析 device_id，fallback 到主显示器
@@ -677,7 +837,10 @@ pub fn sync_dvc_from_driver(device_id: Option<String>) -> i32 {
     match dvc_get_info(&did) {
         Ok((_, (min, max, default, current))) => {
             let ui_value = driver_to_ui_level(current, min, max);
-            eprintln!("[DVC] display={} min={} max={} default={} current={} => ui={}", did, min, max, default, current, ui_value);
+            eprintln!(
+                "[DVC] display={} min={} max={} default={} current={} => ui={}",
+                did, min, max, default, current, ui_value
+            );
             update_settings(&did, |s| s.digital_vibrance = ui_value);
             ui_value
         }
@@ -702,7 +865,6 @@ pub fn get_nvidia_settings(device_id: Option<String>) -> Result<NvidiaSettings, 
     let did = resolve_display_id(device_id);
     Ok(get_or_default_settings(&did))
 }
-
 
 /// 数字振动的可用性与驱动值域。
 #[derive(Debug, Serialize)]
@@ -760,7 +922,8 @@ fn humanize_dvc_error(err: &str) -> String {
 
     if no_nvidia_driver && no_amd_driver {
         "未检测到 NVIDIA 或 AMD 显卡驱动，数字振动 / 饱和度不可用".to_string()
-    } else if err.contains("saturation not supported") || err.contains("custom color not supported") {
+    } else if err.contains("saturation not supported") || err.contains("custom color not supported")
+    {
         "当前 AMD 驱动或显示器不支持饱和度调节（可尝试更新 Adrenalin 驱动、关闭 HDR）".to_string()
     } else if err.contains("not found among") || err.contains("cannot identify") {
         "无法在 AMD 驱动中定位当前显示器，饱和度调节不可用".to_string()
@@ -770,5 +933,151 @@ fn humanize_dvc_error(err: &str) -> String {
         "当前显示器不由 NVIDIA 显卡输出，无法调节数字振动".to_string()
     } else {
         format!("数字振动 / 饱和度不可用：{}", err)
+    }
+}
+
+#[cfg(test)]
+mod recovery_snapshot_tests {
+    use super::with_write_snapshot;
+    use crate::color_recovery::RecoveryOwnership;
+    use std::cell::Cell;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{mpsc, Mutex, TryLockError};
+    use std::thread;
+    use std::time::Duration;
+
+    const TARGET: &str = "test-display-written-by-apply";
+    const WATCHER_LUT: [u16; 768] = [12345; 768];
+    const MANUAL_LUT: [u16; 768] = [54321; 768];
+    const WAIT: Duration = Duration::from_secs(10);
+
+    #[test]
+    fn snapshot_precedes_manual_generation_and_manual_write_invalidates_owner() {
+        let latch = Mutex::new(());
+        let generation = AtomicU64::new(0);
+        let final_lut = Mutex::new([0; 768]);
+        let manual_was_blocked = Cell::new(false);
+        let (start_tx, start_rx) = mpsc::channel();
+        let (probe_tx, probe_rx) = mpsc::channel();
+        let (advanced_tx, advanced_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+
+        thread::scope(|scope| {
+            let (latch, generation, final_lut) = (&latch, &generation, &final_lut);
+            let manual = scope.spawn(move || {
+                start_rx.recv_timeout(WAIT).unwrap();
+                // Probe at the snapshot boundary, not at a timing-dependent sleep.
+                let guard = match latch.try_lock() {
+                    Ok(guard) => {
+                        generation.fetch_add(1, Ordering::SeqCst);
+                        probe_tx.send(false).unwrap();
+                        guard
+                    }
+                    Err(TryLockError::WouldBlock) => {
+                        probe_tx.send(true).unwrap();
+                        let guard = latch.lock().unwrap();
+                        generation.fetch_add(1, Ordering::SeqCst);
+                        guard
+                    }
+                    Err(TryLockError::Poisoned(err)) => panic!("{err}"),
+                };
+                // Model the real vulnerable interval: new generation, old LUT.
+                advanced_tx.send(()).unwrap();
+                finish_rx.recv_timeout(WAIT).unwrap();
+                *final_lut.lock().unwrap() = MANUAL_LUT;
+                drop(guard);
+            });
+
+            let owner = with_write_snapshot(
+                || {
+                    let guard = latch.lock().unwrap();
+                    generation.fetch_add(1, Ordering::SeqCst);
+                    guard
+                },
+                || {
+                    *final_lut.lock().unwrap() = WATCHER_LUT;
+                    Ok(TARGET.to_string())
+                },
+                || {
+                    start_tx.send(()).unwrap();
+                    manual_was_blocked.set(probe_rx.recv_timeout(WAIT).unwrap());
+                    generation.load(Ordering::SeqCst)
+                },
+                |device_id, generation| {
+                    Some(RecoveryOwnership {
+                        backend: crate::color_backend::Backend::Standard,
+                        rule_id: "rule".into(),
+                        activation_seq: 1,
+                        device_id: device_id.into(),
+                        pnp_id: "test-pnp".into(),
+                        generation,
+                        expected_lut: *final_lut.lock().unwrap(),
+                    })
+                },
+            )
+            .unwrap()
+            .unwrap();
+
+            advanced_rx.recv_timeout(WAIT).unwrap();
+            let during_manual_generation = generation.load(Ordering::SeqCst);
+            let during_manual_lut = *final_lut.lock().unwrap();
+            // Always release/join the writer before assertions, including on RED.
+            finish_tx.send(()).unwrap();
+            manual.join().unwrap();
+
+            assert_eq!(
+                owner.generation, 1,
+                "must not adopt the manual write's generation"
+            );
+            assert!(
+                manual_was_blocked.get(),
+                "snapshot must retain the write latch"
+            );
+            assert_eq!(owner.device_id, TARGET);
+            assert_eq!(owner.expected_lut, WATCHER_LUT);
+            assert_eq!(during_manual_lut, WATCHER_LUT);
+            assert_eq!(during_manual_generation, 2);
+            assert_ne!(
+                owner.generation, during_manual_generation,
+                "owner must already be invalid while manual LUT write is pending"
+            );
+            assert_eq!(*final_lut.lock().unwrap(), MANUAL_LUT);
+        });
+    }
+
+    #[test]
+    fn failed_apply_never_captures_even_when_an_old_lut_exists() {
+        let latch = Mutex::new(());
+        let old_lut = WATCHER_LUT;
+        let captured = Cell::new(false);
+        let result = with_write_snapshot(
+            || latch.lock().unwrap(),
+            || Err("initial apply failed".to_string()),
+            || panic!("generation must not be sampled after failed apply"),
+            |_, generation| {
+                captured.set(true);
+                Some((generation, old_lut))
+            },
+        );
+        assert_eq!(result, Err("initial apply failed".to_string()));
+        assert!(!captured.get());
+        assert!(latch.try_lock().is_ok(), "failure must release the latch");
+    }
+
+    #[test]
+    fn successful_apply_without_snapshot_is_not_an_apply_error() {
+        let latch = Mutex::new(());
+        let result = with_write_snapshot(
+            || latch.lock().unwrap(),
+            || Ok(TARGET.to_string()),
+            || 7,
+            |device_id, generation| {
+                assert_eq!(device_id, TARGET);
+                assert_eq!(generation, 7);
+                None::<RecoveryOwnership>
+            },
+        );
+        assert!(matches!(result, Ok(None)));
+        assert!(latch.try_lock().is_ok());
     }
 }

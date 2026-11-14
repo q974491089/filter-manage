@@ -65,14 +65,14 @@ function parseResolutionSpec(spec: string): { w: number; h: number; hz?: number 
 
 /**
  * 导入预检：分享方案的分辨率当前显示器是否支持。返回落库值与给用户的说明。
- * - 宽高不支持 / 字段无效 → 丢弃整个字段（应用时保持用户当前分辨率）
+ * - 宽高不支持 / 字段无效 → 分辨率保存为 null（导入不携带分辨率；应用时若有本应用还原点，会恢复原显示模式）
  * - 宽高支持但指定刷新率不支持 → 只去掉 @Hz（沿用该分辨率的默认刷新率）
  * - 当前模式即使枚举缺失也算支持（与后端 preset_mode_supported 同口径，防驱动枚举抖动）
  */
 function analyzeSharedResolution(spec: string, list: DisplayModeList): { value: string | null; note: string | null } {
   const parsed = parseResolutionSpec(spec);
   if (!parsed) {
-    return { value: null, note: "方案中的分辨率字段无效，导入后将不携带分辨率" };
+    return { value: null, note: "方案中的分辨率字段无效，导入后将不携带分辨率；应用时若有本应用保存的还原点，会恢复原显示模式" };
   }
   const matchesCurrent = list.current !== null
     && list.current.width === parsed.w
@@ -82,7 +82,7 @@ function analyzeSharedResolution(spec: string, list: DisplayModeList): { value: 
   if (!matchesCurrent && !mode) {
     return {
       value: null,
-      note: `当前显示器不支持 ${parsed.w}×${parsed.h}，已删除该分辨率；导入后应用时保持你现在的分辨率`,
+      note: `当前显示器不支持 ${parsed.w}×${parsed.h}，导入后将不携带该分辨率；应用时若有本应用保存的还原点，会恢复原显示模式`,
     };
   }
   if (parsed.hz !== undefined && mode && !mode.refresh_rates.includes(parsed.hz) && !matchesCurrent) {
@@ -251,7 +251,7 @@ export default function ImportShareModal({
       const name = await uniqueName(share.title);
 
       // 落库前实时复检（预览时的预检可能已过期：显示器/模式会变），
-      // 不支持的分辨率在这里剔除，应用时保持用户当前分辨率
+      // 不支持的分辨率在这里置为 null，导入不携带该分辨率；应用时若有本应用还原点，会恢复原显示模式
       let resolution: string | null = share.resolution || null;
       let resNote: string | null = null;
       if (resolution) {
@@ -309,7 +309,7 @@ export default function ImportShareModal({
             ? resCompat && resCompat.value === null
               ? `${share.resolution}（将移除）`
               : share.resolution
-            : "不调整",
+            : "未携带分辨率",
         ],
       ]
     : [];

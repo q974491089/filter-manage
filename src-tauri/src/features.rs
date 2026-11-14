@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -42,6 +43,70 @@ pub struct FeatureFlagsResult {
 }
 
 const CACHE_FILE: &str = "feature-flags.json";
+
+const NVIDIA_BACKEND_FLAG: &str = "nvidia_color_backend";
+
+#[derive(Default)]
+struct NvidiaBackendGate {
+    env: String,
+    generation: u64,
+    enabled: bool,
+}
+
+impl NvidiaBackendGate {
+    fn commit(
+        &mut self,
+        requested_env: &str,
+        current_env: &str,
+        generation: u64,
+        enabled: bool,
+    ) -> bool {
+        if self.generation != generation || requested_env != current_env {
+            return false;
+        }
+        self.env = requested_env.into();
+        self.enabled = enabled;
+        true
+    }
+}
+
+// Cached flags may paint the UI, but only a fresh, current-environment remote
+// result may authorize the experimental driver path. Late fetches cannot reopen
+// a gate closed by a newer result or a server-environment change.
+static NVIDIA_GATE: Mutex<NvidiaBackendGate> = Mutex::new(NvidiaBackendGate {
+    env: String::new(),
+    generation: 0,
+    enabled: false,
+});
+
+pub(crate) fn nvidia_color_backend_enabled() -> bool {
+    let gate = NVIDIA_GATE.lock().unwrap_or_else(|e| e.into_inner());
+    gate.enabled && gate.env == current_env()
+}
+
+async fn publish_nvidia_gate(
+    env: &str,
+    generation: u64,
+    enabled: bool,
+    color_generation: u64,
+) -> bool {
+    {
+        let mut gate = NVIDIA_GATE.lock().unwrap_or_else(|e| e.into_inner());
+        if !gate.commit(env, &current_env(), generation, enabled) {
+            return false;
+        }
+    }
+    // Driver cleanup/activation can block. The feature fetch must not write
+    // colors on a Tokio worker or call the coordinator with the gate locked.
+    if let Err(error) = tauri::async_runtime::spawn_blocking(move || {
+        crate::color_backend::on_feature_flag_changed(enabled, color_generation);
+    })
+    .await
+    {
+        eprintln!("[color-backend] feature gate callback failed: {error}");
+    }
+    true
+}
 
 fn current_env() -> String {
     server_env::get_runtime_env().api_env
@@ -142,12 +207,29 @@ pub fn get_cached_feature_flags() -> FeatureFlagsResult {
 /// 失败返回 Err，由前端按 fail-closed 清空 flags、隐藏全部受控入口。
 #[tauri::command]
 pub async fn fetch_feature_flags() -> Result<FeatureFlagsResult, String> {
-    let payload = fetch_remote()
-        .await
-        .ok_or_else(|| "feature flags 服务不可达".to_string())?;
+    let requested_env = current_env();
+    let color_generation = crate::process_watcher::apply_generation();
+    let generation = {
+        let mut gate = NVIDIA_GATE.lock().unwrap_or_else(|e| e.into_inner());
+        gate.generation = gate.generation.wrapping_add(1);
+        gate.generation
+    };
+    let Some(payload) = fetch_remote().await else {
+        publish_nvidia_gate(&requested_env, generation, false, color_generation).await;
+        return Err("feature flags 服务不可达".into());
+    };
     // 响应结构可疑（flags 为空）按失败处理：宁可让前端隐藏入口
     if payload.flags.is_empty() {
+        publish_nvidia_gate(&requested_env, generation, false, color_generation).await;
         return Err("feature flags 响应为空".into());
+    }
+    let enabled = payload
+        .flags
+        .get(NVIDIA_BACKEND_FLAG)
+        .copied()
+        .unwrap_or(false);
+    if !publish_nvidia_gate(&requested_env, generation, enabled, color_generation).await {
+        return Err("feature flags 查询已被更新的请求或环境切换替代".into());
     }
     write_cache(&payload);
     Ok(FeatureFlagsResult {
@@ -155,4 +237,33 @@ pub async fn fetch_feature_flags() -> Result<FeatureFlagsResult, String> {
         flags: payload.flags,
         source: "remote".into(),
     })
+}
+
+#[cfg(test)]
+mod nvidia_gate_tests {
+    use super::*;
+
+    #[test]
+    fn stale_success_cannot_reopen_a_newer_closed_gate() {
+        let mut gate = NvidiaBackendGate {
+            env: "production".into(),
+            generation: 2,
+            enabled: true,
+        };
+        assert!(gate.commit("production", "production", 2, false));
+        assert!(!gate.commit("production", "production", 1, true));
+        assert!(!gate.enabled);
+    }
+
+    #[test]
+    fn cross_environment_success_never_authorizes_the_new_environment() {
+        let mut gate = NvidiaBackendGate {
+            env: "production".into(),
+            generation: 3,
+            enabled: false,
+        };
+        assert!(!gate.commit("production", "staging", 3, true));
+        assert!(!gate.enabled);
+        assert_eq!(gate.env, "production");
+    }
 }

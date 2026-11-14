@@ -1,3 +1,4 @@
+import { useEffect, useRef, type ReactNode } from "react";
 import { invoke } from "../lib/ipc";
 import { Icon } from "./Icon";
 import Select from "./Select";
@@ -52,6 +53,10 @@ interface ColorAdjusterProps {
   showToast?: (type: "success" | "error", text: string) => void;
   /** 数字振动能力；null 表示尚未探测完 */
   dvcCapability?: DvcCapability | null;
+  disabled?: boolean;
+  modePanel?: ReactNode;
+  onWriteBusyChange?: (busy: boolean) => void;
+  onWriteFinished?: () => void;
 }
 
 function ColorAdjuster({
@@ -73,6 +78,10 @@ function ColorAdjuster({
   onRgbScaleModeChange,
   showToast,
   dvcCapability,
+  disabled = false,
+  modePanel,
+  onWriteBusyChange,
+  onWriteFinished,
 }: ColorAdjusterProps) {
   // NVAPI / gamma ramp 的失败必须让用户看见：静默失败会表现成"拉了滑块没反应"，
   // 而后端的错误串里带着 display 名和 status，是排查的唯一线索。
@@ -80,70 +89,95 @@ function ColorAdjuster({
   const dvcSupported = dvcCapability?.supported !== false;
   // "数字振动"是 NVIDIA 的叫法，AMD 那边叫饱和度，同一个旋钮换个名
   const isAmd = dvcCapability?.vendor === "amd";
+  const pending = useRef(new Map<string, { command: string; args: Record<string, unknown>; label: string }>());
+  const writing = useRef(false);
+  const mounted = useRef(true);
+  const callbacks = useRef({ onWriteBusyChange, onWriteFinished, showToast });
+  callbacks.current = { onWriteBusyChange, onWriteFinished, showToast };
+
+  useEffect(() => {
+    mounted.current = true;
+    // StrictMode/HMR 重启 effect 时，已发出的 IPC 仍在运行，继续保持切模式门闩。
+    if (writing.current) callbacks.current.onWriteBusyChange?.(true);
+    return () => {
+      mounted.current = false;
+      pending.current.clear();
+      callbacks.current.onWriteBusyChange?.(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    pending.current.clear();
+  }, [selectedDeviceId]);
 
   const reportFailure = (key: string, label: string, err: unknown) => {
     console.error(`Failed to set ${key}:`, err);
-    showToast?.("error", `${label}设置失败: ${err}`);
+    if (mounted.current) callbacks.current.showToast?.("error", `${label}设置失败: ${err}`);
   };
 
-  const handleBrightnessChange = async (value: number) => {
+  // 连续拖动时仅保留各滑块最新待写值，所有 IPC 顺序执行，避免旧请求晚写覆盖新值。
+  const queueWrite = (key: string, label: string, command: string, args: Record<string, unknown>) => {
+    if (disabled) return;
+    pending.current.set(key, { command, args: { ...args, deviceId: selectedDeviceId }, label });
+    if (writing.current) return;
+    writing.current = true;
+    callbacks.current.onWriteBusyChange?.(true);
+    void (async () => {
+      try {
+        while (pending.current.size > 0 && mounted.current) {
+          const next = pending.current.entries().next().value;
+          if (!next) break;
+          const [nextKey, entry] = next;
+          pending.current.delete(nextKey);
+          try {
+            await invoke(entry.command, entry.args);
+          } catch (err) {
+            reportFailure(nextKey, entry.label, err);
+          }
+        }
+      } finally {
+        writing.current = false;
+        if (mounted.current) {
+          callbacks.current.onWriteBusyChange?.(false);
+          callbacks.current.onWriteFinished?.();
+        }
+      }
+    })();
+  };
+
+  const handleBrightnessChange = (value: number) => {
     onBrightnessChange(value);
-    try {
-      await invoke("set_nvidia_brightness", { deviceId: selectedDeviceId, value });
-    } catch (err) {
-      reportFailure("brightness", "亮度", err);
-    }
+    queueWrite("brightness", "亮度", "set_nvidia_brightness", { value });
   };
 
-  const handleContrastChange = async (value: number) => {
+  const handleContrastChange = (value: number) => {
     onContrastChange(value);
-    try {
-      await invoke("set_nvidia_contrast", { deviceId: selectedDeviceId, value });
-    } catch (err) {
-      reportFailure("contrast", "对比度", err);
-    }
+    queueWrite("contrast", "对比度", "set_nvidia_contrast", { value });
   };
 
-  const handleGammaChange = async (value: number) => {
+  const handleGammaChange = (value: number) => {
     onGammaChange(value);
-    try {
-      await invoke("set_nvidia_gamma", { deviceId: selectedDeviceId, value });
-    } catch (err) {
-      reportFailure("gamma", "伽马", err);
-    }
+    queueWrite("gamma", "伽马", "set_nvidia_gamma", { value });
   };
 
-  const handleDigitalVibranceChange = async (value: number) => {
+  const handleDigitalVibranceChange = (value: number) => {
     onDigitalVibranceChange(value);
-    try {
-      await invoke("set_nvidia_digital_vibrance", { deviceId: selectedDeviceId, value });
-    } catch (err) {
-      reportFailure("digital vibrance", "数字振动", err);
-    }
+    queueWrite("digitalVibrance", "数字振动", "set_nvidia_digital_vibrance", { value });
   };
 
-  const pushRgb = async (r: number, g: number, b: number) => {
+  const pushRgb = (r: number, g: number, b: number) => {
     onRgbChange(r, g, b);
-    try {
-      await invoke("set_nvidia_rgb_gain", {
-        deviceId: selectedDeviceId,
-        r,
-        g,
-        b,
-      });
-    } catch (err) {
-      reportFailure("RGB gain", "RGB 增益", err);
-    }
+    queueWrite("rgb", "RGB 增益", "set_nvidia_rgb_gain", { r, g, b });
   };
 
-  const handleRgbChannel = async (channel: "r" | "g" | "b", displayValue: number) => {
+  const handleRgbChannel = (channel: "r" | "g" | "b", displayValue: number) => {
     const internal = toInternal(displayValue, rgbScaleMode);
     const next = {
       r: channel === "r" ? internal : rgbR,
       g: channel === "g" ? internal : rgbG,
       b: channel === "b" ? internal : rgbB,
     };
-    await pushRgb(next.r, next.g, next.b);
+    pushRgb(next.r, next.g, next.b);
   };
 
   const rgbRange = scaleRange(rgbScaleMode);
@@ -172,6 +206,7 @@ function ColorAdjuster({
         data-name="sliders-card"
         className="flex-1 min-h-0 flex flex-col bg-surface-container rounded-lg border border-outline-variant/20 p-lg shadow-sm overflow-y-auto"
       >
+        {modePanel}
         {/* 二级：基础参数 — 按滑条条数 4:3 分卡片高度，标题贴合内容，
             多余空间只加在滑条之间（justify-between），不留标题下死空白 */}
         <div data-name="basic-section" className="flex-[4] flex flex-col">
@@ -192,6 +227,7 @@ function ColorAdjuster({
               step={1}
               formatValue={(v) => `${Math.round(((v + 125) / 250) * 100)}%`}
               onChange={handleBrightnessChange}
+              disabled={disabled}
             />
 
             <SliderControl
@@ -204,6 +240,7 @@ function ColorAdjuster({
               step={1}
               formatValue={(v) => `${Math.round(((v + 82) / 164) * 100)}%`}
               onChange={handleContrastChange}
+              disabled={disabled}
             />
 
             <SliderControl
@@ -211,11 +248,12 @@ function ColorAdjuster({
               description="调整中间色调的亮度曲线"
               icon="exposure"
               value={gamma}
-              min={0.1}
-              max={3.0}
+              min={0.4}
+              max={2.8}
               step={0.01}
               formatValue={(v) => v.toFixed(2)}
               onChange={handleGammaChange}
+              disabled={disabled}
             />
 
             <SliderControl
@@ -234,7 +272,7 @@ function ColorAdjuster({
               step={1}
               formatValue={(v) => `${v}%`}
               onChange={handleDigitalVibranceChange}
-              disabled={!dvcSupported}
+              disabled={disabled || !dvcSupported}
             />
           </div>
         </div>
@@ -281,6 +319,7 @@ function ColorAdjuster({
               formatValue={(v) => formatDisplay(v, rgbScaleMode)}
               onChange={(d) => handleRgbChannel("r", d)}
               accentClass="accent-red-500"
+              disabled={disabled}
             />
             <SliderControl
               label="绿 (G)"
@@ -293,6 +332,7 @@ function ColorAdjuster({
               formatValue={(v) => formatDisplay(v, rgbScaleMode)}
               onChange={(d) => handleRgbChannel("g", d)}
               accentClass="accent-green-500"
+              disabled={disabled}
             />
             <SliderControl
               label="蓝 (B)"
@@ -305,6 +345,7 @@ function ColorAdjuster({
               formatValue={(v) => formatDisplay(v, rgbScaleMode)}
               onChange={(d) => handleRgbChannel("b", d)}
               accentClass="accent-blue-500"
+              disabled={disabled}
             />
           </div>
         </div>

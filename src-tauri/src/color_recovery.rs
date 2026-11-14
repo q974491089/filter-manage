@@ -38,6 +38,8 @@ pub(crate) const DIFF_TOLERANCE: u8 = 1;
 /// 测试以合成时间点驱动，避免真实 sleep。
 #[derive(Debug)]
 pub(crate) struct RecoveryWindow {
+    /// 到期后休眠但保留所有权；新事件开窗，累计预算与冷却不重置。
+    active: bool,
     pub(crate) deadline: Instant,
     pub(crate) next_check: Instant,
     pub(crate) last_write: Option<Instant>,
@@ -51,6 +53,8 @@ pub(crate) struct RecoveryWindow {
 /// 恢复调度才被允许写屏；active_rules 中已被后来方案盖住的规则不在保护范围。
 #[derive(Debug, Clone)]
 pub(crate) struct RecoveryOwnership {
+    /// 捕获时的写入后端；B 的事件恢复不得写入传统 GDI LUT。
+    pub(crate) backend: crate::color_backend::Backend,
     pub(crate) rule_id: String,
     /// 全局递增的激活序号：每次激活唯一，旧激活无法冒充
     pub(crate) activation_seq: u64,
@@ -118,7 +122,7 @@ pub(crate) enum RecoveryRequest {
     Verify,
     /// 待办的重写现在可以执行（800ms 安定期与写入冷却均已满足）
     Write,
-    /// 窗口应关闭（调度器负责清状态并记录原因）
+    /// 窗口应关闭（到期仅休眠；预算耗尽结束激活；调度器记录原因）
     Close(CloseReason),
 }
 
@@ -139,6 +143,7 @@ impl RecoveryWindow {
     /// 激活成功后开启启动窗口：120 秒期限，1 秒后第一次回读
     pub(crate) fn open_startup(now: Instant) -> Self {
         Self {
+            active: true,
             deadline: now + STARTUP_WINDOW,
             next_check: now + VERIFY_INTERVAL,
             last_write: None,
@@ -152,6 +157,10 @@ impl RecoveryWindow {
     /// 事件风暴自然合并：待办只有一个布尔位，安定时间取最后一个事件；
     /// 总预算不因事件重置。
     pub(crate) fn note_event(&mut self, now: Instant) {
+        if self.writes_used >= MAX_RECOVERY_WRITES {
+            return; // 事件不能复活已耗尽预算的激活
+        }
+        self.active = true;
         if now + EVENT_WINDOW > self.deadline {
             self.deadline = now + EVENT_WINDOW;
         }
@@ -165,17 +174,24 @@ impl RecoveryWindow {
 
     /// 冷却结束时刻（仅在 last_write 已存在时调用路径才可达）
     fn cooldown_end(&self) -> Instant {
-        self.last_write.expect("cooldown_end requires a previous write") + WRITE_COOLDOWN
+        self.last_write
+            .expect("cooldown_end requires a previous write")
+            + WRITE_COOLDOWN
     }
 
     /// 调度 tick 询问：现在该做什么？除 Wait 外的请求都应在调用方完成对应动作
     /// （回读 / 写入 / 关窗）后再推进窗口状态。
     pub(crate) fn due_request(&mut self, now: Instant) -> RecoveryRequest {
-        if now >= self.deadline {
-            return RecoveryRequest::Close(CloseReason::WindowExpired);
-        }
         if self.writes_used >= MAX_RECOVERY_WRITES {
             return RecoveryRequest::Close(CloseReason::BudgetExhausted);
+        }
+        if !self.active {
+            return RecoveryRequest::Wait;
+        }
+        if now >= self.deadline {
+            self.active = false;
+            self.reassert_after_event = false;
+            return RecoveryRequest::Close(CloseReason::WindowExpired);
         }
         if now < self.next_check {
             return RecoveryRequest::Wait;
@@ -285,11 +301,17 @@ mod scheduler_tests {
         assert_eq!(win.writes_used, 1);
         assert_eq!(win.last_write, Some(t));
         // 写入后回到一致
-        assert_eq!(win.due_request(t + VERIFY_INTERVAL), RecoveryRequest::Verify);
-        assert_eq!(win.finish_verify(t + VERIFY_INTERVAL, Some(0)), VerifyFollowup::None);
+        assert_eq!(
+            win.due_request(t + VERIFY_INTERVAL),
+            RecoveryRequest::Verify
+        );
+        assert_eq!(
+            win.finish_verify(t + VERIFY_INTERVAL, Some(0)),
+            VerifyFollowup::None
+        );
     }
 
-    /// 场景：120 秒启动窗口到期立即停止回读；之后任何时刻都只给关闭请求
+    /// 场景：120 秒到期只关闭一次；之后休眠，不重复关闭或轮询
     #[test]
     fn window_stops_after_120s() {
         let t0 = Instant::now();
@@ -304,7 +326,7 @@ mod scheduler_tests {
         );
         assert_eq!(
             win.due_request(t0 + STARTUP_WINDOW + Duration::from_secs(5)),
-            RecoveryRequest::Close(CloseReason::WindowExpired)
+            RecoveryRequest::Wait
         );
     }
 
@@ -321,7 +343,10 @@ mod scheduler_tests {
         assert!(!win.finish_write(t1));
         // 写入 1 秒后再次偏离：冷却未过 → 置待办并顺延到冷却结束，不立即写
         let t2 = t1 + VERIFY_INTERVAL;
-        assert_eq!(win.finish_verify(t2, Some(30)), VerifyFollowup::WriteAfterCooldown);
+        assert_eq!(
+            win.finish_verify(t2, Some(30)),
+            VerifyFollowup::WriteAfterCooldown
+        );
         assert!(win.reassert_after_event);
         assert_eq!(
             win.due_request(t2 + Duration::from_secs(1)),
@@ -376,7 +401,11 @@ mod scheduler_tests {
         assert_eq!(win.due_request(t), RecoveryRequest::Verify);
         assert_eq!(win.finish_verify(t, None), VerifyFollowup::None);
         assert_eq!(win.writes_used, 0);
-        assert_eq!(win.next_check, t + VERIFY_INTERVAL, "读取失败后等下一轮检查");
+        assert_eq!(
+            win.next_check,
+            t + VERIFY_INTERVAL,
+            "读取失败后等下一轮检查"
+        );
     }
 
     /// 场景：仅 1 级量化差不触发写入（DIFF_TOLERANCE 边界）
@@ -386,7 +415,10 @@ mod scheduler_tests {
         let mut win = RecoveryWindow::open_startup(t0);
         let t = t0 + VERIFY_INTERVAL;
         assert_eq!(win.due_request(t), RecoveryRequest::Verify);
-        assert_eq!(win.finish_verify(t, Some(DIFF_TOLERANCE)), VerifyFollowup::None);
+        assert_eq!(
+            win.finish_verify(t, Some(DIFF_TOLERANCE)),
+            VerifyFollowup::None
+        );
         assert_eq!(win.writes_used, 0);
     }
 
@@ -502,5 +534,37 @@ mod simulated_flow_tests {
             win.due_request(t0 + STARTUP_WINDOW),
             RecoveryRequest::Close(CloseReason::WindowExpired)
         );
+    }
+
+    #[test]
+    fn expired_window_rearms_and_keeps_budget_and_cooldown() {
+        let t0 = Instant::now();
+        let mut win = RecoveryWindow::open_startup(t0);
+        let last = t0 + STARTUP_WINDOW - Duration::from_secs(1);
+        assert!(!win.finish_write(last));
+        let expired = t0 + STARTUP_WINDOW;
+        assert_eq!(
+            win.due_request(expired),
+            RecoveryRequest::Close(CloseReason::WindowExpired)
+        );
+        assert_eq!(
+            win.due_request(expired + VERIFY_INTERVAL),
+            RecoveryRequest::Wait
+        );
+        let event = expired + Duration::from_secs(2);
+        win.note_event(event);
+        assert_eq!(win.writes_used, 1);
+        assert_eq!(win.last_write, Some(last));
+        assert_eq!(
+            win.due_request(event + EVENT_SETTLE),
+            RecoveryRequest::Wait,
+            "沿用上一窗口的冷却"
+        );
+        assert_eq!(
+            win.due_request(last + WRITE_COOLDOWN),
+            RecoveryRequest::Write
+        );
+        assert!(!win.finish_write(last + WRITE_COOLDOWN));
+        assert_eq!(win.writes_used, 2);
     }
 }

@@ -69,26 +69,24 @@ fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
         .map_err(|e| e.to_string())?;
     let restore = MenuItem::with_id(app, "restore_default", "恢复默认", true, None::<&str>)
         .map_err(|e| e.to_string())?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
+    let quit =
+        MenuItem::with_id(app, "quit", "退出", true, None::<&str>).map_err(|e| e.to_string())?;
 
     // 获取方案列表，无方案时不显示快速方案子菜单
     let preset_names = get_tray_preset_names()?;
 
     let menu = if preset_names.is_empty() {
-        Menu::with_items(app, &[&show, &restore, &quit])
-            .map_err(|e| e.to_string())?
+        Menu::with_items(app, &[&show, &restore, &quit]).map_err(|e| e.to_string())?
     } else {
-        let submenu = Submenu::with_id(app, "presets", "快速方案", true)
-            .map_err(|e| e.to_string())?;
+        let submenu =
+            Submenu::with_id(app, "presets", "快速方案", true).map_err(|e| e.to_string())?;
         for name in &preset_names {
             let item_id = format!("preset_{}", name);
             let item = MenuItem::with_id(app, item_id, name, true, None::<&str>)
                 .map_err(|e| e.to_string())?;
             submenu.append(&item).map_err(|e| e.to_string())?;
         }
-        Menu::with_items(app, &[&show, &submenu, &restore, &quit])
-            .map_err(|e| e.to_string())?
+        Menu::with_items(app, &[&show, &submenu, &restore, &quit]).map_err(|e| e.to_string())?
     };
 
     Ok(menu)
@@ -126,9 +124,17 @@ pub(crate) fn apply_default_config_from(source: &str) -> Result<(), String> {
     let _latch = nvidia::begin_external_write();
     crate::debug_recorder::log("config", format!("恢复默认方案（来源={source}）"));
     if let Some(cfg) = config::load_default_config()? {
-        apply_color_config_locked_with_source(source, &cfg)
+        apply_color_config_locked_with_source(source, &cfg).map(|_| ())
     } else {
-        let result = icc::restore_default_icc(None);
+        let device = nvidia::resolve_display_id(None);
+        let result = if crate::color_backend::active_backend(&device) == crate::color_backend::Backend::Nvidia {
+            crate::color_backend::restore_default_locked(&device)
+        } else {
+            icc::restore_default_icc(Some(device.clone())).and_then(|()| {
+                nvidia::replace_settings(&device, nvidia::NvidiaSettings::default());
+                nvidia::apply_gamma_ramp_locked(&device)
+            })
+        };
         // 无默认方案时也要还原本应用此前改过的分辨率（如进程监听切走的 4:3）
         if let Err(e) = icc::apply_preset_resolution_state(None, None) {
             eprintln!("[apply] resolution restore on default failed: {e}");
@@ -142,13 +148,74 @@ pub(crate) fn apply_default_config_from(source: &str) -> Result<(), String> {
 /// `source` 用于诊断日志区分托盘 / 快捷键 / 进程监听来源。
 pub fn apply_color_config_from(source: &str, cfg: &ColorConfig) -> Result<(), String> {
     let _latch = nvidia::begin_external_write();
-    apply_color_config_locked_with_source(source, cfg)
+    apply_color_config_locked_with_source(source, cfg).map(|_| ())
 }
 
-/// 已持闩的整组方案应用（apply_color_config_from / apply_default_config_from 在
-/// 闩内复用；递增代号已由两个入口的门闩完成）
-fn apply_color_config_locked_with_source(source: &str, cfg: &ColorConfig) -> Result<(), String> {
-    // 门闩已在 apply_color_config_from / apply_default_config_from 入口递增代号
+/// watcher 专用：应用成功后，在同一颜色写门闩内捕获本次恢复所有权。
+/// Err 表示初次 apply 失败；Ok(None) 表示 apply 成功但最终 LUT 或该设备的 PnP
+/// 身份不可用。返回后发生的手动写会递增 generation，使该快照失效；调用方
+/// 不得另行采样 generation/LUT，也不得持 watcher 状态锁调用本入口。
+pub(crate) fn apply_color_config_with_recovery(
+    rule_id: &str,
+    cfg: &ColorConfig,
+) -> Result<Option<crate::color_recovery::RecoveryOwnership>, String> {
+    let ownership = nvidia::with_external_write_snapshot(
+        || apply_color_config_locked_with_source("process-watcher", cfg),
+        |device_id, generation| {
+            let expected_lut = nvidia::final_ramp_for_display(device_id)?;
+            let monitors = icc::get_display_monitors().ok()?;
+            if crate::color_backend::active_backend(device_id) == crate::color_backend::Backend::Nvidia {
+                let cap = crate::display_capability::inspect(device_id).ok()?;
+                let key = cap.stable_key?;
+                Some(crate::color_recovery::RecoveryOwnership {
+                    rule_id: rule_id.into(), activation_seq: crate::color_recovery::next_activation_seq(),
+                    device_id: device_id.into(), pnp_id: key, generation, expected_lut,
+                    backend: crate::color_backend::Backend::Nvidia,
+                })
+            } else {
+                recovery_ownership_for_display(rule_id, device_id, generation, expected_lut, &monitors)
+            }
+        },
+    )?;
+    if ownership.is_none() {
+        let message = format!(
+            "color recovery not armed: rule={rule_id}, final LUT or applied display identity unavailable"
+        );
+        eprintln!("[process-watcher] {message}");
+        crate::debug_recorder::log("process-watcher", message);
+    }
+    Ok(ownership)
+}
+
+// 只匹配 apply 实际返回的设备；主屏变化或枚举顺序变化时不回退到另一块屏幕。
+fn recovery_ownership_for_display(
+    rule_id: &str,
+    device_id: &str,
+    generation: u64,
+    expected_lut: [u16; 768],
+    monitors: &[icc::DisplayMonitor],
+) -> Option<crate::color_recovery::RecoveryOwnership> {
+    let monitor = monitors
+        .iter()
+        .find(|m| m.device_id == device_id && !m.pnp_id.is_empty())?;
+    Some(crate::color_recovery::RecoveryOwnership {
+        rule_id: rule_id.to_string(),
+        activation_seq: crate::color_recovery::next_activation_seq(),
+        device_id: monitor.device_id.clone(),
+        pnp_id: monitor.pnp_id.clone(),
+        generation,
+        expected_lut,
+        backend: crate::color_backend::Backend::Standard,
+    })
+}
+
+/// 已持闩的整组方案应用；返回所有 NVIDIA/LUT helper 实际写入的 device_id，
+/// 供 watcher 在闩内捕获，避免事后重新 resolve_display_id(None) 选错屏幕。
+fn apply_color_config_locked_with_source(
+    source: &str,
+    cfg: &ColorConfig,
+) -> Result<String, String> {
+    // 代号由外部入口递增；本函数不得重新获取颜色写门闩。
 
     // 实际目标显示器：全部 None 参数最终都落到主显示器，写进日志供诊断
     let did = nvidia::resolve_display_id(None);
@@ -193,38 +260,21 @@ fn apply_color_config_locked_with_source(source: &str, cfg: &ColorConfig) -> Res
         }
         Ok(_) => {}
         Err(e) => {
-            crate::debug_recorder::log("config", format!("方案 '{}' 的分辨率应用失败：{e}", cfg.name));
+            crate::debug_recorder::log(
+                "config",
+                format!("方案 '{}' 的分辨率应用失败：{e}", cfg.name),
+            );
             eprintln!("[apply] resolution skipped: {}", e);
         }
     }
 
-    // 先处理 ICC（作为 gamma 基础 ramp），再叠加 NVIDIA 调节——与前端 handleApply 顺序一致。
-    // ICC 失败（如引用的文件已删除）只跳过，不阻断后续 NVIDIA 应用。
-    match &cfg.icc_profile {
-        Some(icc_path) => {
-            if let Err(e) = icc::apply_icc_profile(icc_path, None) {
-                // 只跳过不阻断，但必须留痕——否则「方案应用了但 ICC 没生效」无从排查
-                crate::debug_recorder::log("config", format!("方案 '{}' 的 ICC 应用失败：{e}", cfg.name));
-            }
-        }
-        None => {
-            // 无 ICC → 恢复系统默认 sRGB（清除残留 vcgt ramp），与前端一致
-            let _ = icc::restore_default_icc(None);
-        }
+    // A/B 共用一次最终曲线合成；后台和前端整组应用使用同一个协调器。
+    for warning in crate::color_backend::apply_config_locked(&did, cfg)? {
+        crate::debug_recorder::log("config", format!("方案 '{}' 部分成功：{warning}", cfg.name));
+        eprintln!("[apply] {warning}");
     }
 
-    // 已持闩：走 *_locked helper，不得再经公开命令入口重取门闩（不可重入）
-    nvidia::set_brightness_locked(&did, cfg.brightness)?;
-    nvidia::set_contrast_locked(&did, cfg.contrast)?;
-    nvidia::set_gamma_locked(&did, cfg.gamma)?;
-    // 数字振动只有 NVIDIA 输出的显示器支持，失败不阻断其余调节 ——
-    // AMD / Intel 机器上它必然失败，但 RGB 增益等仍然应该照常应用。
-    if let Err(e) = nvidia::dvc_set_locked(&did, cfg.digital_vibrance.clamp(0, 100)) {
-        eprintln!("[apply] digital vibrance skipped: {}", e);
-    }
-    nvidia::set_rgb_gain_locked(&did, cfg.rgb_r, cfg.rgb_g, cfg.rgb_b)?;
-
-    Ok(())
+    Ok(did)
 }
 
 /// Tauri 命令：刷新托盘菜单（方案变化时前端调用）
@@ -237,4 +287,53 @@ pub fn refresh_tray_menu(app: AppHandle) -> Result<(), String> {
         tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod recovery_snapshot_tests {
+    use super::recovery_ownership_for_display;
+    use crate::icc::DisplayMonitor;
+
+    fn monitor(device_id: &str, pnp_id: &str, is_primary: bool) -> DisplayMonitor {
+        DisplayMonitor {
+            name: device_id.into(),
+            device_id: device_id.into(),
+            pnp_id: pnp_id.into(),
+            is_primary,
+        }
+    }
+
+    #[test]
+    fn ownership_keeps_applied_device_when_primary_or_enumeration_order_changes() {
+        let monitors = [
+            monitor("new-primary", "new-primary-pnp", true),
+            monitor("applied-device", "applied-device-pnp", false),
+        ];
+        let lut = [32123; 768];
+        let owner =
+            recovery_ownership_for_display("rule", "applied-device", 17, lut, &monitors).unwrap();
+        assert_eq!(owner.rule_id, "rule");
+        assert_eq!(owner.device_id, "applied-device");
+        assert_eq!(owner.pnp_id, "applied-device-pnp");
+        assert_eq!(owner.generation, 17);
+        assert_eq!(owner.expected_lut, lut);
+        let next =
+            recovery_ownership_for_display("rule", "applied-device", 17, lut, &monitors).unwrap();
+        assert!(next.activation_seq > owner.activation_seq);
+    }
+
+    #[test]
+    fn missing_applied_device_or_pnp_never_falls_back_to_another_monitor() {
+        let other = [monitor("other-primary", "other-pnp", true)];
+        assert!(recovery_ownership_for_display("rule", "missing", 17, [1; 768], &other).is_none());
+        let unidentified = [monitor("applied-device", "", true)];
+        assert!(recovery_ownership_for_display(
+            "rule",
+            "applied-device",
+            17,
+            [1; 768],
+            &unidentified,
+        )
+        .is_none());
+    }
 }

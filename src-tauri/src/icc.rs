@@ -164,6 +164,61 @@ fn u16_to_str(arr: &[u16]) -> String {
     String::from_utf16_lossy(&arr[..len])
 }
 
+fn active_monitor_pnp(monitors: impl IntoIterator<Item = (u32, String)>) -> String {
+    // 同一输出下可能残留未启用的旧屏；枚举第 0 项不一定是当前活动监视器。
+    monitors.into_iter()
+        .find(|(flags, _)| flags & DISPLAY_DEVICE_ACTIVE != 0)
+        .map(|(_, pnp)| pnp)
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod active_monitor_tests {
+    use super::active_monitor_pnp;
+
+    #[test]
+    fn skips_inactive_monitor_before_active_monitor() {
+        assert_eq!(
+            active_monitor_pnp([
+                (2, r"MONITOR\AOC2730\old".to_string()),
+                (3, r"MONITOR\AOCB453\current".to_string()),
+            ]),
+            r"MONITOR\AOCB453\current",
+        );
+    }
+
+    #[test]
+    fn keeps_active_first_monitor() {
+        assert_eq!(
+            active_monitor_pnp([(1, "current".into()), (2, "old".into())]),
+            "current",
+        );
+    }
+
+    #[test]
+    fn does_not_fall_back_to_inactive_monitor() {
+        assert_eq!(active_monitor_pnp([(2, "old".into())]), "");
+    }
+
+    #[test]
+    fn accepts_empty_monitor_list() {
+        assert_eq!(active_monitor_pnp([]), "");
+    }
+
+    #[test]
+    #[ignore = "requires an active AMD primary display; only reads driver state"]
+    fn live_primary_amd_saturation_probe() {
+        let monitor = super::enumerate_display_monitors().into_iter()
+            .find(|monitor| monitor.is_primary).expect("active primary monitor");
+        println!("monitor={monitor:?}");
+        let (min, max, default, current) = crate::amd::get_saturation_info(&monitor.device_id)
+            .expect("primary AMD display saturation is supported");
+        println!("AMD saturation min={min} max={max} default={default} current={current}");
+        assert!(max > min && (min..=max).contains(&current));
+        crate::amd::shutdown();
+    }
+}
+
 /// 枚举当前活动显示器（无日志、可高频调用）。
 /// 显示器拓扑监听线程（display_watch）与 get_display_monitors 命令共用。
 pub fn enumerate_display_monitors() -> Vec<DisplayMonitor> {
@@ -190,12 +245,11 @@ pub fn enumerate_display_monitors() -> Vec<DisplayMonitor> {
 
                 if adapter.StateFlags & DISPLAY_DEVICE_ACTIVE != 0 {
                     // 用不带 EDD flag 的第二层枚举拿 DeviceID（PnP 路径）
-                    let mut mon: DISPLAY_DEVICEW = Default::default();
-                    let pnp_id = if enum_fn(adapter.DeviceName.as_ptr(), 0, &mut mon, 0) != 0 {
-                        u16_to_str(&mon.DeviceID)
-                    } else {
-                        String::new()
-                    };
+                    let pnp_id = active_monitor_pnp((0..).map_while(|index| {
+                        let mut mon: DISPLAY_DEVICEW = Default::default();
+                        (enum_fn(adapter.DeviceName.as_ptr(), index, &mut mon, 0) != 0)
+                            .then(|| (mon.StateFlags, u16_to_str(&mon.DeviceID)))
+                    }));
 
                     let model = get_monitor_name_from_edid(&pnp_id)
                         .unwrap_or_else(|| u16_to_str(&adapter.DeviceString));
@@ -1254,7 +1308,7 @@ fn read_u32_be(data: &[u8], offset: usize) -> u32 {
 }
 
 /// 从 ICC 文件解析 vcgt 标签，返回 [R256, G256, B256] 的 gamma ramp（每个值 0..=65535）
-fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
+pub(crate) fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
     if icc_data.len() < 132 { return None; }
 
     // ICC header: tag count at offset 128
@@ -1264,7 +1318,7 @@ fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
     // 查找 vcgt 标签 (0x76636774)
     let vcgt_sig: u32 = 0x76636774;
     let mut vcgt_offset = 0usize;
-    let mut _vcgt_size = 0usize;
+    let mut vcgt_size = 0usize;
 
     for i in 0..tag_count {
         let base = tag_table_start + i * 12;
@@ -1272,7 +1326,7 @@ fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
         let sig = read_u32_be(icc_data, base);
         if sig == vcgt_sig {
             vcgt_offset = read_u32_be(icc_data, base + 4) as usize;
-            _vcgt_size = read_u32_be(icc_data, base + 8) as usize;
+            vcgt_size = read_u32_be(icc_data, base + 8) as usize;
             break;
         }
     }
@@ -1282,7 +1336,9 @@ fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
         return None;
     }
 
-    let vcgt = &icc_data[vcgt_offset..];
+    let vcgt_end = vcgt_offset.checked_add(vcgt_size)?;
+    if vcgt_size < 12 || vcgt_end > icc_data.len() { return None; }
+    let vcgt = &icc_data[vcgt_offset..vcgt_end];
     let gamma_type = read_u32_be(vcgt, 8);
 
     let mut ramp = [[0u16; 256]; 3];
@@ -1351,10 +1407,89 @@ fn parse_vcgt(icc_data: &[u8]) -> Option<[[u16; 256]; 3]> {
     Some(ramp)
 }
 
+/// Read the same local/system ICC used by the existing loader, without WCS or
+/// display PnP dependency. Absence of VCGT differs from an invalid ICC file.
+pub(crate) fn read_profile_curve(profile_path: &str) -> Result<Option<[[u16; 256]; 3]>, String> {
+    let source = PathBuf::from(profile_path);
+    let name = source.file_name().ok_or("Invalid ICC path")?;
+    let installed = color_dir().join(name);
+    let path = if installed.exists() { installed } else { source };
+    let bytes = fs::read(&path).map_err(|e| format!("Failed to read ICC '{}': {e}", path.display()))?;
+    let has_vcgt = crate::icc_validation::validate_profile_tags(&bytes)
+        .map_err(|error| format!("Invalid ICC '{}': {error}", path.display()))?;
+    let declared = read_u32_be(&bytes, 0) as usize;
+    let tags = read_u32_be(&bytes, 128) as usize;
+    if declared < 132 || declared > bytes.len()
+        || tags.checked_mul(12).and_then(|n| n.checked_add(132)).is_none_or(|n| n > declared) {
+        return Err(format!("Truncated ICC profile: {}", path.display()));
+    }
+    let curve = parse_vcgt(&bytes[..declared]);
+    if has_vcgt && curve.is_none() {
+        return Err(format!("ICC VCGT cannot be parsed: {}", path.display()));
+    }
+    Ok(curve)
+}
+
+#[cfg(test)]
+mod vcgt_extent_tests {
+    use super::*;
+
+    fn table_profile(tag_size: u32) -> Vec<u8> {
+        let mut bytes = vec![0u8; 144 + 18 + 3 * 256 * 2];
+        let size = bytes.len() as u32;
+        bytes[0..4].copy_from_slice(&size.to_be_bytes());
+        bytes[36..40].copy_from_slice(b"acsp");
+        bytes[128..132].copy_from_slice(&1u32.to_be_bytes());
+        bytes[132..136].copy_from_slice(b"vcgt");
+        bytes[136..140].copy_from_slice(&144u32.to_be_bytes());
+        bytes[140..144].copy_from_slice(&tag_size.to_be_bytes());
+        bytes[144..148].copy_from_slice(b"vcgt");
+        bytes[156..158].copy_from_slice(&3u16.to_be_bytes());
+        bytes[158..160].copy_from_slice(&256u16.to_be_bytes());
+        bytes[160..162].copy_from_slice(&2u16.to_be_bytes());
+        for channel in 0..3 {
+            for i in 0..256 {
+                let offset = 162 + channel * 512 + i * 2;
+                bytes[offset..offset + 2].copy_from_slice(&((i * 257) as u16).to_be_bytes());
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn table_parser_cannot_consume_data_outside_declared_tag() {
+        let truncated = table_profile(18);
+        assert!(parse_vcgt(&truncated).is_none());
+        assert!(crate::icc_validation::validate_profile_tags(&truncated).is_err());
+        let valid = table_profile(18 + 3 * 256 * 2);
+        let ramp = parse_vcgt(&valid).unwrap();
+        assert_eq!(ramp[0][128], 32896);
+        assert_eq!(ramp[2][255], 65535);
+        assert_eq!(crate::icc_validation::validate_profile_tags(&valid), Ok(true));
+    }
+
+    #[test]
+    fn invalid_tag_extent_never_panics_or_reads_neighbor_bytes() {
+        assert!(parse_vcgt(&table_profile(u32::MAX)).is_none());
+        assert!(parse_vcgt(&table_profile(11)).is_none());
+    }
+}
+
 /// 应用 ICC 配置（WCS 注册 + vcgt 直写 LUT）。**调用方必须已持颜色写门闩**
 /// （set_icc_profile 命令 / apply_color_config_from / restore_default_icc 都在
 /// 闩内调用）；外部写入的代号递增由门闩统一完成。
 pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -> Result<(), String> {
+    let target = crate::nvidia::resolve_display_id(device_id.clone());
+    if crate::color_backend::active_backend(&target) == crate::color_backend::Backend::Nvidia {
+        return crate::color_backend::apply_icc_locked(&target, profile_path);
+    }
+    apply_icc_profile_standard(profile_path, device_id)
+}
+
+/// Transition helper: explicitly uses WCS/GDI, without selecting B recursively.
+/// Caller already holds the shared color-write latch.
+pub(crate) fn apply_icc_profile_standard(profile_path: &str, device_id: Option<String>) -> Result<(), String> {
+    let target = crate::nvidia::resolve_display_id(device_id.clone());
     use windows::Win32::UI::ColorSystem::*;
     use windows::core::PCWSTR;
 
@@ -1381,6 +1516,9 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
         crate::debug_recorder::log("icc", format!("读取 ICC 失败：{e}"));
         format!("Failed to read ICC file: {}", e)
     })?;
+    crate::icc_validation::validate_profile_tags(&icc_data)
+        .map_err(|error| format!("Invalid ICC profile '{file_name}': {error}"))?;
+    let previous_base = crate::nvidia::icc_base_for_display(&target);
     crate::debug_recorder::log(
         "icc",
         format!("文件 {} 字节，来源 '{}'，目标目录文件已存在={}", icc_data.len(), profile_path, std::path::Path::new(&dest_path).exists()),
@@ -1477,9 +1615,15 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
                     crate::nvidia::cache_final_ramp(&adapter_id, &gamma_ramp);
                 }
                 let _ = windows::Win32::Graphics::Gdi::DeleteDC(hdc);
+                if !result.as_bool() {
+                    crate::nvidia::set_icc_base_ramp_for_display(&target, previous_base);
+                    return Err(format!("SetDeviceGammaRamp failed for {adapter_id}"));
+                }
             } else {
                 eprintln!("ICC: Failed to create DC for adapter: {}", adapter_id);
                 crate::debug_recorder::log("icc", format!("CreateDCW 失败：{adapter_id}"));
+                crate::nvidia::set_icc_base_ramp_for_display(&target, previous_base);
+                return Err(format!("CreateDCW failed for {adapter_id}"));
             }
         } else {
             eprintln!("ICC: No vcgt in profile, only WCS registration done");
@@ -1500,6 +1644,7 @@ pub(crate) fn apply_icc_profile(profile_path: &str, device_id: Option<String>) -
             let _ = WcsSetCalibrationManagementState(true);
         }
 
+        crate::color_backend::note_profile(&target, profile_path);
         Ok(())
     }
 }
@@ -1533,6 +1678,29 @@ pub fn get_current_icc_profile() -> Result<String, String> {
 /// 供托盘/快捷键等同步上下文直接调用（避免在回调里 block_on 跑 async）。
 /// **调用方必须已持颜色写门闩**（apply_default_config_from / 命令包装层负责）。
 pub(crate) fn restore_default_icc(device_id: Option<String>) -> Result<(), String> {
+    let target = crate::nvidia::resolve_display_id(device_id.clone());
+    if crate::color_backend::active_backend(&target) == crate::color_backend::Backend::Nvidia {
+        let previous_settings = crate::nvidia::get_or_default_settings(&target);
+        let previous_base = crate::nvidia::icc_base_for_display(&target);
+        let previous_profile = crate::color_backend::profile_for_display(&target);
+        crate::nvidia::replace_settings(&target, crate::nvidia::NvidiaSettings::default());
+        crate::nvidia::set_icc_base_ramp_for_display(&target, None);
+        if let Err(error) = crate::nvidia::apply_gamma_ramp_locked(&target) {
+            crate::nvidia::replace_settings(&target, previous_settings);
+            crate::nvidia::set_icc_base_ramp_for_display(&target, previous_base);
+            if let Some(path) = previous_profile { crate::color_backend::note_profile(&target, &path); }
+            return Err(error);
+        }
+        crate::color_backend::clear_profile(&target);
+        if let Err(error) = crate::nvidia::dvc_set_locked(&target, 50) {
+            crate::color_backend::note_warning(&target, format!("默认曲线已写入，数字振动恢复失败：{error}"));
+        }
+        return Ok(());
+    }
+    restore_default_icc_standard(device_id)
+}
+
+pub(crate) fn find_system_default_profile() -> Result<PathBuf, String> {
     let color_dir = color_dir();
 
     let default_profile = [
@@ -1544,10 +1712,14 @@ pub(crate) fn restore_default_icc(device_id: Option<String>) -> Result<(), Strin
     .find(|p| p.exists())
     .ok_or("Default sRGB profile not found".to_string())?;
 
-    let profile_path = default_profile.to_string_lossy().to_string();
+    Ok(default_profile)
+}
+
+pub(crate) fn restore_default_icc_standard(device_id: Option<String>) -> Result<(), String> {
+    let profile_path = find_system_default_profile()?.to_string_lossy().to_string();
     eprintln!("ICC: Restoring default = {}", profile_path);
 
-    apply_icc_profile(&profile_path, device_id.clone())?;
+    apply_icc_profile_standard(&profile_path, device_id.clone())?;
 
     // 恢复数字振动为 NVIDIA 面板默认 50%。仅 NVIDIA 支持，
     // 失败不影响 ICC 本身已经恢复成功这个事实。

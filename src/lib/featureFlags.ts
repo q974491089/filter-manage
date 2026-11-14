@@ -23,6 +23,8 @@ export const FEATURE_ICC_MARKET_UPLOAD = "icc_market_upload";
 export const FEATURE_ICC_MARKET_REVIEW = "icc_market_review";
 /** 方案分享：客户端「分享」按钮与「导入分享链接」入口 */
 export const FEATURE_PLAN_SHARE = "plan_share";
+/** NVIDIA 专用调色：仅远程开关明确开启时展示实验入口。 */
+export const FEATURE_NVIDIA_COLOR_BACKEND = "nvidia_color_backend";
 
 export interface FeatureFlagsState {
   version: number;

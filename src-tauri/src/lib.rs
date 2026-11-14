@@ -1,4 +1,9 @@
 mod color_recovery;
+mod color_backend;
+mod nvidia_csc;
+mod display_capability;
+mod display_identity;
+mod icc_validation;
 mod config;
 mod debug_recorder;
 mod display_watch;
@@ -71,6 +76,7 @@ fn get_pending_share_url(state: tauri::State<PendingShareUrl>) -> Option<String>
 pub(crate) fn shutdown_runtime(app: &tauri::AppHandle) {
     process_watcher::stop_watcher();
     foreground_watch::shutdown();
+    color_backend::shutdown();
     amd::shutdown();
     app.cleanup_before_exit();
 }
@@ -115,6 +121,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             let settings = config::get_app_settings().unwrap_or_default();
+            color_backend::initialize();
 
             // 分享链接协议：每用户注册到 HKCU，dev/绿色版/更新后路径自愈
             if let Err(err) = register_share_url_protocol() {
@@ -234,6 +241,10 @@ pub fn run() {
             nvidia::get_dvc_default_ui_value,
             nvidia::get_dvc_capability,
             nvidia::sync_dvc_from_driver,
+            color_backend::get_display_color_status,
+            color_backend::set_display_color_backend,
+            color_backend::apply_display_color_config,
+            color_backend::open_display_device_manager,
             // Config
             config::save_config,
             config::load_config,

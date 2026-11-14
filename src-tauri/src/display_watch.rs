@@ -124,6 +124,7 @@ fn spawn_worker(app: AppHandle) {
         .name("display-watch".into())
         .spawn(move || {
             let mut last: Option<Vec<DisplayMonitor>> = None;
+            let mut last_color_capabilities = None;
             loop {
                 // 阻塞等事件信号（无事件零开销）
                 {
@@ -151,6 +152,20 @@ fn spawn_worker(app: AppHandle) {
                 }
 
                 let current = icc::enumerate_display_monitors();
+                crate::color_backend::on_display_environment_changed();
+                // A monitor's devnode can be disabled/enabled without changing
+                // its GDI name or the monitor list. Compare those read-only
+                // capabilities separately so the new status UI sees Code 22.
+                let capabilities: Vec<_> = current.iter().map(|monitor| {
+                    (monitor.device_id.clone(), crate::display_capability::inspect(&monitor.device_id).ok())
+                }).collect();
+                if last_color_capabilities.as_ref() != Some(&capabilities) {
+                    if let Err(error) = app.emit("display-color-env-changed", ()) {
+                        eprintln!("[display-watch] color status emit failed: {error}");
+                    } else {
+                        last_color_capabilities = Some(capabilities);
+                    }
+                }
                 if last.as_ref() == Some(&current) {
                     // 消息到了但显示器列表没变（如无关设备触发的 DBT_DEVNODES_CHANGED）
                     continue;
