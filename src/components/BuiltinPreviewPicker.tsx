@@ -145,8 +145,9 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
             value={original ? "original" : "effect"}
             onChange={(id) => setOriginal(id === "original")}
             variant="overlay"
+            size="sm"
             ariaLabel="预览对比"
-            className="relative w-[124px]"
+            className="relative"
           />
         </div>
       </div>
