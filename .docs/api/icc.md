@@ -39,3 +39,13 @@
 手动 apply_display_color_config 成功后，标准后端安排约 250ms、750ms 的两次短时回读，仅最大高字节偏差大于 2 时补写已经缓存的最终曲线，至多补写两次。读取失败停止，不重复 ICC、DVC、分辨率。独立于调试模式；每次读写持颜色门闩，要求操作代号未变化、同一稳定输出身份、监视器启用、身份无歧义、HDR 明确关闭、实际后端仍是 standard。读取之后再复核代号；任何新手动操作立即使旧任务失效。自动监听继续使用现有恢复调度。
 
 调试日志分类 preset-settle 记录曲线保持或补写；verify-delayed 仍为独立只读诊断。日志捕获到的用户问题为最终曲线在约 250ms 内被重置，重复 WCS 关联和驱动重新配置是重点怀疑对象，实际重置者尚不能据此确定。
+
+## ICC 默认记录查询兼容与闪动排查（2026-11-15，v3 测试）
+
+01:36 的用户日志五次自定义方案均在约 250ms 检测到高字节偏差 42，补写后 750/1000ms 保持；默认方案偏差仅 1、无需补写。用户确认能持续应用但单向闪动，与自定义曲线被重置后补写的过程相吻合。每次 WCS 当前关联查询都报 ERROR_FILE_NOT_FOUND，v2 的重复关联跳过路径未在该环境生效。
+
+修正设备默认 ICC 的查询/设置组合为 CPT_ICC + CPST_NONE（此前沿用的 CPST_PERCEPTUAL 属于 GMMP 渲染意图）。当 WCS 记录不存在或查询不可用时，从目标 GDI 输出创建新的 DC，使用 GetICMProfileW 读取当前输出配置，再比较是否需要注册。没有显式 WCS 默认记录不等于显示器没有有效 ICC；当前系统隐式 sRGB 与目标同名时也应跳过注册。若两种查询均失败，保留原有设置流程并记录两条失败原因；不猜测配置、不用进程缓存。
+
+GetICMProfileW 使用实际字符缓冲，避免部分 Windows 上 NULL 大小探针返回 FALSE/122 的兼容问题；缓冲不足且 API 给出有效长度时最多扩容一次，上限 32768 个 UTF-16 字符。每次均释放 DC。设备目标来自本次应用的显示器，不回退到主屏。短时两次有限补写及所有代号/身份检查继续保留。
+
+微软文档：[有效类型/子类型组合](https://learn.microsoft.com/en-us/windows/win32/api/icm/ne-icm-colorprofilesubtype)、[GetICMProfileW 当前输出配置](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-geticmprofilew)。本机只读探针确认：WCS 无显式默认记录时返回文件不存在，GDI 仍能读到系统 sRGB。真实笔记本的闪动是否消失仍待 v3 复测，尚不能据此确定最终重置者。

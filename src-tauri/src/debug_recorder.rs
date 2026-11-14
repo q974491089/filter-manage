@@ -419,6 +419,16 @@ fn write_env_snapshot() {
                         m.name, m.is_primary, m.device_id, m.pnp_id
                     ),
                 );
+                match crate::icc::read_output_icc_profile(&m.device_id) {
+                    Ok(path) => log(
+                        "env",
+                        format!("GDI 当前输出 ICC device={} path='{path}'", m.device_id),
+                    ),
+                    Err(error) => log(
+                        "env",
+                        format!("GDI 当前输出 ICC device={} 查询失败：{error}", m.device_id),
+                    ),
+                }
                 match crate::display_capability::inspect(&m.device_id) {
                     Ok(capability) => log("env", format!(
                         "调色环境 backend={} monitor_state={} gpu_vendor={} hdr={:?} advanced_color={:?} ambiguous={} stable_key={:?}",
@@ -504,10 +514,10 @@ fn write_env_snapshot() {
         Err(e) => log("env", format!("HDR 状态整体查询失败：{e}")),
     }
 
-    // 当前系统关联的 ICC（对比「app 认为应用了什么」和「系统实际挂着什么」）
+    // Legacy desktop registry label is not a query of any particular output.
     match crate::icc::get_current_icc_profile() {
-        Ok(name) => log("env", format!("系统当前关联 ICC = {name}")),
-        Err(e) => log("env", format!("系统当前关联 ICC 读取失败：{e}")),
+        Ok(name) => log("env", format!("旧桌面 ICC 注册表字段/缺省标签（不代表当前输出）= {name}")),
+        Err(e) => log("env", format!("旧桌面 ICC 注册表字段读取失败：{e}")),
     }
 
     // 进程监听状态：后台自动切换方案造成的「怪现象」会伪装成前台 bug，

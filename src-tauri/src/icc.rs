@@ -1526,65 +1526,150 @@ fn ensure_profile_association(
     Ok(true)
 }
 
-fn query_profile_association(pnp: &str) -> Result<ProfileAssociation, String> {
+/// An absent explicit WCS default is not proof that the display has no ICC.
+/// Read the current output profile from a fresh DC before deciding to register.
+fn profile_association_with_fallback(
+    per_user: bool,
+    legacy: impl FnOnce() -> Result<String, String>,
+    output: impl FnOnce() -> Result<String, String>,
+) -> Result<ProfileAssociation, String> {
+    let name = match legacy() {
+        Ok(name) => name,
+        Err(legacy_error) => match output() {
+            Ok(name) => {
+                crate::debug_recorder::log(
+                    "icc",
+                    format!(
+                        "WCS 默认记录查询失败：{legacy_error}；改用 GDI 当前输出 ICC：'{name}'"
+                    ),
+                );
+                name
+            }
+            Err(output_error) => {
+                return Err(format!(
+                    "WCS: {legacy_error} | 当前输出 ICC: {output_error}"
+                ))
+            }
+        },
+    };
+    if name.is_empty() {
+        return Err("Empty current ICC profile name".into());
+    }
+    Ok(ProfileAssociation { per_user, name })
+}
+
+fn query_profile_association(pnp: &str, device_id: &str) -> Result<ProfileAssociation, String> {
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::{Foundation::BOOL, UI::ColorSystem::*};
     let device: Vec<u16> = pnp.encode_utf16().chain(Some(0)).collect();
     let device = PCWSTR(device.as_ptr());
     let mut per_user = BOOL(0);
-    unsafe {
-        if !WcsGetUsePerUserProfiles(device, CLASS_MONITOR, &mut per_user).as_bool() {
-            return Err(format!(
-                "WcsGetUsePerUserProfiles: {}",
-                windows::core::Error::from_win32()
-            ));
-        }
-        let scope = if per_user.as_bool() {
-            WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER
-        } else {
-            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE
-        };
-        let mut bytes = 0u32;
-        if !WcsGetDefaultColorProfileSize(scope, device, CPT_ICC, CPST_PERCEPTUAL, 0, &mut bytes)
-            .as_bool()
-        {
-            return Err(format!(
-                "WcsGetDefaultColorProfileSize: {}",
-                windows::core::Error::from_win32()
-            ));
-        }
-        if bytes < 2 || bytes % 2 != 0 || bytes > 65536 {
-            return Err(format!("WCS returned invalid profile buffer size: {bytes}"));
-        }
-        let mut name = vec![0u16; bytes as usize / 2];
-        if !WcsGetDefaultColorProfile(
-            scope,
-            device,
-            CPT_ICC,
-            CPST_PERCEPTUAL,
-            0,
-            bytes,
-            PWSTR(name.as_mut_ptr()),
-        )
-        .as_bool()
-        {
-            return Err(format!(
-                "WcsGetDefaultColorProfile: {}",
-                windows::core::Error::from_win32()
-            ));
-        }
-        let end = name
-            .iter()
-            .position(|v| *v == 0)
-            .ok_or("WCS returned an unterminated profile name")?;
-        if end == 0 {
-            return Err("WCS returned an empty profile name".into());
-        }
-        Ok(ProfileAssociation {
-            per_user: per_user.as_bool(),
-            name: String::from_utf16_lossy(&name[..end]),
-        })
+    let scope_query = unsafe { WcsGetUsePerUserProfiles(device, CLASS_MONITOR, &mut per_user) };
+    let scope_error =
+        (!scope_query.as_bool()).then(|| windows::core::Error::from_win32().to_string());
+    let per_user = scope_query.as_bool() && per_user.as_bool();
+    let scope = if per_user {
+        WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER
+    } else {
+        WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE
+    };
+    profile_association_with_fallback(
+        per_user,
+        || {
+            if let Some(error) = scope_error {
+                return Err(format!("WcsGetUsePerUserProfiles: {error}"));
+            }
+            let mut bytes = 0u32;
+            unsafe {
+                // Microsoft documents CPT_ICC + CPST_NONE for a device's default.
+                // CPST_PERCEPTUAL belongs to GMMP rendering-intent profiles.
+                if !WcsGetDefaultColorProfileSize(scope, device, CPT_ICC, CPST_NONE, 0, &mut bytes)
+                    .as_bool()
+                {
+                    return Err(format!(
+                        "WcsGetDefaultColorProfileSize(scope={} subtype=CPST_NONE): {}",
+                        scope.0,
+                        windows::core::Error::from_win32()
+                    ));
+                }
+                if bytes < 2 || bytes % 2 != 0 || bytes > 65536 {
+                    return Err(format!("WCS returned invalid profile buffer size: {bytes}"));
+                }
+                let mut name = vec![0u16; bytes as usize / 2];
+                if !WcsGetDefaultColorProfile(
+                    scope,
+                    device,
+                    CPT_ICC,
+                    CPST_NONE,
+                    0,
+                    bytes,
+                    PWSTR(name.as_mut_ptr()),
+                )
+                .as_bool()
+                {
+                    return Err(format!(
+                        "WcsGetDefaultColorProfile: {}",
+                        windows::core::Error::from_win32()
+                    ));
+                }
+                let end = name
+                    .iter()
+                    .position(|v| *v == 0)
+                    .ok_or("WCS returned an unterminated profile name")?;
+                if end == 0 {
+                    return Err("WCS returned an empty profile name".into());
+                }
+                Ok(String::from_utf16_lossy(&name[..end]))
+            }
+        },
+        || read_output_icc_profile(device_id),
+    )
+}
+
+pub(crate) fn read_output_icc_profile(device_id: &str) -> Result<String, String> {
+    use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC};
+    use windows::Win32::UI::ColorSystem::GetICMProfileW;
+    let device: Vec<u16> = device_id.encode_utf16().chain(Some(0)).collect();
+    let hdc = unsafe { CreateDCW(PCWSTR(device.as_ptr()), None, None, None) };
+    if hdc.is_invalid() {
+        return Err(format!("CreateDCW failed for {device_id}"));
     }
+    let result = (|| {
+        // Start with a real buffer. Some Windows versions return FALSE/122 for
+        // the documented NULL size probe even when they provide the length.
+        let mut buffer = vec![0u16; 260];
+        for _ in 0..2 {
+            let mut chars = buffer.len() as u32;
+            if unsafe { GetICMProfileW(hdc, &mut chars, PWSTR(buffer.as_mut_ptr())) }.as_bool() {
+                let end = buffer
+                    .iter()
+                    .position(|v| *v == 0)
+                    .ok_or("GDI returned an unterminated ICC profile name")?;
+                if end == 0 {
+                    return Err("GDI returned an empty ICC profile name".into());
+                }
+                return Ok(String::from_utf16_lossy(&buffer[..end]));
+            }
+            let error = unsafe { windows::Win32::Foundation::GetLastError() };
+            if error == windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER
+                && chars as usize > buffer.len()
+                && chars <= 32768
+            {
+                buffer.resize(chars as usize, 0);
+                continue;
+            }
+            return Err(format!(
+                "GetICMProfileW failed for {device_id}: win32={}",
+                error.0
+            ));
+        }
+        Err("GDI ICC profile name exceeded the query buffer".into())
+    })();
+    unsafe {
+        let _ = DeleteDC(hdc);
+    }
+    result
 }
 
 /// Validate the installed bytes and prepare the association, without writing a
@@ -1613,7 +1698,7 @@ fn prepare_icc_profile_standard(
     let pnp_id = resolve_device_pnp(device_id)?;
     let outcome = ensure_profile_association(
         &file_name,
-        || query_profile_association(&pnp_id),
+        || query_profile_association(&pnp_id, &target),
         |enable_per_user| {
             let device: Vec<u16> = pnp_id.encode_utf16().chain(Some(0)).collect();
             let name: Vec<u16> = file_name.encode_utf16().chain(Some(0)).collect();
@@ -1657,7 +1742,7 @@ fn prepare_icc_profile_standard(
                         WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
                         device,
                         CPT_ICC,
-                        CPST_PERCEPTUAL,
+                        CPST_NONE,
                         0,
                         name,
                     )
@@ -1820,6 +1905,113 @@ fn apply_profile_without_vcgt(
 mod profile_association_tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn missing_wcs_record_uses_current_output_and_never_reregisters_same_profile() {
+        let reads = Cell::new(0);
+        for _ in 0..2 {
+            let changed = ensure_profile_association(
+                "sRGB Color Space Profile.icm",
+                || {
+                    profile_association_with_fallback(
+                        true,
+                        || Err("win32=2".into()),
+                        || {
+                            reads.set(reads.get() + 1);
+                            Ok(
+                                r"C:\Windows\System32\spool\drivers\color\sRGB Color Space Profile.icm"
+                                    .into(),
+                            )
+                        },
+                    )
+                },
+                |_| panic!("implicit effective sRGB must not be registered again"),
+            )
+            .unwrap();
+            assert!(!changed);
+        }
+        assert_eq!(
+            reads.get(),
+            2,
+            "each application reads the current output afresh"
+        );
+    }
+
+    #[test]
+    fn fallback_detects_a_different_profile_and_preserves_user_scope() {
+        for per_user in [true, false] {
+            let changed = ensure_profile_association(
+                "new.icc",
+                || {
+                    profile_association_with_fallback(
+                        per_user,
+                        || Err("no WCS default".into()),
+                        || Ok("old.icc".into()),
+                    )
+                },
+                |enable| {
+                    assert_eq!(enable, !per_user);
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert!(changed);
+        }
+    }
+
+    #[test]
+    fn valid_wcs_default_does_not_consult_or_replace_the_selected_scope() {
+        let profile = profile_association_with_fallback(
+            true,
+            || Ok("user.icc".into()),
+            || panic!("WCS selected scope is authoritative"),
+        )
+        .unwrap();
+        assert!(profile.per_user);
+        assert_eq!(profile.name, "user.icc");
+    }
+
+    #[test]
+    fn failed_or_empty_fallback_never_invents_a_default_profile() {
+        let error = profile_association_with_fallback(
+            false,
+            || Err("WCS failed".into()),
+            || Err("GDI failed".into()),
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("WCS failed") && error.contains("GDI failed"));
+        assert!(profile_association_with_fallback(
+            false,
+            || Err("no WCS default".into()),
+            || Ok(String::new())
+        )
+        .is_err());
+    }
+
+    #[test]
+    #[ignore = "requires an active primary monitor; only reads ICC association and DC state"]
+    fn live_primary_icc_query_probe() {
+        let monitor = enumerate_display_monitors()
+            .into_iter()
+            .find(|m| m.is_primary)
+            .expect("active primary monitor");
+        let actual = read_output_icc_profile(&monitor.device_id).expect("read current output ICC");
+        let association = query_profile_association(&monitor.pnp_id, &monitor.device_id)
+            .expect("read effective association");
+        println!(
+            "device={} GDI ICC={} effective ICC={} per_user={}",
+            monitor.device_id, actual, association.name, association.per_user
+        );
+        assert!(!association.name.is_empty());
+        let changed = ensure_profile_association(
+            &association.name,
+            || query_profile_association(&monitor.pnp_id, &monitor.device_id),
+            |_| panic!("read-only probe must never change association"),
+        )
+        .unwrap();
+        assert!(!changed);
+    }
 
     #[test]
     fn same_effective_profile_preserves_both_system_and_user_associations() {

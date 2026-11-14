@@ -37,3 +37,14 @@
 | 调试日志 | 区分关联变化、曲线保持和有限补写 | [debug.md](./api/debug.md) |
 
 验证：cargo test --lib --locked 94 通过、1 个 AMD 真机只读测试默认忽略；cargo check --all-targets --locked 无错误与 Rust 编译警告；pnpm exec tauri build --no-bundle 成功，前端 tsc/Vite 与 Windows release EXE 构建完成。新增关联复用/外部变更/查询失败与补写取消/量化/读写失败回归验证；用户实际屏幕效果仍待 v2 测试包复测。
+
+### 开发中 — 2026-11-15 · ICC 查询兼容与单向闪动排查
+
+用户确认 v2 方案可以持续应用，但自定义方案仍单向闪动。新日志五次均为曲线被重置后在 250ms 补写，后续保持；默认曲线接近中性所以变化不明显。关联查询每次都失败，重复注册没有被跳过。修正 ICC 默认配置子类型为 CPST_NONE，WCS 无默认记录时从实际目标 GDI 输出读取当前 ICC，按实时结果决定是否注册；诊断区分实际输出配置与旧桌面注册表缺省标签。保留有限补写和现有 AMD/监听修复，继续无登录。
+
+| 改动 | 说明 | 文档 |
+|---|---|---|
+| ICC 默认查询 | 正确子类型，缺少 WCS 记录时查询目标 DC | [icc.md](./api/icc.md) |
+| ICC 诊断 | 实际输出文件路径，旧注册表标签不再冒充当前配置 | [debug.md](./api/debug.md) |
+
+验证：cargo test --lib --locked 98 通过、2 个真机测试默认忽略；显式只读 live_primary_icc_query_probe 1 通过，本机读取到系统 sRGB，重复查询同一有效配置不触发 setter。cargo check --all-targets --locked 无错误与 Rust 警告；pnpm exec tauri build --no-bundle 成功，前端及 Windows release EXE 构建完成。真实用户笔记本闪动效果待 v3 复测。
