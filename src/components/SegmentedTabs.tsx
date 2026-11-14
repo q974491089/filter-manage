@@ -6,7 +6,10 @@ interface SegmentedTabsProps<T extends string> {
   /** surface：页面内亮色分段（与主页显示器切换同款视觉）；overlay：叠在图片上的暗色浮层 */
   variant?: "surface" | "overlay";
   ariaLabel?: string;
-  /** 附加到容器上（定位用，如 absolute right-sm top-sm） */
+  /**
+   * 附加到容器上。注意：组件根**不含 position 类**（避免与外部 absolute 冲突），
+   * 滑块是 absolute 定位，调用方必须保证容器为 positioned（传 relative 或 absolute）。
+   */
   className?: string;
 }
 
@@ -49,7 +52,7 @@ function SegmentedTabs<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className={`relative flex items-stretch rounded-md p-[2px] ${palette.track} ${
+      className={`flex items-stretch rounded-md p-[2px] ${palette.track} ${
         disabled ? "cursor-not-allowed opacity-40" : ""
       } ${className}`}
     >

@@ -50,11 +50,14 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
       // 用文件元信息当身份标识，命中缓存时连文件都不用读。
       iccToken: iccFile ? `file:${iccFile.name}:${iccFile.size}:${iccFile.lastModified}` : undefined,
     };
-    // 当前场景已有缓存则立即显示，其余场景后台继续补齐
+    // 当前场景已有缓存则立即显示并解除 busy；其余场景的结果保留不清（切 tab 零等待）
     const cachedNow = peekBuiltinPreview({ scene, ...baseOptions });
-    setEffects(cachedNow ? { [scene]: cachedNow } : {});
-
-    setBusy(true);
+    if (cachedNow) {
+      setEffects((prev) => ({ ...prev, [scene]: cachedNow }));
+      setBusy(false);
+    } else {
+      setBusy(true);
+    }
     const timer = window.setTimeout(() => {
       void (async () => {
         let encoded = iccBase64;
@@ -143,7 +146,7 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
             onChange={(id) => setOriginal(id === "original")}
             variant="overlay"
             ariaLabel="预览对比"
-            className="w-[124px]"
+            className="relative w-[124px]"
           />
         </div>
       </div>
