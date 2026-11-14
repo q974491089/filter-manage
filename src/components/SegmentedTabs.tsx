@@ -81,7 +81,7 @@ function SegmentedTabs<T extends string>({
       ref={containerRef}
       role="group"
       aria-label={ariaLabel}
-      className={`relative inline-flex items-stretch rounded-md p-[2px] ${palette.track} ${
+      className={`inline-flex items-stretch rounded-md p-[2px] ${palette.track} ${
         disabled ? "cursor-not-allowed opacity-40" : ""
       } ${className}`}
     >
