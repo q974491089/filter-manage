@@ -1626,26 +1626,69 @@ pub(crate) fn apply_icc_profile_standard(profile_path: &str, device_id: Option<S
                 return Err(format!("CreateDCW failed for {adapter_id}"));
             }
         } else {
-            eprintln!("ICC: No vcgt in profile, only WCS registration done");
             crate::debug_recorder::log(
                 "icc",
-                "该 ICC 无有效 vcgt：只做 WCS 注册，不写 LUT（屏幕不会有可见变化）".to_string(),
+                "该 ICC 无 VCGT：同步应用无 ICC 基底的当前滑块曲线，保留系统校准管理开关".to_string(),
             );
-            // 没有 vcgt，清空基础 ramp（等同于线性）
-            let adapter_id = device_id.unwrap_or_else(|| {
-                get_display_monitors()
-                    .ok()
-                    .and_then(|ms| ms.into_iter().find(|m| m.is_primary).map(|m| m.device_id))
-                    .unwrap_or_default()
-            });
-            crate::nvidia::set_icc_base_ramp_for_display(&adapter_id, None);
-            // 触发 calibration loader
-            let _ = WcsSetCalibrationManagementState(false);
-            let _ = WcsSetCalibrationManagementState(true);
+            apply_profile_without_vcgt(&target, crate::nvidia::apply_gamma_ramp_locked)?;
         }
 
         crate::color_backend::note_profile(&target, profile_path);
         Ok(())
+    }
+}
+
+// No calibration data means a linear ICC base, not an instruction to toggle the
+// system-wide calibration loader. Apply synchronously like a slider write and
+// retain the existing slider settings; failures restore the previous logical base.
+fn apply_profile_without_vcgt(
+    device_id: &str,
+    write: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    let previous = crate::nvidia::icc_base_for_display(device_id);
+    crate::nvidia::set_icc_base_ramp_for_display(device_id, None);
+    if let Err(error) = write(device_id) {
+        crate::nvidia::set_icc_base_ramp_for_display(device_id, previous);
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod no_vcgt_apply_tests {
+    use super::*;
+    use crate::nvidia;
+
+    #[test]
+    fn removes_previous_icc_curve_and_writes_existing_slider_settings_once() {
+        let device = "no-vcgt-apply-test";
+        let settings = nvidia::NvidiaSettings {
+            brightness: 5, contrast: 36, gamma: 1.6,
+            digital_vibrance: 65, rgb_r: 0, rgb_g: 0, rgb_b: 0,
+        };
+        nvidia::replace_settings(device, settings.clone());
+        nvidia::set_icc_base_ramp_for_display(device, Some([[0; 256]; 3]));
+        let expected = nvidia::compose_gamma_ramp(&settings, None);
+        let mut writes = 0;
+        apply_profile_without_vcgt(device, |target| {
+            writes += 1;
+            assert_eq!(target, device);
+            assert_eq!(nvidia::build_gamma_ramp(target), expected);
+            assert_eq!(nvidia::get_or_default_settings(target).digital_vibrance, 65);
+            Ok(())
+        }).unwrap();
+        assert_eq!(writes, 1);
+        assert!(nvidia::icc_base_for_display(device).is_none());
+    }
+
+    #[test]
+    fn failed_write_restores_the_previous_icc_base() {
+        let device = "no-vcgt-failed-apply-test";
+        let previous = [[12345; 256]; 3];
+        nvidia::set_icc_base_ramp_for_display(device, Some(previous));
+        let result = apply_profile_without_vcgt(device, |_| Err("driver rejected write".into()));
+        assert_eq!(result.unwrap_err(), "driver rejected write");
+        assert_eq!(nvidia::icc_base_for_display(device), Some(previous));
     }
 }
 

@@ -142,8 +142,13 @@ fn local_stamp() -> String {
 /// 记录一条调试事件。未开启调试模式时零成本返回；任何 IO 错误静默忽略
 /// （日志绝不能反过来影响业务路径）。
 pub fn log(kind: &str, message: impl AsRef<str>) {
+    log_for_session(None, kind, message);
+}
+
+fn log_for_session(started_ms: Option<u128>, kind: &str, message: impl AsRef<str>) {
     let Ok(mut guard) = SESSION.lock() else { return };
     let Some(session) = guard.as_mut() else { return };
+    if started_ms.is_some_and(|started| started != session.started_ms) { return; }
     if let Ok(meta) = fs::metadata(&session.log_path) {
         if meta.len() > MAX_LOG_BYTES {
             let rotated = session.log_path.with_extension("log.1");
@@ -200,6 +205,53 @@ pub fn verify_ramp(device_id: &str, expected: &[u16; 768]) {
         "verify",
         format!("device={device_id} 高字节最大差={max_diff} → {verdict}（单次比较≠屏幕持续生效）"),
     );
+}
+
+/// A preset also registers ICC and changes DVC, unlike a single slider write.
+/// Observe its final standard curve after those operations, without reapplying
+/// anything or allowing an old diagnostic worker to follow a newer user action.
+pub(crate) fn verify_preset_after_delay(
+    device_id: String,
+    name: String,
+    generation: u64,
+    expected: [u16; 768],
+) {
+    let started_ms = {
+        let Ok(guard) = SESSION.lock() else { return };
+        let Some(session) = guard.as_ref() else { return };
+        session.started_ms
+    };
+    let scheduled_at = std::time::Instant::now();
+    if let Err(error) = std::thread::Builder::new()
+        .name("preset-color-verification".into())
+        .spawn(move || {
+            let mut previous_ms = 0;
+            for elapsed_ms in [250u64, 1000] {
+                std::thread::sleep(std::time::Duration::from_millis(elapsed_ms - previous_ms));
+                previous_ms = elapsed_ms;
+                let same_session = SESSION.lock().ok().is_some_and(|guard| {
+                    guard.as_ref().is_some_and(|session| session.started_ms == started_ms)
+                });
+                if !same_session { return; }
+                let Some(actual) = crate::nvidia::read_gamma_ramp_if_current(&device_id, generation) else {
+                    log_for_session(Some(started_ms), "verify-delayed",
+                        format!("方案 '{name}' device={device_id} generation={generation} 已被后续操作取代，停止延迟检查"));
+                    return;
+                };
+                let observed_ms = scheduled_at.elapsed().as_millis();
+                let message = match actual {
+                    Ok(actual) => {
+                        let difference = crate::color_recovery::ramp_high_byte_diff(&expected, &actual);
+                        format!("方案 '{name}' device={device_id} generation={generation} 应用后 {observed_ms}ms 高字节最大差={difference} 期望中间调R={} 回读中间调R={}（仅系统回读，不代表画面验证）", expected[128] >> 8, actual[128] >> 8)
+                    }
+                    Err(error) => format!("方案 '{name}' device={device_id} generation={generation} 应用后 {observed_ms}ms 回读失败：{error}"),
+                };
+                log_for_session(Some(started_ms), "verify-delayed", message);
+            }
+        })
+    {
+        log("verify-delayed", format!("无法启动方案延迟回读：{error}"));
+    }
 }
 
 // ─── 环境快照 ────────────────────────────────────────────────────────────────
@@ -443,9 +495,9 @@ fn write_env_snapshot() {
         Ok(list) => {
             for (gdi, supported, enabled, ok) in list {
                 if ok {
-                    log("env", format!("HDR（高级颜色）[{gdi}]：支持={supported} 已启用={enabled}"));
+                    log("env", format!("高级颜色[{gdi}]：支持={supported} 已启用={enabled}（旧接口，不能据此区分 HDR 与 SDR ACM）"));
                 } else {
-                    log("env", format!("HDR（高级颜色）[{gdi}]：查询失败"));
+                    log("env", format!("高级颜色[{gdi}]：查询失败"));
                 }
             }
         }

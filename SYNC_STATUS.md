@@ -52,3 +52,5 @@
 【文档已完成同步更新】2026-11-06 — 方案分辨率兼容处理（计划 .docs/plans/2026-11-06-preset-resolution-compatibility.md）：新增 apply_preset_resolution 命令与 PresetResolutionResult 结构化结果（不支持时 skipped_unsupported 保留当前模式继续配色，不再整单报错）；还原点事务改「首次切换成功才提交、失败不污染、恢复失败可重试」；托盘/快捷键/进程监听共用兼容 helper；前端部分成功提示（role=status）+ 分辨率保存范围开关（includeResolution 进脏判断，隐藏时不清空已有方案 resolution）。已同步 .docs/api/icc.md、.docs/api/config.md、.docs/README.md、.docs/handoff/preset-resolution-frontend.md
 
 【文档已完成同步更新】2026-11-14 — 无登录分支已提取 NVIDIA ICC 后端、监听颜色恢复后续修复与 AMD 活动监视器 PnP 识别修复；.docs/api/icc.md、amd.md、README 已同步，最终验证由整合执行。
+
+【文档已完成同步更新】2026-11-14 — 修正无 VCGT ICC 的系统校准开关切换，改为保留滑块参数的同步写入；新增当前调试会话与颜色代号限定的手动方案延迟回读；旧高级颜色位区分说明已同步到 ICC/debug API 与迭代记录。

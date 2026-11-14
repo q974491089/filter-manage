@@ -766,6 +766,14 @@ pub async fn apply_display_color_config(
         };
         warnings.extend(apply_config_locked(&did, &config)?);
         let status = status_for(&did)?;
+        if status.active_backend == "standard" {
+            if let Some(expected) = nvidia::final_ramp_for_display(&did) {
+                crate::debug_recorder::verify_preset_after_delay(
+                    did.clone(), config.name.clone(),
+                    crate::process_watcher::apply_generation(), expected,
+                );
+            }
+        }
         Ok(ColorApplyResult {
             status,
             resolution,

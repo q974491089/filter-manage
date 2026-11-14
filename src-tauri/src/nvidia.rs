@@ -113,6 +113,38 @@ pub(crate) fn cache_final_ramp(device_id: &str, ramp: &[u16; 768]) {
         .insert(device_id.to_string(), *ramp);
 }
 
+/// Read-only diagnostic probe. Holding the color latch prevents a newer slider,
+/// preset or backend switch from being mistaken for a delayed overwrite.
+pub(crate) fn read_gamma_ramp_if_current(
+    device_id: &str,
+    generation: u64,
+) -> Option<Result<[u16; 768], String>> {
+    let _latch = COLOR_WRITE_LATCH.lock().unwrap();
+    read_matching_generation(generation, crate::process_watcher::apply_generation(), || {
+        read_gamma_ramp(device_id)
+    })
+}
+
+fn read_matching_generation<T>(expected: u64, current: u64, read: impl FnOnce() -> T) -> Option<T> {
+    (expected == current).then(read)
+}
+
+#[cfg(test)]
+mod diagnostic_generation_tests {
+    use super::read_matching_generation;
+
+    #[test]
+    fn newer_manual_operation_prevents_the_old_probe_from_reading() {
+        assert!(read_matching_generation(10, 11, || panic!("stale probe must not read")).is_none());
+    }
+
+    #[test]
+    fn current_probe_preserves_read_failures_as_errors() {
+        let result = read_matching_generation(10, 10, || Err::<(), _>("read failed"));
+        assert_eq!(result, Some(Err("read failed")));
+    }
+}
+
 /// 运行时回读某显示器的当前 gamma ramp（768 个 u16，R/G/B 各 256）。
 /// 不依赖调试记录是否开启；读取失败返回 Err —— 调用方不得把失败当成「一致」。
 pub(crate) fn read_gamma_ramp(device_id: &str) -> Result<[u16; 768], String> {
