@@ -266,6 +266,7 @@
       '<button type="button" data-mode="effect" class="active">效果</button>' +
       "</div>" +
       "</div>" +
+      '<p class="fm-share-preview-note">「效果」= 这套参数套在真实游戏画面上的模拟样子，可点右上角和原图来回对比；实际观感因显示器和游戏而异。</p>' +
       (item.description
         ? `<p class="fm-share-desc">${esc(item.description)}</p>`
         : "") +

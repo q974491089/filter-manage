@@ -554,11 +554,11 @@ export default function ImportShareModal({
                     <span>{resCompat.note}</span>
                   </div>
                 ) : null}
-                <div className="flex items-center gap-xs text-[11px] text-on-surface-variant">
-                  <Icon name={share.iccName ? "download" : "info"} className="text-[14px]" />
+                <div className="flex items-start gap-xs text-[11px] text-on-surface-variant">
+                  <Icon name={share.iccName ? "download" : "info"} className="mt-[2px] shrink-0 text-[14px]" />
                   {share.iccName
-                    ? `含 ICC：${share.iccName}`
-                    : "只含色彩参数，不含 ICC 文件"}
+                    ? `附带 ICC 色彩文件「${share.iccName}」，导入时会自动下载并一起应用`
+                    : "这条方案只分享色彩参数，不附带 ICC 文件"}
                 </div>
               </div>
             </div>

@@ -127,7 +127,8 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
       </div>
       {error ? <p role="status" className="text-body-sm text-error">预览暂不可用：{error}</p> : null}
       <p className="text-[11px] leading-relaxed text-on-surface-variant">
-        预览统一由内置原图生成，不上传自定义图片；屏幕和游戏中的实际效果可能不同。
+        「效果」= 这套参数套在真实游戏画面上的样子，「原图」是未调色的画面，可以来回对比。
+        分享后对方看到的预览和你选的场景一致；不同显示器和游戏里的实际观感会有差别。
         <button type="button" onClick={() => void openUrl(selected.source).catch(() => setError("无法打开图片来源"))} className="ml-1 text-primary hover:underline">图片来源</button>
       </p>
 

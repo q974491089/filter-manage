@@ -223,7 +223,9 @@ export default function SubmitIccModal({
         </div>
 
         <div>
-        <p className="mb-sm font-label-md text-label-md text-on-surface-variant">内置游戏原图</p>
+        <p className="mb-sm font-label-md text-label-md text-on-surface-variant">
+          效果预览 <span className="text-on-surface-variant/60">· 挑一张游戏画面，下载用户看到的预览就是它</span>
+        </p>
         <BuiltinPreviewPicker scene={previewScene} onChange={setPreviewScene} iccFile={file} disabled={submitting} />
         </div>
 

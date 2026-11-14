@@ -405,3 +405,10 @@ html.dark {
     min-width: 0;
   }
 }
+
+.fm-share-preview-note {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--vp-c-text-2, rgba(0, 0, 0, 0.56));
+}

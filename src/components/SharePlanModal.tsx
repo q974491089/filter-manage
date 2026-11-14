@@ -345,9 +345,11 @@ export default function SharePlanModal({
           ) : (
             <div className="px-lg py-lg space-y-xl">
               <div>
-                <p className="mb-sm font-label-md text-label-md text-on-surface-variant">内置游戏原图</p>
+                <p className="mb-sm font-label-md text-label-md text-on-surface-variant">
+                  效果预览 <span className="text-on-surface-variant/60">· 挑一张游戏画面，接收方看到的预览就是它</span>
+                </p>
                 <BuiltinPreviewPicker scene={previewScene} onChange={setPreviewScene} settings={color}
-                  iccBase64={iccAttached ? iccBytes?.base64 : null} disabled={busy} />
+                  iccBase64={iccAttached ? iccBytes?.base64 : null} disabled={submitting} />
               </div>
 
               {/* 标题 + 昵称 */}
