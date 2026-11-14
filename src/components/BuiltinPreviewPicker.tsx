@@ -96,17 +96,29 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
   const selected = BUILTIN_SCENES.find((item) => item.id === scene)!;
   return (
     <div data-component="BuiltinPreviewPicker" className="space-y-sm">
-      <div className="grid grid-cols-3 gap-sm" role="group" aria-label="内置游戏原图">
-        {BUILTIN_SCENES.map((item) => (
-          <button key={item.id} type="button" aria-pressed={scene === item.id} disabled={disabled} onClick={() => onChange(item.id)}
-            className={`overflow-hidden rounded-md border text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50 ${scene === item.id ? "border-primary bg-primary/10" : "border-outline-variant/30 bg-surface-container-high hover:border-primary/50"}`}>
-            <img src={`/game-previews/${item.id}-thumb.jpg`} alt="" className="aspect-video w-full object-cover" />
-            <span className="block px-sm py-xs text-label-sm text-on-surface">{item.game}</span>
-          </button>
-        ))}
-      </div>
       <div className="overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-highest">
         <div className="relative aspect-video w-full overflow-hidden">
+          {/* 场景切换：右上角纯文字 tab，替代原先占一整行的三缩略图 */}
+          <div
+            role="group"
+            aria-label="切换预览场景"
+            className="absolute right-sm top-sm z-10 flex gap-1 rounded-md bg-black/60 p-1 backdrop-blur-[2px]"
+          >
+            {BUILTIN_SCENES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={scene === item.id}
+                disabled={disabled}
+                onClick={() => onChange(item.id)}
+                className={`rounded px-2 py-0.5 text-[11px] leading-5 transition-colors disabled:opacity-50 ${
+                  scene === item.id ? "bg-white/25 text-white" : "text-white/75 hover:text-white"
+                }`}
+              >
+                {item.game}
+              </button>
+            ))}
+          </div>
           <button type="button" onClick={() => setZoomOpen(true)} aria-label={`放大查看 ${selected.name} 预览图`}
             className="group relative block h-full w-full cursor-zoom-in focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
             <img src={shownSrc} alt={`${selected.name} · ${original ? "原图" : "模拟效果"}`} className="h-full w-full object-contain" draggable={false} />
