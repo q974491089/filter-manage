@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -24,6 +24,14 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
   const [error, setError] = useState("");
   const [zoomOpen, setZoomOpen] = useState(false);
   const sequence = useRef(0);
+  /** 场景 tab 滑块：记录选中项的位置与宽度，切换时高亮块平滑滑过去 */
+  const sceneTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [sceneThumb, setSceneThumb] = useState<{ left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const index = BUILTIN_SCENES.findIndex((item) => item.id === scene);
+    const el = sceneTabRefs.current[index];
+    if (el) setSceneThumb({ left: el.offsetLeft, width: el.offsetWidth });
+  }, [scene]);
   const settingsKey = JSON.stringify(settings);
   const originalSrc = `/game-previews/${scene}.png`;
   const shownSrc = original || !effect ? originalSrc : effect;
@@ -104,15 +112,25 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
             aria-label="切换预览场景"
             className="absolute right-sm top-sm z-10 flex gap-1 rounded-md bg-black/60 p-1 backdrop-blur-[2px]"
           >
-            {BUILTIN_SCENES.map((item) => (
+            {sceneThumb ? (
+              <span
+                aria-hidden
+                className="absolute rounded bg-white/25 transition-[left,width] duration-200 ease-out motion-reduce:transition-none"
+                style={{ left: sceneThumb.left, width: sceneThumb.width, top: 4, bottom: 4 }}
+              />
+            ) : null}
+            {BUILTIN_SCENES.map((item, index) => (
               <button
                 key={item.id}
+                ref={(el) => {
+                  sceneTabRefs.current[index] = el;
+                }}
                 type="button"
                 aria-pressed={scene === item.id}
                 disabled={disabled}
                 onClick={() => onChange(item.id)}
-                className={`rounded px-2 py-0.5 text-[11px] leading-5 transition-colors disabled:opacity-50 ${
-                  scene === item.id ? "bg-white/25 text-white" : "text-white/75 hover:text-white"
+                className={`relative z-10 rounded px-2 py-0.5 text-[11px] leading-5 disabled:opacity-50 ${
+                  scene === item.id ? "text-white" : "text-white/75 hover:text-white"
                 }`}
               >
                 {item.game}
