@@ -1,4 +1,5 @@
 mod color_recovery;
+mod builtin_preview;
 mod color_backend;
 mod nvidia_csc;
 mod display_capability;
@@ -227,6 +228,7 @@ pub fn run() {
             icc::search_icc_profiles,
             icc::set_preview_image,
             icc::capture_icc_effect_preview,
+            builtin_preview::render_builtin_icc_preview,
             icc::save_icc_effect_preview,
             icc::open_icc_effect_preview_directory,
             icc::open_icc_directory,

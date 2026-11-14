@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../lib/ipc";
 import { debugNote } from "../lib/debug";
-import { prepareCover } from "../lib/imageCompression";
+import BuiltinPreviewPicker from "./BuiltinPreviewPicker";
+import { DEFAULT_PREVIEW_SCENE, type BuiltinSceneId } from "../lib/builtinPreview";
 import { sha256Hex, getContributorId, getSubmissionTokens, uploadToGateway } from "../lib/submissions";
-import { checkShareIcc, createShare, shareUrl, type ShareColor } from "../lib/share";
+import { checkShareIcc, ContentRejectedError, createShare, shareUrl, type ShareColor } from "../lib/share";
 import { Icon } from "./Icon";
 import { useModalAccessibility } from "../hooks/useModalAccessibility";
 
@@ -26,8 +27,6 @@ interface SharePlanModalProps {
   config: ColorConfig | null;
   onClose: () => void;
   showToast: (type: "success" | "error", text: string) => void;
-  /** 生成模拟效果图（用**被分享方案**的参数，不是当前屏幕参数） */
-  onCaptureEffect: (config: ColorConfig) => Promise<string | null>;
   /** 分享创建成功（链接已进剪贴板）：App 把 slug 记入会话已处理集合，
    *  防止剪贴板检测把自己的分享链接再弹成「导入」 */
   onShared?: (slug: string) => void;
@@ -54,21 +53,19 @@ export default function SharePlanModal({
   config,
   onClose,
   showToast,
-  onCaptureEffect,
   onShared,
 }: SharePlanModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [nickname, setNickname] = useState("");
-  const [cover, setCover] = useState<File | null>(null);
-  const [coverPreviewUrl, setCoverPreviewUrl] = useState("");
+  const [previewScene, setPreviewScene] = useState<BuiltinSceneId>(DEFAULT_PREVIEW_SCENE);
   const [iccState, setIccState] = useState<IccState>("none");
   const [iccNote, setIccNote] = useState("");
   const [iccBytes, setIccBytes] = useState<{ base64: string; sha256: string; size: number } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [stage, setStage] = useState("");
   const [link, setLink] = useState("");
-  const coverInputRef = useRef<HTMLInputElement>(null);
+  const [fieldError, setFieldError] = useState<{ field: string; message: string } | null>(null);
   const modalRef = useModalAccessibility(open, onClose, true, !submitting);
 
   const rawIccName = config?.icc_profile ?? "";
@@ -81,29 +78,15 @@ export default function SharePlanModal({
     setTitle(config.name);
     setDescription("");
     setNickname("");
-    setCover(null);
+    setPreviewScene(DEFAULT_PREVIEW_SCENE);
     setIccState(hasIcc ? "checking" : "none");
     setIccNote("");
     setIccBytes(null);
     setLink("");
     setStage("");
     setSubmitting(false);
+    setFieldError(null);
   }, [open, config, hasIcc]);
-
-  // 注意：不在打开时自动塞入效果图。顶栏那张模拟图是按「当前屏幕参数」生成的，
-  // 与被分享的方案可能不同；效果图必须由用户点「用这套参数生成」显式产生，
-  // 避免把无关画面当成这套方案的预览发出去。
-
-
-  useEffect(() => {
-    if (!cover) {
-      setCoverPreviewUrl("");
-      return;
-    }
-    const url = URL.createObjectURL(cover);
-    setCoverPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [cover]);
 
   const nicknameRef = useRef("");
   nicknameRef.current = nickname;
@@ -219,34 +202,9 @@ export default function SharePlanModal({
     if (!canCreate) return;
     setSubmitting(true);
     try {
-      let coverKey = "";
-      let thumbKey = "";
       const contributorId = await getContributorId();
 
-      if (cover) {
-        setStage("压缩并上传效果图");
-        const tokens = await getSubmissionTokens(contributorId, nickname.trim());
-        const prepared = await prepareCover(cover);
-        const images: Array<["cover" | "thumb", File]> = [
-          ["cover", prepared.cover],
-          ["thumb", prepared.thumb],
-        ];
-        for (const [kind, image] of images) {
-          const imgBuffer = await image.arrayBuffer();
-          const imgSha = await sha256Hex(imgBuffer);
-          const result = await uploadToGateway(
-            `${tokens.imageGatewayUrl}/v1/images`,
-            tokens.imageToken,
-            imgSha,
-            imgBuffer,
-            "image/webp",
-          );
-          if (kind === "cover") coverKey = result.key;
-          else thumbKey = result.key;
-        }
-      }
-
-      setStage("创建分享链接");
+      setStage("生成内置预览并创建分享链接");
       const result = await createShare({
         title: title.trim(),
         description: description.trim(),
@@ -254,8 +212,7 @@ export default function SharePlanModal({
         resolution: config?.resolution ?? "",
         iccSha256: iccAttached ? iccBytes!.sha256 : "",
         iccName: iccAttached ? iccName : "",
-        coverKey,
-        thumbKey,
+        previewScene,
         contributorId,
         contributorName: nickname.trim(),
       });
@@ -271,6 +228,20 @@ export default function SharePlanModal({
       onShared?.(result.slug);
       setLink(url);
     } catch (err) {
+      if (err instanceof ContentRejectedError) {
+        const inputId = {
+          title: "share-plan-title-input",
+          description: "share-plan-description",
+          nickname: "share-plan-nickname",
+        }[err.field];
+        if (!inputId) {
+          showToast("error", err.message);
+          return;
+        }
+        setFieldError({ field: err.field, message: err.message });
+        requestAnimationFrame(() => document.getElementById(inputId)?.focus());
+        return;
+      }
       showToast("error", err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
@@ -373,79 +344,10 @@ export default function SharePlanModal({
             </div>
           ) : (
             <div className="px-lg py-lg space-y-xl">
-              {/* 效果图：视觉锚点，16:9 横幅 */}
               <div>
-                <label className="block font-label-md text-label-md text-on-surface-variant mb-2.5">
-                  效果图 <span className="text-on-surface-variant/60">（可选）</span>
-                </label>
-                {cover ? (
-                  <div className="overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high">
-                    {/* 固定高度 + object-cover：避免 aspect-ratio 与 max-h 互相压制，
-                        导致图片不铺满、右上角按钮看着"飘"在画面中间 */}
-                    <div className="group relative h-44 w-full overflow-hidden bg-surface-container-highest">
-                      <img
-                        src={coverPreviewUrl}
-                        alt="效果图预览"
-                        className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
-                      />
-                      <div
-                        aria-hidden
-                        className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/50 to-transparent"
-                      />
-                      <button
-                        onClick={() => setCover(null)}
-                        aria-label="移除效果图"
-                        title="移除效果图"
-                        className="absolute right-2 top-2 z-10 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white ring-1 ring-white/25 transition-colors hover:bg-black/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
-                      >
-                        <Icon name="close" className="text-[16px]" />
-                      </button>
-                    </div>
-                    <p className="truncate px-sm py-xs text-xs text-on-surface-variant" title={cover.name}>
-                      {cover.name === "effect-preview.png" ? "按这套方案模拟生成的效果图" : cover.name}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-sm rounded-md border border-dashed border-outline-variant/30 bg-surface-container-high/40 px-md py-sm">
-                    <Icon name="image" className="text-[20px] text-on-surface-variant/60" />
-                    <p className="mr-auto text-body-sm text-on-surface-variant">
-                      给接收方看调校后的效果
-                    </p>
-                    <button
-                      onClick={() => {
-                        void onCaptureEffect(config).then((data) => {
-                          if (!data) return;
-                          void fetch(`data:image/png;base64,${data}`)
-                            .then((r) => r.blob())
-                            .then((b) =>
-                              setCover(new File([b], "effect-preview.png", { type: "image/png" })),
-                            );
-                        });
-                      }}
-                      className="inline-flex items-center gap-1 min-h-9 rounded-md border border-primary/40 px-md py-sm text-primary font-label-md text-label-md hover:bg-primary/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                    >
-                      <Icon name="photo_camera" className="text-[15px]" />
-                      用这套参数生成
-                    </button>
-                    <button
-                      onClick={() => coverInputRef.current?.click()}
-                      className="inline-flex items-center gap-1 min-h-9 rounded-md border border-outline-variant/45 px-md py-sm text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                    >
-                      <Icon name="image" className="text-[15px]" />
-                      选择图片
-                    </button>
-                    <input
-                      ref={coverInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) setCover(file);
-                      }}
-                    />
-                  </div>
-                )}
+                <p className="mb-sm font-label-md text-label-md text-on-surface-variant">内置游戏原图</p>
+                <BuiltinPreviewPicker scene={previewScene} onChange={setPreviewScene} settings={color}
+                  iccBase64={iccAttached ? iccBytes?.base64 : null} disabled={busy} />
               </div>
 
               {/* 标题 + 昵称 */}
@@ -460,10 +362,14 @@ export default function SharePlanModal({
                   <input
                     id="share-plan-title-input"
                     value={title}
-                    onChange={(e) => setTitle(e.target.value)}
+                    onChange={(e) => { setTitle(e.target.value); setFieldError(null); }}
                     maxLength={200}
-                    className={inputClass}
+                    aria-invalid={fieldError?.field === "title"}
+                    className={`${inputClass} ${fieldError?.field === "title" ? "!border-error/70" : ""}`}
                   />
+                  {fieldError?.field === "title" ? (
+                    <p role="alert" className="mt-1 text-[11px] leading-relaxed text-error">{fieldError.message}</p>
+                  ) : null}
                 </div>
                 <div>
                   <label
@@ -475,13 +381,17 @@ export default function SharePlanModal({
                   <input
                     id="share-plan-nickname"
                     value={nickname}
-                    onChange={(e) => setNickname(e.target.value)}
+                    onChange={(e) => { setNickname(e.target.value); setFieldError(null); }}
                     maxLength={50}
                     placeholder="匿名"
-                    className={inputClass}
+                    aria-invalid={fieldError?.field === "nickname"}
+                    className={`${inputClass} ${fieldError?.field === "nickname" ? "!border-error/70" : ""}`}
                   />
                 </div>
               </div>
+              {fieldError?.field === "nickname" ? (
+                <p role="alert" className="text-[11px] leading-relaxed text-error">{fieldError.message}</p>
+              ) : null}
 
               {/* 说明 */}
               <div>
@@ -494,12 +404,16 @@ export default function SharePlanModal({
                 <textarea
                   id="share-plan-description"
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => { setDescription(e.target.value); setFieldError(null); }}
                   maxLength={2000}
                   rows={2}
                   placeholder="这套参数适合什么场景、什么显示器"
-                  className={textareaClass}
+                  aria-invalid={fieldError?.field === "description"}
+                  className={`${textareaClass} ${fieldError?.field === "description" ? "!border-error/70" : ""}`}
                 />
+                {fieldError?.field === "description" ? (
+                  <p role="alert" className="mt-1 text-[11px] leading-relaxed text-error">{fieldError.message}</p>
+                ) : null}
               </div>
 
               {/* 参数摘要：只读，紧凑单容器 */}

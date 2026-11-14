@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Icon } from "./Icon";
 import { useModalAccessibility } from "../hooks/useModalAccessibility";
 import { debugNote } from "../lib/debug";
-import { prepareCover } from "../lib/imageCompression";
+import BuiltinPreviewPicker from "./BuiltinPreviewPicker";
+import { DEFAULT_PREVIEW_SCENE, type BuiltinSceneId } from "../lib/builtinPreview";
 import {
   createSubmission,
   getContributorId,
@@ -16,7 +17,6 @@ interface SubmitIccModalProps {
   onClose: () => void;
   onSubmitted: () => void;
   showToast: (type: "success" | "error", text: string) => void;
-  iccEffectPreview: string | null;
 }
 
 export default function SubmitIccModal({
@@ -24,11 +24,9 @@ export default function SubmitIccModal({
   onClose,
   onSubmitted,
   showToast,
-  iccEffectPreview,
 }: SubmitIccModalProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [cover, setCover] = useState<File | null>(null);
-  const [coverPreviewUrl, setCoverPreviewUrl] = useState("");
+  const [previewScene, setPreviewScene] = useState<BuiltinSceneId>(DEFAULT_PREVIEW_SCENE);
   const [title, setTitle] = useState("");
   const [panel, setPanel] = useState("");
   const [tags, setTags] = useState("");
@@ -36,33 +34,11 @@ export default function SubmitIccModal({
   const [nickname, setNickname] = useState("");
   const [stage, setStage] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const coverInputRef = useRef<HTMLInputElement>(null);
   const modalRef = useModalAccessibility(open, onClose, true, !submitting);
-
-  useEffect(() => {
-    if (!cover) {
-      setCoverPreviewUrl("");
-      return;
-    }
-    const url = URL.createObjectURL(cover);
-    setCoverPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [cover]);
-
-  useEffect(() => {
-    if (!open || !iccEffectPreview) return;
-    void fetch(`data:image/png;base64,${iccEffectPreview}`)
-      .then((response) => response.blob())
-      .then((blob) => setCover(new File([blob], "icc-effect-preview.png", { type: "image/png" })))
-      .catch((error) => showToast("error", `读取模拟效果图失败：${String(error)}`));
-  }, [open, iccEffectPreview, showToast]);
-
-  if (!open) return null;
 
   const reset = () => {
     setFile(null);
-    setCover(null);
-    if (coverInputRef.current) coverInputRef.current.value = "";
+    setPreviewScene(DEFAULT_PREVIEW_SCENE);
     setTitle("");
     setPanel("");
     setTags("");
@@ -74,6 +50,10 @@ export default function SubmitIccModal({
   async function submit() {
     if (!file) {
       showToast("error", "请选择 ICC 文件");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024 || !/\.(icc|icm)$/i.test(file.name)) {
+      showToast("error", "请选择不超过 2 MB 的 ICC 文件");
       return;
     }
     if (!title.trim()) {
@@ -97,31 +77,7 @@ export default function SubmitIccModal({
         "application/vnd.iccprofile",
       );
 
-      let coverKey = "";
-      let thumbKey = "";
-      if (cover) {
-        setStage("压缩并上传封面");
-        const prepared = await prepareCover(cover);
-        const images: Array<["cover" | "thumb", File]> = [
-          ["cover", prepared.cover],
-          ["thumb", prepared.thumb],
-        ];
-        for (const [kind, image] of images) {
-          const imgBuffer = await image.arrayBuffer();
-          const imgSha = await sha256Hex(imgBuffer);
-          const result = await uploadToGateway(
-            `${tokens.imageGatewayUrl}/v1/images`,
-            tokens.imageToken,
-            imgSha,
-            imgBuffer,
-            "image/webp",
-          );
-          if (kind === "cover") coverKey = result.key;
-          else thumbKey = result.key;
-        }
-      }
-
-      setStage("提交审核");
+      setStage("生成内置预览并提交审核");
       await createSubmission({
         contributorId,
         nickname: nickname.trim(),
@@ -133,8 +89,7 @@ export default function SubmitIccModal({
           .split(/[,，]/)
           .map((tag) => tag.trim())
           .filter(Boolean),
-        coverKey,
-        thumbKey,
+        previewScene,
         clientVersion: __APP_VERSION__,
       });
       debugNote(`投稿 ICC「${title.trim()}」`);
@@ -268,44 +223,8 @@ export default function SubmitIccModal({
         </div>
 
         <div>
-        <label htmlFor="icc-submit-cover" className="block font-label-md text-label-md text-on-surface-variant mb-xs">
-          效果图（可选，一张）
-        </label>
-        <input
-          ref={coverInputRef}
-          id="icc-submit-cover"
-          type="file"
-          accept="image/*"
-          onChange={(e) => setCover(e.target.files?.[0] ?? null)}
-          className="block w-full rounded-md border border-outline-variant/25 bg-surface-container-high p-sm text-body-sm text-on-surface-variant file:mr-sm file:rounded file:border-0 file:bg-surface-variant file:px-sm file:py-xs file:text-on-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-        />
-        {coverPreviewUrl ? (
-          <div className="mt-sm overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high">
-            <div className="relative aspect-[16/9] max-h-56">
-              <img
-                src={coverPreviewUrl}
-                alt={`效果图预览：${cover?.name ?? ""}`}
-                className="h-full w-full object-cover"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setCover(null);
-                  if (coverInputRef.current) coverInputRef.current.value = "";
-                }}
-                disabled={submitting}
-                aria-label="移除效果图"
-                title="移除效果图"
-                className="absolute right-sm top-sm grid h-8 w-8 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
-              >
-                <Icon name="close" className="text-[18px]" />
-              </button>
-            </div>
-            <p className="truncate px-sm py-xs text-xs text-on-surface-variant" title={cover?.name}>
-              {cover?.name}
-            </p>
-          </div>
-        ) : null}
+        <p className="mb-sm font-label-md text-label-md text-on-surface-variant">内置游戏原图</p>
+        <BuiltinPreviewPicker scene={previewScene} onChange={setPreviewScene} iccFile={file} disabled={submitting} />
         </div>
 
         {stage ? (

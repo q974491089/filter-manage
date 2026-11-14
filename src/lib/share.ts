@@ -43,8 +43,7 @@ export interface CreateSharePayload {
   resolution: string;
   iccSha256: string;
   iccName: string;
-  coverKey: string;
-  thumbKey: string;
+  previewScene: string;
   contributorId: string;
   contributorName: string;
 }
@@ -65,6 +64,17 @@ export async function checkShareIcc(sha256: string): Promise<boolean> {
   return Boolean(data.exists);
 }
 
+/** 服务端内容拦截（敏感词 / 联系方式 / 网址）。field 对应 title/description/nickname。 */
+export class ContentRejectedError extends Error {
+  readonly field: string;
+
+  constructor(message: string, field: string) {
+    super(message);
+    this.name = "ContentRejectedError";
+    this.field = field;
+  }
+}
+
 export async function createShare(
   payload: CreateSharePayload,
 ): Promise<{ slug: string; item: PublicShare }> {
@@ -75,9 +85,11 @@ export async function createShare(
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data as { message?: string } | null)?.message ||
-      `创建分享失败（HTTP ${res.status}）`;
+    const failure = data as { error?: string; field?: string; message?: string } | null;
+    const message = failure?.message || `创建分享失败（HTTP ${res.status}）`;
+    if (failure?.error === "content_rejected") {
+      throw new ContentRejectedError(message, failure.field ?? "");
+    }
     throw new Error(message);
   }
   return data as { slug: string; item: PublicShare };
@@ -147,5 +159,5 @@ export function shareProtocolUrl(slug: string): string {
 export const SHARE_ASSET_BASE = "https://filter-manage-download.xyls.us.kg";
 
 export function shareAssetUrl(key: string): string {
-  return key ? `${SHARE_ASSET_BASE}/${key}` : "";
+  return /^icc-previews\/[a-f0-9]{64}\.jpg$/.test(key) ? `${SHARE_ASSET_BASE}/${key}` : "";
 }

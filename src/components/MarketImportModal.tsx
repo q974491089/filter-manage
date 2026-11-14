@@ -22,7 +22,6 @@ interface MarketImportModalProps {
   onClose: () => void;
   onImported: () => void | Promise<void>;
   showToast: ToastFn;
-  iccEffectPreview: string | null;
   /** 后台功能开关：市场投稿。false 时隐藏「我要提供」与「我的提交」。 */
   uploadEnabled?: boolean;
 }
@@ -40,7 +39,6 @@ function MarketImportModal({
   onClose,
   onImported,
   showToast,
-  iccEffectPreview,
   uploadEnabled = true,
 }: MarketImportModalProps) {
   const [items, setItems] = useState<MarketProfile[]>([]);
@@ -464,7 +462,6 @@ function MarketImportModal({
           void loadMine();
         }}
         showToast={showToast}
-        iccEffectPreview={iccEffectPreview}
       />
     </div>
   );

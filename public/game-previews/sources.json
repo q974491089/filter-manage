@@ -1,0 +1,41 @@
+[
+  {
+    "id": "deltaforce",
+    "label": "室内外曝光",
+    "game": "Delta Force",
+    "author": "Team Jade / TiMi Studio Group (publisher marketing asset)",
+    "source": "https://store.steampowered.com/app/2507950/",
+    "originalUrl": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2507950/ss_9bad18d36609072b2b9d50816e75cce81b6e4b0f.1920x1080.jpg",
+    "license": "Copyrighted publisher marketing screenshot; used unmodified (resized only) as a fixed color-test original.",
+    "originalSha256": "77866a64686a79953dc5a972b17951618848a6c43a3618e1ea6aed0ce14f4ce2",
+    "previewSha256": "40a77c0594ab4ca7d0adc6fd639fa0560740b0867ba4d2789b0cf418e80552ae",
+    "width": 1280,
+    "height": 720
+  },
+  {
+    "id": "cs2",
+    "label": "户外强光",
+    "game": "Counter-Strike 2",
+    "author": "Valve (publisher marketing asset)",
+    "source": "https://store.steampowered.com/app/730/",
+    "originalUrl": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/730/ss_ef98db5d5a4d877531a5567df082b0fb62d75c80.1920x1080.jpg",
+    "license": "Copyrighted publisher marketing screenshot; used unmodified (resized only) as a fixed color-test original.",
+    "originalSha256": "efa4a751b0f9998eedaed934649d0233663782c8fb45a1411af56f840f8cfd62",
+    "previewSha256": "1de7a01bd338efe2cae4ce4d798d82b352bf724bdf17eeec3583317bf00ccec2",
+    "width": 1280,
+    "height": 720
+  },
+  {
+    "id": "valorant",
+    "label": "霓虹色彩",
+    "game": "VALORANT",
+    "author": "Riot Games (publisher marketing asset)",
+    "source": "https://store.epicgames.com/p/valorant",
+    "originalUrl": "https://cdn2.unrealengine.com/egs-valorant-riotgames-g1a-12-1920x1080-242f6ea5151b.jpg",
+    "license": "Copyrighted publisher marketing screenshot; used unmodified (resized only) as a fixed color-test original.",
+    "originalSha256": "99d7a3b4c3972f2e8bb7902db95ac39390a09b79176276706c03ba498b73890d",
+    "previewSha256": "b86419b86690e5adb7aa36ed45bde429e2bae1fee9df832e5fcf063083b5e04b",
+    "width": 1280,
+    "height": 720
+  }
+]

@@ -1554,25 +1554,6 @@ function App() {
         onClose={() => setShareConfigName(null)}
         showToast={showToast}
         onShared={(slug) => handledShareSlugsRef.current.add(slug)}
-        onCaptureEffect={async (config) => {
-          // 用**被分享方案**的参数渲染，而不是当前屏幕正在用的参数；
-          // 分享时不应该顺带改动顶栏预览状态或磁盘上的预览图。
-          try {
-            return await renderSimulatedPreview({
-              iccProfile: config.icc_profile ?? null,
-              brightness: config.brightness,
-              contrast: config.contrast,
-              gamma: config.gamma,
-              digitalVibrance: config.digital_vibrance,
-              rgbR: config.rgb_r ?? 0,
-              rgbG: config.rgb_g ?? 0,
-              rgbB: config.rgb_b ?? 0,
-            });
-          } catch (err) {
-            showToast("error", err instanceof Error ? err.message : String(err));
-            return null;
-          }
-        }}
       />
 
       <ImportShareModal

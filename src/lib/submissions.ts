@@ -18,12 +18,9 @@ export interface MySubmission {
 
 export interface SubmissionTokens {
   iccToken: string;
-  imageToken: string;
   expiresAt: string;
   gatewayUrl: string;
-  imageGatewayUrl: string;
   maxIccBytes: number;
-  maxImageBytes: number;
 }
 
 export interface CreateSubmissionPayload {
@@ -34,8 +31,7 @@ export interface CreateSubmissionPayload {
   description: string;
   panel: string;
   tags: string[];
-  coverKey: string;
-  thumbKey: string;
+  previewScene: string;
   clientVersion: string;
 }
 
@@ -61,7 +57,6 @@ export async function getSubmissionTokens(
   return {
     ...tokens,
     gatewayUrl: sameOrigin ? "" : tokens.gatewayUrl,
-    imageGatewayUrl: sameOrigin ? "" : tokens.imageGatewayUrl,
   };
 }
 
