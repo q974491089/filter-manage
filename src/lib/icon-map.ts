@@ -41,6 +41,8 @@ import {
   MdMusicNote,
   MdNotifications,
   MdOpenInNew,
+  MdOutlineZoomIn,
+  MdZoomIn,
   MdPalette,
   MdPhotoCamera,
   MdPowerSettingsNew,
@@ -192,4 +194,5 @@ export const iconMap: Record<string, IconEntry> = {
   visibility: { outlined: MdOutlineVisibility, filled: MdVisibility },
   auto_awesome: { outlined: MdOutlineAutoAwesome, filled: MdAutoAwesome },
   tune: { outlined: MdOutlineTune, filled: MdTune },
+  zoom_in: { outlined: MdOutlineZoomIn, filled: MdZoomIn },
 };

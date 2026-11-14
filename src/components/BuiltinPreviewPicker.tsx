@@ -19,13 +19,15 @@ interface Props {
 }
 
 export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTRAL_PREVIEW_SETTINGS, iccBase64, iccFile, profileName, disabled = false }: Props) {
-  const [effect, setEffect] = useState<string | null>(null);
+  /** 每个场景的模拟效果图（data URL）；打开/参数变化时三张一起预生成，点 tab 零等待 */
+  const [effects, setEffects] = useState<Partial<Record<BuiltinSceneId, string>>>({});
   const [original, setOriginal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [zoomOpen, setZoomOpen] = useState(false);
   const sequence = useRef(0);
   const settingsKey = JSON.stringify(settings);
+  const effect = effects[scene] ?? null;
   const originalSrc = `/game-previews/${scene}.png`;
   const shownSrc = original || !effect ? originalSrc : effect;
 
@@ -36,27 +38,22 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
 
     // 参数全中性又没有 ICC 时结果就是原图本身，不必走一次渲染。
     if (!iccFile && !hasPreviewIcc(iccBase64, profileName) && isNeutralPreview(settingsValue)) {
-      setEffect(null);
+      setEffects({});
       setBusy(false);
       return;
     }
 
-    const options = {
-      scene,
+    const baseOptions = {
       settings: settingsValue,
       iccBase64,
       profileName,
       // 用文件元信息当身份标识，命中缓存时连文件都不用读。
       iccToken: iccFile ? `file:${iccFile.name}:${iccFile.size}:${iccFile.lastModified}` : undefined,
     };
-    const cached = peekBuiltinPreview(options);
-    if (cached) {
-      setEffect(cached);
-      setBusy(false);
-      return;
-    }
+    // 当前场景已有缓存则立即显示，其余场景后台继续补齐
+    const cachedNow = peekBuiltinPreview({ scene, ...baseOptions });
+    setEffects(cachedNow ? { [scene]: cachedNow } : {});
 
-    setEffect(null);
     setBusy(true);
     const timer = window.setTimeout(() => {
       void (async () => {
@@ -66,16 +63,32 @@ export default function BuiltinPreviewPicker({ scene, onChange, settings = NEUTR
           encoded = bytesBase64(await iccFile.arrayBuffer());
         }
         if (request !== sequence.current) return;
-        const data = await renderBuiltinPreview({
-          ...options,
-          iccBase64: encoded,
-          profileName: encoded ? null : profileName,
-        });
-        if (request === sequence.current) setEffect(data);
+        const profileForRender = encoded ? null : profileName;
+        // 三个场景一次全部生成（Rust 端并行渲染），点 tab 直接命中缓存零等待
+        await Promise.allSettled(
+          BUILTIN_SCENES.map(({ id }) =>
+            renderBuiltinPreview({
+              ...baseOptions,
+              scene: id,
+              iccBase64: encoded,
+              profileName: profileForRender,
+            }).then((data) => {
+              if (request !== sequence.current) return;
+              setEffects((prev) => ({ ...prev, [id]: data }));
+              if (id === scene) setBusy(false);
+            }).catch((err: unknown) => {
+              if (request === sequence.current) {
+                setError(err instanceof Error ? err.message : String(err));
+                setBusy(false);
+              }
+            }),
+          ),
+        );
       })().catch((err: unknown) => {
-        if (request === sequence.current) setError(err instanceof Error ? err.message : String(err));
-      }).finally(() => {
-        if (request === sequence.current) setBusy(false);
+        if (request === sequence.current) {
+          setError(err instanceof Error ? err.message : String(err));
+          setBusy(false);
+        }
       });
     }, 200);
     return () => { window.clearTimeout(timer); sequence.current++; };
