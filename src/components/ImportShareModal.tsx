@@ -10,6 +10,14 @@ import {
   shareAssetUrl,
   type PublicShare,
 } from "../lib/share";
+import {
+  builtinScene,
+  bytesBase64,
+  hasPreviewIcc,
+  isNeutralPreview,
+  renderBuiltinPreview,
+  type PreviewSettings,
+} from "../lib/builtinPreview";
 import { Icon } from "./Icon";
 import { useModalAccessibility } from "../hooks/useModalAccessibility";
 
@@ -113,6 +121,11 @@ export default function ImportShareModal({
   const [stage, setStage] = useState("");
   const [imageFailed, setImageFailed] = useState(false);
   const [zoomOpen, setZoomOpen] = useState(false);
+  /** 内置场景渲染出的模拟效果图（data URL）；null = 未渲染或回落到 cover 图 */
+  const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null);
+  const [previewOriginal, setPreviewOriginal] = useState(false);
+  /** 分享附带的 ICC 文件字节（base64），用于本地渲染保真预览 */
+  const [iccBase64, setIccBase64] = useState<string | null>(null);
   /** 分辨率导入预检结果（null = 未预检或方案不带分辨率）；仅用于弹窗内提示，落库以 doImport 里的实时复检为准 */
   const [resCompat, setResCompat] = useState<{ value: string | null; note: string | null } | null>(null);
   const modalRef = useModalAccessibility(open, onClose, true, !importing);
@@ -124,6 +137,9 @@ export default function ImportShareModal({
     setError(null);
     setStage("");
     setImageFailed(false);
+    setPreviewDataUrl(null);
+    setPreviewOriginal(false);
+    setIccBase64(null);
     setResCompat(null);
   }, [open, initialSlug]);
 
@@ -134,6 +150,66 @@ export default function ImportShareModal({
     void lookup(initialSlug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialSlug]);
+
+  // 分享带 ICC 时拉取文件字节，供本地渲染保真预览；失败只降级（仅参数渲染），不阻塞导入
+  useEffect(() => {
+    setIccBase64(null);
+    if (!open || !share?.iccSha256) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${serverEnv().marketApiBase}/api/market/shares/${encodeURIComponent(share.slug)}/icc`,
+        );
+        if (!res.ok) return;
+        const encoded = bytesBase64(await res.arrayBuffer());
+        if (!cancelled) setIccBase64(encoded);
+      } catch (err) {
+        debugNote(`预览拉取 ICC 失败（仅用参数渲染）：${String(err)}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, share]);
+
+  // 本地渲染内置场景预览：场景 id + 分享参数 + ICC 曲线，与发送方看到的同一套数学
+  useEffect(() => {
+    if (!open || !share) {
+      setPreviewDataUrl(null);
+      return;
+    }
+    const settings: PreviewSettings = {
+      brightness: share.color.brightness,
+      contrast: share.color.contrast,
+      gamma: share.color.gamma,
+      digitalVibrance: share.color.digitalVibrance,
+      rgbR: share.color.rgbR ?? 0,
+      rgbG: share.color.rgbG ?? 0,
+      rgbB: share.color.rgbB ?? 0,
+    };
+    // 参数全中性又没有 ICC 时渲染结果就是原图，不必走一次渲染
+    if (!hasPreviewIcc(iccBase64) && isNeutralPreview(settings)) {
+      setPreviewDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void renderBuiltinPreview({
+      scene: builtinScene(share.previewScene ?? ""),
+      settings,
+      iccBase64,
+    })
+      .then((url) => {
+        if (!cancelled) setPreviewDataUrl(url);
+      })
+      .catch((err) => {
+        debugNote(`渲染分享预览失败（退回封面图）：${String(err)}`);
+        if (!cancelled) setPreviewDataUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, share, iccBase64]);
 
   if (!open) return null;
 
@@ -295,6 +371,21 @@ export default function ImportShareModal({
 
   // 大横幅用 1600px 原图（thumb 只有 480px，拉伸到 banner 宽度会糊）
   const coverUrl = share ? shareAssetUrl(share.coverKey || share.thumbKey) : "";
+  // 内置预览：优先显示本地渲染的模拟效果，可切回内置原图；没有渲染结果时回落 cover 图
+  const scene = share ? builtinScene(share.previewScene ?? "") : null;
+  const builtinOriginal = scene ? `/game-previews/${scene}.png` : "";
+  const shownImage = previewDataUrl
+    ? previewOriginal
+      ? builtinOriginal
+      : previewDataUrl
+    : coverUrl;
+  const bannerLabel = previewDataUrl
+    ? previewOriginal
+      ? "内置原图"
+      : "模拟效果"
+    : coverUrl
+      ? "效果图"
+      : "";
 
   const summaryPairs: Array<[string, string]> = share
     ? [
@@ -381,16 +472,45 @@ export default function ImportShareModal({
 
           {share ? (
             <div className="group overflow-hidden rounded-md border border-outline-variant/20 bg-surface-container-high/40">
-              {coverUrl && !imageFailed ? (
+              {shownImage && !imageFailed ? (
                 <div className="group relative h-44 w-full overflow-hidden bg-surface-container-highest">
                   <img
-                    src={coverUrl}
+                    src={shownImage}
                     alt={share.title}
                     title="点击放大查看"
                     className="h-full w-full cursor-zoom-in object-cover transition-transform duration-500 ease-out group-hover:scale-[1.02] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
                     onClick={() => setZoomOpen(true)}
                     onError={() => setImageFailed(true)}
                   />
+                  {bannerLabel ? (
+                    <span className="pointer-events-none absolute left-sm top-sm rounded bg-black/70 px-sm py-xs text-[11px] text-white">
+                      {bannerLabel}
+                    </span>
+                  ) : null}
+                  {previewDataUrl ? (
+                    <div
+                      role="group"
+                      aria-label="预览对比"
+                      className="absolute right-sm top-sm flex gap-xs rounded-md bg-black/60 p-xs backdrop-blur-[2px]"
+                    >
+                      <button
+                        type="button"
+                        aria-pressed={previewOriginal}
+                        onClick={() => setPreviewOriginal(true)}
+                        className={`rounded px-sm py-xs text-label-sm transition-colors ${previewOriginal ? "bg-white/25 text-white" : "text-white/75 hover:text-white"}`}
+                      >
+                        原图
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={!previewOriginal}
+                        onClick={() => setPreviewOriginal(false)}
+                        className={`rounded px-sm py-xs text-label-sm transition-colors ${!previewOriginal ? "bg-white/25 text-white" : "text-white/75 hover:text-white"}`}
+                      >
+                        效果
+                      </button>
+                    </div>
+                  ) : null}
                   {/* 浅灰边缘蒙层：柔化图片边界，与卡片底色过渡 */}
                   <div
                     aria-hidden
@@ -468,7 +588,7 @@ export default function ImportShareModal({
       </div>
 
       {/* 图片放大查看：全屏遮罩，点任意处关闭 */}
-      {zoomOpen && coverUrl ? (
+      {zoomOpen && shownImage ? (
         <div
           className="fixed inset-0 z-[400] flex items-center justify-center bg-black/90 p-6 cursor-zoom-out animate-[slide-fade-up_0.2s_cubic-bezier(0.16,1,0.3,1)_forwards] motion-reduce:animate-none"
           onClick={() => setZoomOpen(false)}
@@ -476,7 +596,7 @@ export default function ImportShareModal({
           aria-label="效果图放大查看"
         >
           <img
-            src={coverUrl}
+            src={shownImage}
             alt={share?.title ?? "效果图"}
             className="max-h-[88vh] max-w-[94vw] rounded-md object-contain shadow-2xl"
           />

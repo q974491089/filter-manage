@@ -31,6 +31,8 @@ export interface PublicShare {
   sizeBytes: number;
   coverKey: string;
   thumbKey: string;
+  /** 发送方选的内置预览场景 id；旧数据/未部署的服务端没有该字段。 */
+  previewScene?: string;
   contributorName: string;
   importCount: number;
   createdAt: string;
