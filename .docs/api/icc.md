@@ -49,3 +49,7 @@
 GetICMProfileW 使用实际字符缓冲，避免部分 Windows 上 NULL 大小探针返回 FALSE/122 的兼容问题；缓冲不足且 API 给出有效长度时最多扩容一次，上限 32768 个 UTF-16 字符。每次均释放 DC。设备目标来自本次应用的显示器，不回退到主屏。短时两次有限补写及所有代号/身份检查继续保留。
 
 微软文档：[有效类型/子类型组合](https://learn.microsoft.com/en-us/windows/win32/api/icm/ne-icm-colorprofilesubtype)、[GetICMProfileW 当前输出配置](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-geticmprofilew)。本机只读探针确认：WCS 无显式默认记录时返回文件不存在，GDI 仍能读到系统 sRGB。真实笔记本的闪动是否消失仍待 v3 复测，尚不能据此确定最终重置者。
+
+## 最终用户验证（2026-11-15，13:56 报告）
+
+v3 用户确认方案应用与单向闪动已恢复正常。13 次方案点击，14 次跳过同一 ICC 关联，0 次关联更新；24 次保持检查未出现补写，21 次延迟回读及 162 次即时回读最大偏差均为 0，5 个过期诊断任务按代号取消，0 次颜色操作错误。WCS 缺少显式默认记录时，目标 GDI 输出查询得到系统 sRGB，按同名关联跳过重复设置。该报告覆盖标准后端问题复测，不据此认定操作系统/驱动的最终曲线写入者。

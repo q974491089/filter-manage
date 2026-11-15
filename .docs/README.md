@@ -1,5 +1,27 @@
 # Agent 内部文档
 
+### v0.6.2 — 2026-11-15 · 方案颜色稳定性与预览配套（待公告审阅，未发布）
+
+基于无登录分支整合客户端颜色修复与内置场景预览，保留线上已有官网分享页构建/路由。发布须等用户审阅更新公告后执行，不提前推送 main、标签或触发部署。
+
+| 类型 | 端 | 说明与根因 | 关键文件 | 文档 |
+|---|---|---|---|---|
+| 修复 | 客户端后端 | 方案重复 ICC 关联与中间曲线写入触发短时回退；实时查询目标输出配置、同名跳过关联、最终一次写入，保留有限偏差恢复 | icc.rs、color_backend.rs、nvidia.rs | [ICC](./api/icc.md) |
+| 修复 | 客户端后端 | 游戏启动/模式变化/前台切换可能覆盖曲线；按输出身份和操作代号有限恢复，手动操作取消旧任务 | process_watcher.rs、color_recovery.rs、foreground_watch.rs | [ICC](./api/icc.md) |
+| 修复 | 客户端后端 | AMD PnP 枚举旧监视器在前造成 ADLX 错屏；只选择活动监视器 | nvidia.rs、display_identity.rs | [AMD](./api/amd.md) |
+| 改进 | 客户端前后端 | 不支持的分辨率不阻断颜色应用，导入时剔除不支持的分辨率/刷新率 | icc.rs、ImportShareModal.tsx | [ICC](./api/icc.md) |
+| 新功能 | 客户端前后端 | 三场景本地渲染、缓存和切换；优化切换组件位置与图片稳定性 | builtin_preview.rs、builtinPreview.ts、BuiltinPreviewPicker.tsx、SegmentedTabs.tsx | [公告草稿](./releases/v0.6.2-announcement.md) |
+| 修复 | 官网 | 无登录分支缺少主分支已部署的 /s 构建钩子/Edge 路由；恢复静态壳与元数据注入，场景图片作为无封面时的预览卡片 | copyShareLanding.mjs、share-shell.html、edge-functions/s/[[default]].js | [发布计划](./releases/v0.6.2-release-plan.md) |
+| 修复 | 配套 API | 投稿 JSON 的 previewScene 未接收/保存；补齐投稿及条目列、所有读取、审核通过新建/既有条目保留逻辑，空字段兼容旧客户端 | api/market.go、market/model.go、market/repo.go | API 仓库 docs/submission-preview-scene.md |
+| 修复 | 管理后台 | users.ts 换行被 NUL 替换及测试断句导致构建失败；还原换行和断言，保留数字账号 ID 及原有布局调整 | users.ts、users/index.test.tsx | [发布计划](./releases/v0.6.2-release-plan.md) |
+| 改进 | 管理后台 | 审核及条目列表接收场景，展示场景名称；无上传封面时使用本地场景原图 | services/icc.ts、SubmissionReview.tsx、icc/index.tsx、public/game-previews | API 仓库 docs/submission-preview-scene.md |
+
+用户最终报告：13 次方案点击，14 次跳过相同 ICC 关联；24 次曲线保持检查，0 次补写；21 次延迟回读偏差均为 0，0 次颜色操作错误，用户确认已恢复正常。此证据来自标准后端；NVIDIA 实验模式默认开关仍关闭，不宣称全部硬件已验证。
+
+客户端不引入登录命令、凭据依赖或账号界面。API 现有账号功能可先于客户端上线；本轮不改账号迁移，不再次执行线上迁移。旧账号/管理员分支的功能已整合到 API main，本轮修复基于该 main，不重复合并旧分支。
+
+验证结果将在发布准备完成后记录于 [发布计划](./releases/v0.6.2-release-plan.md)。
+
 ### 开发中 — 2026-11-14 · 无登录颜色修复分支
 
 基线为 v0.6.1 登录接入前的 `b2afd7f`，移植分辨率兼容、分享导入分辨率预检与监听颜色有限恢复，并提取后续修复。
