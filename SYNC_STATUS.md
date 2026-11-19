@@ -1,3 +1,5 @@
+【文档已完成同步更新】2026-11-19 — 普通启动及开机自启在托盘/快捷键/watcher 初始化前实际恢复默认方案，随后由正在运行的游戏规则接管；恢复失败留日志并继续监听，无新命令或字段；.docs/api/icc.md、README 已同步。
+
 【文档已完成同步更新】2026-08-02 — 保存流程重构（更新方案/另存为/保存方案三态 + 当前方案不可删除 + 另存为禁重名）与公告 Markdown 外链（AnnouncementMarkdown + plugin-opener）已随 v0.4.0 迭代记录补登记；.docs/README.md 已同步，领域语言见 CONTEXT.md
 
 【文档已完成同步更新】2026-08-01 — Announcement 新增 category 字段（announcement/notification），铃铛面板拆「公告 / 通知」Tab + 各 Tab 独立未读徽标；缺省/未知值归「公告」；.docs/api/announcements.md、README 已同步

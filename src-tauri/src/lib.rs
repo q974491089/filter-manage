@@ -82,6 +82,17 @@ pub(crate) fn shutdown_runtime(app: &tauri::AppHandle) {
     app.cleanup_before_exit();
 }
 
+// Windows 会保留 ICC 关联和驱动颜色状态；启动界面读默认值时也必须同步恢复实际颜色。
+// 先恢复，再让 watcher 对已运行的游戏补 Started，避免默认恢复覆盖游戏方案。
+fn initialize_color_runtime(
+    restore_default: impl FnOnce() -> Result<(), String>,
+    start_controls: impl FnOnce(),
+) -> Result<(), String> {
+    let restored = restore_default();
+    start_controls();
+    restored
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // panic 兜底：任何线程的 panic 都落盘（logs/crash.log；调试会话中同时进会话日志）。
@@ -157,14 +168,18 @@ pub fn run() {
             // 迁移旧版多文件配置到 profiles.json（幂等，旧文件不存在时无操作）
             let _ = config::migrate_legacy_files();
 
-            // 初始化系统托盘
-            tray::init_tray(&handle).expect("Failed to init tray");
-
-            // 初始化全局快捷键（忽略错误，首次启动可能没有绑定）
-            let _ = shortcut::init_shortcuts(&handle);
-
-            // 初始化进程监听（后台线程，自动匹配规则切换方案）
-            process_watcher::init_watcher(&handle);
+            if let Err(error) = initialize_color_runtime(
+                || tray::apply_default_config_from("startup"),
+                || {
+                    // 默认恢复完成后才开放颜色操作入口，避免覆盖启动期间的手动切换。
+                    tray::init_tray(&handle).expect("Failed to init tray");
+                    // 首次启动可能没有绑定，沿用原有错误处理。
+                    let _ = shortcut::init_shortcuts(&handle);
+                    process_watcher::init_watcher(&handle);
+                },
+            ) {
+                eprintln!("[startup] Failed to restore default colors: {error}");
+            }
 
             // 显示器拓扑监听（系统事件：WM_DISPLAYCHANGE / WM_DEVICECHANGE），
             // Win+P 投影、关显示器、热插拔时把最新显示器列表推给前端；
@@ -338,4 +353,60 @@ fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri_plugin_autostart::ManagerExt;
     let via_registry = app.autolaunch().is_enabled().unwrap_or(false);
     Ok(via_registry || admin::scheduled_task_exists())
+}
+
+#[cfg(test)]
+mod startup_color_tests {
+    use super::initialize_color_runtime;
+    use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn startup_without_a_game_replaces_persisted_game_colors_with_saved_defaults() {
+        let display = RefCell::new(("game.icc", 80));
+        let saved_default = ("desktop.icc", 60);
+
+        initialize_color_runtime(
+            || {
+                *display.borrow_mut() = saved_default;
+                Ok(())
+            },
+            || {},
+        )
+        .unwrap();
+
+        assert_eq!(*display.borrow(), saved_default);
+    }
+
+    #[test]
+    fn a_running_game_can_apply_its_rule_after_startup_restores_default_colors() {
+        let display = RefCell::new(("stale-game.icc", 80));
+        let saved_default = ("sRGB.icm", 50);
+        let running_game = ("running-game.icc", 75);
+
+        initialize_color_runtime(
+            || {
+                *display.borrow_mut() = saved_default;
+                Ok(())
+            },
+            || {
+                assert_eq!(*display.borrow(), saved_default);
+                *display.borrow_mut() = running_game;
+            },
+        )
+        .unwrap();
+
+        assert_eq!(*display.borrow(), running_game);
+    }
+
+    #[test]
+    fn a_default_restore_failure_is_reported_without_disabling_game_detection() {
+        let watching = Cell::new(false);
+        let result = initialize_color_runtime(
+            || Err("ICC profile unavailable".into()),
+            || watching.set(true),
+        );
+
+        assert!(watching.get());
+        assert_eq!(result, Err("ICC profile unavailable".into()));
+    }
 }
